@@ -33,6 +33,20 @@ final class TestCDArchFromName: XCTestCase {
     )
   }
 
+  func testArm64e() {
+    let arch = CDArchFromName("arm64e")
+    XCTAssertEqual(
+      arch.cputype,
+      CPU_TYPE_ARM | CPU_ARCH_ABI64,
+      "The cputype for 'arm64e' should be ARM with 64-bit mask"
+    )
+    XCTAssertEqual(
+      arch.cpusubtype,
+      CPU_SUBTYPE_ARM64E,
+      "The cpusubtype for 'arm64e' should be CPU_SUBTYPE_ARM64E"
+    )
+  }
+
   func testI386() {
     let arch = CDArchFromName("i386")
     XCTAssertEqual(arch.cputype, CPU_TYPE_X86, "The cputype for 'i386' should be X86")

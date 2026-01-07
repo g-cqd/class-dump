@@ -33,6 +33,14 @@ final class TestCDNameForCPUType: XCTestCase {
     )
   }
 
+  func testArm64e() {
+    XCTAssertEqual(
+      CDNameForCPUType(CPU_TYPE_ARM | CPU_ARCH_ABI64, CPU_SUBTYPE_ARM64E),
+      "arm64e",
+      "The name for ARM 64-bit subtype CPU_SUBTYPE_ARM64E should be 'arm64e'"
+    )
+  }
+
   func testI386() {
     XCTAssertEqual(
       CDNameForCPUType(CPU_TYPE_X86, CPU_SUBTYPE_386),
