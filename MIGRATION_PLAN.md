@@ -20,7 +20,7 @@
 ## Detailed Steps (each step = one commit)
 [x] 01 Add migration plan doc (this file) and branch notes
 [x] 02 Add Swift test scaffolding (bridging header, Swift version, test helpers)
-[ ] 03 Convert CPU arch naming tests to Swift (CDArchFromName/CDNameForCPUType/CDArchUses64BitABI)
+[x] 03 Convert CPU arch naming tests to Swift (CDArchFromName/CDNameForCPUType/CDArchUses64BitABI)
 [ ] 04 Convert fat/thin file selection tests to Swift (CDFatFile/CDMachOFile)
 [ ] 05 Convert block signature tests to Swift (CDType private API exposure)
 [ ] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
@@ -54,3 +54,4 @@
 ## Progress Log
 - 2026-01-07: created plan, branch swift6-migration
 - 2026-01-07: added Swift test scaffolding (bridging header, Swift version)
+- 2026-01-07: converted CPU arch naming/ABI tests to Swift
