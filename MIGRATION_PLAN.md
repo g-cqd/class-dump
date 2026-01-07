@@ -22,8 +22,8 @@
 [x] 02 Add Swift test scaffolding (bridging header, Swift version, test helpers)
 [x] 03 Convert CPU arch naming tests to Swift (CDArchFromName/CDNameForCPUType/CDArchUses64BitABI)
 [x] 04 Convert fat/thin file selection tests to Swift (CDFatFile/CDMachOFile)
-[ ] 05 Convert block signature tests to Swift (CDType private API exposure)
-[ ] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
+[x] 05 Convert block signature tests to Swift (CDType private API exposure)
+[x] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
 [ ] 07 Define Swift module layout for core + CLIs (Xcode targets or SPM), add shared Swift support
 [ ] 08 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
 [ ] 09 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
@@ -56,3 +56,5 @@
 - 2026-01-07: added Swift test scaffolding (bridging header, Swift version)
 - 2026-01-07: converted CPU arch naming/ABI tests to Swift
 - 2026-01-07: converted fat/thin file selection tests to Swift
+- 2026-01-07: converted block signature tests to Swift
+- 2026-01-07: removed Obj-C UnitTests sources from the project
