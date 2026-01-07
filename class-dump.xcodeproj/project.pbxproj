@@ -90,6 +90,12 @@
 		0165B8C31827182000CC647F /* TestCDNameForCPUType.m in Sources */ = {isa = PBXBuildFile; fileRef = 011E484E1604DF3700722F8D /* TestCDNameForCPUType.m */; };
 		03A535F14C0AA9121CA83B36 /* TestCDArchFromName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BA3CAC2706D6DAF7DBA3E8 /* TestCDArchFromName.swift */; };
 		6EDD6634A4C5332A678A2CAA /* TestCDNameForCPUType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216FB8B86819714E32D15B5F /* TestCDNameForCPUType.swift */; };
+		A28C63E54F01C7A309CA3FB7 /* TestFatFile_armv7_v7s.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CEDC7D53A61AEABB5F9514 /* TestFatFile_armv7_v7s.swift */; };
+		95229094AC815F2D0FF13A4C /* TestFatFile_Intel32_64_lib64.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29667E5C253EAEC800CD425 /* TestFatFile_Intel32_64_lib64.swift */; };
+		38E56A82FFA402209E726B62 /* TestFatFile_Intel32_64.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB40B05067333FD93A309761 /* TestFatFile_Intel32_64.swift */; };
+		EACFBED9ABE4E803DC98B9AD /* TestFatFile_Intel64_32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73415AEAC141CE3C61D43129 /* TestFatFile_Intel64_32.swift */; };
+		167F7C4FECD7CFBFBBD2CA15 /* TestThinFile_Intel64_lib64.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5F37CC4F2AA078843E514A /* TestThinFile_Intel64_lib64.swift */; };
+		1B0E5BD9F98AC7DB7110C6CB /* TestThinFile_Intel64.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3081391F79CBEEED762D788 /* TestThinFile_Intel64.swift */; };
 		D21519F977A5AAA78BCFA5D5 /* TestCDArchUses64BitABI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE05F5F35CF02E3FD4D4BD05 /* TestCDArchUses64BitABI.swift */; };
 		0165B8C41827184700CC647F /* libMachObjC.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 013D1F1113A5AE5A00BF0A67 /* libMachObjC.a */; };
 		0165B8D81827198900CC647F /* TestBlockSignature.m in Sources */ = {isa = PBXBuildFile; fileRef = 0165B8C71827198900CC647F /* TestBlockSignature.m */; };
@@ -228,6 +234,12 @@
 		216FB8B86819714E32D15B5F /* TestCDNameForCPUType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDNameForCPUType.swift; sourceTree = "<group>"; };
 		63BA3CAC2706D6DAF7DBA3E8 /* TestCDArchFromName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDArchFromName.swift; sourceTree = "<group>"; };
 		DE05F5F35CF02E3FD4D4BD05 /* TestCDArchUses64BitABI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDArchUses64BitABI.swift; sourceTree = "<group>"; };
+		87CEDC7D53A61AEABB5F9514 /* TestFatFile_armv7_v7s.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestFatFile_armv7_v7s.swift; sourceTree = "<group>"; };
+		BB40B05067333FD93A309761 /* TestFatFile_Intel32_64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestFatFile_Intel32_64.swift; sourceTree = "<group>"; };
+		C29667E5C253EAEC800CD425 /* TestFatFile_Intel32_64_lib64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestFatFile_Intel32_64_lib64.swift; sourceTree = "<group>"; };
+		73415AEAC141CE3C61D43129 /* TestFatFile_Intel64_32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestFatFile_Intel64_32.swift; sourceTree = "<group>"; };
+		8A5F37CC4F2AA078843E514A /* TestThinFile_Intel64_lib64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestThinFile_Intel64_lib64.swift; sourceTree = "<group>"; };
+		B3081391F79CBEEED762D788 /* TestThinFile_Intel64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestThinFile_Intel64.swift; sourceTree = "<group>"; };
 		0132DD4321816C09009CE078 /* CDLCBuildVersion.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CDLCBuildVersion.h; path = Source/CDLCBuildVersion.h; sourceTree = "<group>"; };
 		0132DD4421816C09009CE078 /* CDLCBuildVersion.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CDLCBuildVersion.m; path = Source/CDLCBuildVersion.m; sourceTree = "<group>"; };
 		0133F1771EE784DA0086686F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -503,11 +515,17 @@
 				0165B8CB1827198900CC647F /* TestCDArchUses64BitABI.m */,
 				DE05F5F35CF02E3FD4D4BD05 /* TestCDArchUses64BitABI.swift */,
 				0165B8CD1827198900CC647F /* TestFatFile_armv7_v7s.m */,
+				87CEDC7D53A61AEABB5F9514 /* TestFatFile_armv7_v7s.swift */,
 				0165B8CF1827198900CC647F /* TestFatFile_Intel32_64_lib64.m */,
+				C29667E5C253EAEC800CD425 /* TestFatFile_Intel32_64_lib64.swift */,
 				0165B8D11827198900CC647F /* TestFatFile_Intel32_64.m */,
+				BB40B05067333FD93A309761 /* TestFatFile_Intel32_64.swift */,
 				0165B8D31827198900CC647F /* TestFatFile_Intel64_32.m */,
+				73415AEAC141CE3C61D43129 /* TestFatFile_Intel64_32.swift */,
 				0165B8D51827198900CC647F /* TestThinFile_Intel64_lib64.m */,
+				8A5F37CC4F2AA078843E514A /* TestThinFile_Intel64_lib64.swift */,
 				0165B8D71827198900CC647F /* TestThinFile_Intel64.m */,
+				B3081391F79CBEEED762D788 /* TestThinFile_Intel64.swift */,
 				0165B8B51827137D00CC647F /* Supporting Files */,
 			);
 			path = UnitTests;
@@ -1037,15 +1055,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				0165B8D81827198900CC647F /* TestBlockSignature.m in Sources */,
-				0165B8DD1827198900CC647F /* TestFatFile_Intel32_64.m in Sources */,
-				0165B8DB1827198900CC647F /* TestFatFile_armv7_v7s.m in Sources */,
-				0165B8DC1827198900CC647F /* TestFatFile_Intel32_64_lib64.m in Sources */,
 				03A535F14C0AA9121CA83B36 /* TestCDArchFromName.swift in Sources */,
 				6EDD6634A4C5332A678A2CAA /* TestCDNameForCPUType.swift in Sources */,
 				D21519F977A5AAA78BCFA5D5 /* TestCDArchUses64BitABI.swift in Sources */,
-				0165B8E01827198900CC647F /* TestThinFile_Intel64.m in Sources */,
-				0165B8DF1827198900CC647F /* TestThinFile_Intel64_lib64.m in Sources */,
-				0165B8DE1827198900CC647F /* TestFatFile_Intel64_32.m in Sources */,
+				A28C63E54F01C7A309CA3FB7 /* TestFatFile_armv7_v7s.swift in Sources */,
+				95229094AC815F2D0FF13A4C /* TestFatFile_Intel32_64_lib64.swift in Sources */,
+				38E56A82FFA402209E726B62 /* TestFatFile_Intel32_64.swift in Sources */,
+				EACFBED9ABE4E803DC98B9AD /* TestFatFile_Intel64_32.swift in Sources */,
+				167F7C4FECD7CFBFBBD2CA15 /* TestThinFile_Intel64_lib64.swift in Sources */,
+				1B0E5BD9F98AC7DB7110C6CB /* TestThinFile_Intel64.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
