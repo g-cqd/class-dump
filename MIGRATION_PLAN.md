@@ -8,14 +8,15 @@
 
 ## Current State Snapshot
 - Targets: class-dump, deprotect, formatType, MachObjC, UnitTests
-- Code: Obj-C + C, PCH, Foundation/Cocoa, no Swift
-- Tests: Obj-C XCTest in UnitTests
+- Code: Obj-C + C, PCH, Foundation/Cocoa, plus Swift tests and SPM skeleton
+- Tests: Swift XCTest in UnitTests target (not yet in SPM)
 
 ## Migration Strategy (High Level)
 1. Keep current Obj-C as baseline; move tests to Swift first.
 2. Introduce Swift core module and migrate low-level parsing -> higher layers.
 3. Incrementally replace CLI entry points.
-4. Enable strict concurrency, parallel processing, and performance improvements.
+4. Make SPM the primary build, move tests into SPM, then retire Xcode project.
+5. Enable strict concurrency, parallel processing, and performance improvements.
 
 ## Detailed Steps (each step = one commit)
 [x] 01 Add migration plan doc (this file) and branch notes
@@ -25,17 +26,20 @@
 [x] 05 Convert block signature tests to Swift (CDType private API exposure)
 [x] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
 [x] 07 Define Swift module layout for core + CLIs (Xcode targets or SPM), add shared Swift support
-[ ] 08 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
-[ ] 09 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
-[ ] 10 Migrate load command types (CDLC*), sections, symbols, relocation parsing
-[ ] 11 Migrate Objective-C metadata parsing (CDObjectiveC1/2Processor, CDOC* types)
-[ ] 12 Migrate type system and formatting (CDType*, formatter, lexer, parser)
-[ ] 13 Migrate visitor pipeline + output formatting (CDVisitor, CDClassDumpVisitor, CDTextClassDumpVisitor, etc.)
-[ ] 14 Migrate CLI entry points (class-dump, deprotect, formatType, MachObjC) to Swift async main
-[ ] 15 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
-[ ] 16 Modernization pass (Swift 6.2 strict concurrency flags, Sendable annotations, Logger, URL APIs)
-[ ] 17 Remove Obj-C sources, PCH, and deprecated build settings; clean project
-[ ] 18 Final verification (tests, performance checks, docs update)
+[x] 08 Update Swift tools version to 6.2 in Package.swift
+[ ] 09 Move tests to SPM (Tests/ClassDumpCoreTests, etc.) and make `swift test` the primary runner
+[ ] 10 Add ARM64e/current ARM subtype parsing and tests (CDArchFromName/CDNameForCPUType)
+[ ] 11 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
+[ ] 12 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
+[ ] 13 Migrate load command types (CDLC*), sections, symbols, relocation parsing
+[ ] 14 Migrate Objective-C metadata parsing (CDObjectiveC1/2Processor, CDOC* types)
+[ ] 15 Migrate type system and formatting (CDType*, formatter, lexer, parser)
+[ ] 16 Migrate visitor pipeline + output formatting (CDVisitor, CDClassDumpVisitor, CDTextClassDumpVisitor, etc.)
+[ ] 17 Migrate CLI entry points (class-dump, deprotect, formatType, MachObjC) to Swift async main
+[ ] 18 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
+[ ] 19 Modernization pass (Swift 6.2 strict concurrency flags, Sendable annotations, Logger, URL APIs)
+[ ] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
+[ ] 21 Final verification (tests, performance checks, docs update)
 
 ## Concurrency and Performance Targets
 - Parallel parsing of independent Mach-O files (TaskGroup)
@@ -55,7 +59,7 @@
 - Replace getopt with ArgumentParser (optional) or Swift CLI parser
 - Replace NS* legacy APIs with modern Foundation/URL/Logger
 - Remove PCH and global macros; use Swift configs
-- SPM package layout for core library + executables (optional but recommended)
+- SPM package layout for core library + executables (required); remove Xcode project once SPM builds all targets/tests
 
 ## Progress Log
 - 2026-01-07: created plan, branch swift6-migration
@@ -65,3 +69,4 @@
 - 2026-01-07: converted block signature tests to Swift
 - 2026-01-07: removed Obj-C UnitTests sources from the project
 - 2026-01-07: added Swift package skeleton and module layout for core + CLIs
+- 2026-01-07: set Swift tools version to 6.2 and adjusted SPM migration steps
