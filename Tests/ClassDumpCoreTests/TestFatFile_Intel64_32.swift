@@ -1,6 +1,8 @@
 import XCTest
 
-final class TestFatFile_Intel32_64: XCTestCase {
+import ClassDumpCore
+
+final class TestFatFile_Intel64_32: XCTestCase {
   private var fatFile: CDFatFile!
   private var archI386: CDFatArch!
   private var archX86_64: CDFatArch!
@@ -12,19 +14,19 @@ final class TestFatFile_Intel32_64: XCTestCase {
 
     fatFile = CDFatFile()
 
-    machoI386 = CDMachOFile()
-    machoI386.cputype = CPU_TYPE_X86
-    machoI386.cpusubtype = cpuSubtype386
-
-    archI386 = CDFatArch(machOFile: machoI386)
-    fatFile.addArchitecture(archI386)
-
     machoX86_64 = CDMachOFile()
     machoX86_64.cputype = CPU_TYPE_X86_64
     machoX86_64.cpusubtype = cpuSubtype386
 
     archX86_64 = CDFatArch(machOFile: machoX86_64)
     fatFile.addArchitecture(archX86_64)
+
+    machoI386 = CDMachOFile()
+    machoI386.cputype = CPU_TYPE_X86
+    machoI386.cpusubtype = cpuSubtype386
+
+    archI386 = CDFatArch(machOFile: machoI386)
+    fatFile.addArchitecture(archI386)
   }
 
   override func tearDown() {

@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestCDNameForCPUType: XCTestCase {
   func testArmv6() {
     XCTAssertEqual(

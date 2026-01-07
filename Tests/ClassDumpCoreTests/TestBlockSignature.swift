@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestBlockSignature: XCTestCase {
   private func ascii(_ scalar: UnicodeScalar) -> Int32 {
     Int32(scalar.value)

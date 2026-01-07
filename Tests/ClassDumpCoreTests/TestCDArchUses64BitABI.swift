@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestCDArchUses64BitABI: XCTestCase {
   func testI386() {
     let arch = CDArch(cputype: CPU_TYPE_X86, cpusubtype: cpuSubtype386)

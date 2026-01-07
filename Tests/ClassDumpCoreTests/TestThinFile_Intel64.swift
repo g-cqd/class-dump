@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestThinFile_Intel64: XCTestCase {
   private var machoX86_64: CDMachOFile!
 

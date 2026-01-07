@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestCDArchFromName: XCTestCase {
   func testArmv6() {
     let arch = CDArchFromName("armv6")

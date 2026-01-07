@@ -8,6 +8,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
   name: "class-dump",
+  defaultLocalization: "en",
   platforms: [.macOS(.v15)],
   products: [
     .library(name: "ClassDumpCore", targets: ["ClassDumpCore"]),
@@ -17,7 +18,23 @@ let package = Package(
   ],
   targets: [
     .target(
+      name: "ClassDumpCoreObjC",
+      path: ".",
+      sources: [
+        "Source",
+        "ThirdParty/blowfish.c",
+      ],
+      publicHeadersPath: "SPMHeaders",
+      cSettings: [
+        .headerSearchPath("Source"),
+        .headerSearchPath("ThirdParty"),
+        .unsafeFlags(["-include", "MachObjC-Prefix.pch"]),
+      ]
+    ),
+    .target(
       name: "ClassDumpCore",
+      dependencies: ["ClassDumpCoreObjC"],
+      path: "Sources/ClassDumpCore",
       swiftSettings: swiftSettings
     ),
     .executableTarget(
@@ -32,6 +49,11 @@ let package = Package(
     ),
     .executableTarget(
       name: "FormatTypeCLI",
+      dependencies: ["ClassDumpCore"],
+      swiftSettings: swiftSettings
+    ),
+    .testTarget(
+      name: "ClassDumpCoreTests",
       dependencies: ["ClassDumpCore"],
       swiftSettings: swiftSettings
     ),

@@ -27,7 +27,7 @@
 [x] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
 [x] 07 Define Swift module layout for core + CLIs (Xcode targets or SPM), add shared Swift support
 [x] 08 Update Swift tools version to 6.2 in Package.swift
-[ ] 09 Move tests to SPM (Tests/ClassDumpCoreTests, etc.) and make `swift test` the primary runner
+[x] 09 Move tests to SPM (Tests/ClassDumpCoreTests, etc.) and make `swift test` the primary runner
 [x] 10 Add ARM64e/current ARM subtype parsing and tests (CDArchFromName/CDNameForCPUType)
 [ ] 11 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
 [ ] 12 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
@@ -50,6 +50,7 @@
 
 ## Module Layout (Swift Package Skeleton)
 - ClassDumpCore: shared parsing, modeling, and formatting logic
+- ClassDumpCoreObjC: legacy ObjC/C core (SPM C target) re-exported by ClassDumpCore
 - ClassDumpCLI: class-dump executable (Argument parsing + dispatch into ClassDumpCore)
 - DeprotectCLI: deprotect executable (segment decrypt + file write)
 - FormatTypeCLI: formatType executable (type format inspection)
@@ -71,3 +72,4 @@
 - 2026-01-07: added Swift package skeleton and module layout for core + CLIs
 - 2026-01-07: set Swift tools version to 6.2 and adjusted SPM migration steps
 - 2026-01-07: verified arm64e mapping via tests (no code change required)
+- 2026-01-07: moved Swift tests into SPM and made `swift test` the primary runner (ObjC core split into ClassDumpCoreObjC)

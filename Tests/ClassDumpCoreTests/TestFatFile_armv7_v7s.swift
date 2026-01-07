@@ -1,5 +1,7 @@
 import XCTest
 
+import ClassDumpCore
+
 final class TestFatFile_armv7_v7s: XCTestCase {
   private var fatFile: CDFatFile!
   private var archV7: CDFatArch!

@@ -1,37 +1,19 @@
 import XCTest
 
-final class TestFatFile_Intel32_64_lib64: XCTestCase {
-  private var fatFile: CDFatFile!
-  private var archI386: CDFatArch!
-  private var archX86_64: CDFatArch!
-  private var machoI386: CDMachOFile!
+import ClassDumpCore
+
+final class TestThinFile_Intel64_lib64: XCTestCase {
   private var machoX86_64: CDMachOFile!
 
   override func setUp() {
     super.setUp()
 
-    fatFile = CDFatFile()
-
-    machoI386 = CDMachOFile()
-    machoI386.cputype = CPU_TYPE_X86
-    machoI386.cpusubtype = cpuSubtype386
-
-    archI386 = CDFatArch(machOFile: machoI386)
-    fatFile.addArchitecture(archI386)
-
     machoX86_64 = CDMachOFile()
     machoX86_64.cputype = CPU_TYPE_X86_64
     machoX86_64.cpusubtype = cpuSubtype386 | cpuSubtypeLib64
-
-    archX86_64 = CDFatArch(machOFile: machoX86_64)
-    fatFile.addArchitecture(archX86_64)
   }
 
   override func tearDown() {
-    fatFile = nil
-    archI386 = nil
-    archX86_64 = nil
-    machoI386 = nil
     machoX86_64 = nil
 
     super.tearDown()
@@ -40,7 +22,7 @@ final class TestFatFile_Intel32_64_lib64: XCTestCase {
   func testBestMatchIntel64() {
     var arch = CDArch(cputype: CPU_TYPE_X86_64, cpusubtype: cpuSubtype386)
 
-    let result = fatFile.bestMatch(for: &arch)
+    let result = machoX86_64.bestMatch(for: &arch)
     XCTAssertTrue(result, "Didn't find a best match for x86_64")
     XCTAssertEqual(arch.cputype, CPU_TYPE_X86_64, "Best match cputype should be CPU_TYPE_X86_64")
     XCTAssertEqual(
@@ -52,15 +34,14 @@ final class TestFatFile_Intel32_64_lib64: XCTestCase {
 
   func testMachOFileWithArch_x86_64() {
     let arch = CDArch(cputype: CPU_TYPE_X86_64, cpusubtype: cpuSubtype386)
-    let machOFile = fatFile.machOFile(with: arch)
+    let machOFile = machoX86_64.machOFile(with: arch)
     XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
     XCTAssertTrue(machOFile === machoX86_64, "Didn't find correct Mach-O file")
   }
 
   func testMachOFileWithArch_i386() {
     let arch = CDArch(cputype: CPU_TYPE_X86, cpusubtype: cpuSubtype386)
-    let machOFile = fatFile.machOFile(with: arch)
-    XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
-    XCTAssertTrue(machOFile === machoI386, "Didn't find correct Mach-O file")
+    let machOFile = machoX86_64.machOFile(with: arch)
+    XCTAssertNil(machOFile, "The Mach-O file should be nil")
   }
 }
