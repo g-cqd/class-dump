@@ -5,18 +5,18 @@ final class TestBlockSignature: XCTestCase {
     Int32(scalar.value)
   }
 
-  func testZeroArguments() {
+  func testZeroArguments() throws {
     var types: [CDType] = []
     types.append(CDType(simpleType: ascii("v")))
     types.append(CDType(blockTypeWithTypes: nil))
 
-    let blockType = CDType(blockTypeWithTypes: types)
+    let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
     let blockSignatureString = blockType.blockSignatureString()
 
     XCTAssertEqual(blockSignatureString, "void (^)(void)")
   }
 
-  func testOneArgument() {
+  func testOneArgument() throws {
     var types: [CDType] = []
     types.append(CDType(simpleType: ascii("v")))
     types.append(CDType(blockTypeWithTypes: nil))
@@ -25,13 +25,13 @@ final class TestBlockSignature: XCTestCase {
     typeName.name = "NSData"
     types.append(CDType(idType: typeName))
 
-    let blockType = CDType(blockTypeWithTypes: types)
+    let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
     let blockSignatureString = blockType.blockSignatureString()
 
     XCTAssertEqual(blockSignatureString, "void (^)(NSData *)")
   }
 
-  func testTwoArguments() {
+  func testTwoArguments() throws {
     var types: [CDType] = []
     types.append(CDType(simpleType: ascii("v")))
     types.append(CDType(blockTypeWithTypes: nil))
@@ -41,13 +41,13 @@ final class TestBlockSignature: XCTestCase {
     typeName.name = "NSError"
     types.append(CDType(idType: typeName))
 
-    let blockType = CDType(blockTypeWithTypes: types)
+    let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
     let blockSignatureString = blockType.blockSignatureString()
 
     XCTAssertEqual(blockSignatureString, "void (^)(id, NSError *)")
   }
 
-  func testBlockArgument() {
+  func testBlockArgument() throws {
     var types: [CDType] = []
     types.append(CDType(simpleType: ascii("v")))
     types.append(CDType(blockTypeWithTypes: nil))
@@ -55,19 +55,19 @@ final class TestBlockSignature: XCTestCase {
     let nestedTypes = types
     types.append(CDType(blockTypeWithTypes: nestedTypes))
 
-    let blockType = CDType(blockTypeWithTypes: types)
+    let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
     let blockSignatureString = blockType.blockSignatureString()
 
     XCTAssertEqual(blockSignatureString, "void (^)(void (^)(void))")
   }
 
-  func testBoolArgument() {
+  func testBoolArgument() throws {
     var types: [CDType] = []
     types.append(CDType(simpleType: ascii("v")))
     types.append(CDType(blockTypeWithTypes: nil))
     types.append(CDType(simpleType: ascii("c")))
 
-    let blockType = CDType(blockTypeWithTypes: types)
+    let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
     let blockSignatureString = blockType.blockSignatureString()
 
     XCTAssertEqual(blockSignatureString, "void (^)(BOOL)")

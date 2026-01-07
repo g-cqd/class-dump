@@ -89,6 +89,7 @@
 		0165B8B91827137D00CC647F /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 0165B8B71827137D00CC647F /* InfoPlist.strings */; };
 		03A535F14C0AA9121CA83B36 /* TestCDArchFromName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BA3CAC2706D6DAF7DBA3E8 /* TestCDArchFromName.swift */; };
 		6EDD6634A4C5332A678A2CAA /* TestCDNameForCPUType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216FB8B86819714E32D15B5F /* TestCDNameForCPUType.swift */; };
+		F82FD31E53557D858805D432 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A008409964367ADF14C9D1A /* TestSupport.swift */; };
 		A28C63E54F01C7A309CA3FB7 /* TestFatFile_armv7_v7s.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CEDC7D53A61AEABB5F9514 /* TestFatFile_armv7_v7s.swift */; };
 		95229094AC815F2D0FF13A4C /* TestFatFile_Intel32_64_lib64.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29667E5C253EAEC800CD425 /* TestFatFile_Intel32_64_lib64.swift */; };
 		38E56A82FFA402209E726B62 /* TestFatFile_Intel32_64.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB40B05067333FD93A309761 /* TestFatFile_Intel32_64.swift */; };
@@ -222,6 +223,7 @@
 
 /* Begin PBXFileReference section */
 		216FB8B86819714E32D15B5F /* TestCDNameForCPUType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDNameForCPUType.swift; sourceTree = "<group>"; };
+		6A008409964367ADF14C9D1A /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		63BA3CAC2706D6DAF7DBA3E8 /* TestCDArchFromName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDArchFromName.swift; sourceTree = "<group>"; };
 		DE05F5F35CF02E3FD4D4BD05 /* TestCDArchUses64BitABI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCDArchUses64BitABI.swift; sourceTree = "<group>"; };
 		87CEDC7D53A61AEABB5F9514 /* TestFatFile_armv7_v7s.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestFatFile_armv7_v7s.swift; sourceTree = "<group>"; };
@@ -489,6 +491,7 @@
 		0165B8B41827137D00CC647F /* UnitTests */ = {
 			isa = PBXGroup;
 			children = (
+				6A008409964367ADF14C9D1A /* TestSupport.swift */,
 				A1BE509CF4B058CC3CAE4393 /* TestBlockSignature.swift */,
 				216FB8B86819714E32D15B5F /* TestCDNameForCPUType.swift */,
 				63BA3CAC2706D6DAF7DBA3E8 /* TestCDArchFromName.swift */,
@@ -1027,6 +1030,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F82FD31E53557D858805D432 /* TestSupport.swift in Sources */,
 				03A535F14C0AA9121CA83B36 /* TestCDArchFromName.swift in Sources */,
 				6EDD6634A4C5332A678A2CAA /* TestCDNameForCPUType.swift in Sources */,
 				D21519F977A5AAA78BCFA5D5 /* TestCDArchUses64BitABI.swift in Sources */,

@@ -43,7 +43,7 @@ final class TestCDNameForCPUType: XCTestCase {
 
   func testI386() {
     XCTAssertEqual(
-      CDNameForCPUType(CPU_TYPE_X86, CPU_SUBTYPE_386),
+      CDNameForCPUType(CPU_TYPE_X86, cpuSubtype386),
       "i386",
       "The name for X86 subtype CPU_SUBTYPE_386 should be 'i386'"
     )
@@ -51,7 +51,7 @@ final class TestCDNameForCPUType: XCTestCase {
 
   func testX86_64() {
     XCTAssertEqual(
-      CDNameForCPUType(CPU_TYPE_X86_64, CPU_SUBTYPE_386),
+      CDNameForCPUType(CPU_TYPE_X86_64, cpuSubtype386),
       "x86_64",
       "The name for X86_64 subtype CPU_SUBTYPE_386 should be 'x86_64'"
     )
@@ -59,7 +59,7 @@ final class TestCDNameForCPUType: XCTestCase {
 
   func testX86_64_lib64() {
     XCTAssertEqual(
-      CDNameForCPUType(CPU_TYPE_X86_64, CPU_SUBTYPE_386 | CPU_SUBTYPE_LIB64),
+      CDNameForCPUType(CPU_TYPE_X86_64, cpuSubtype386 | cpuSubtypeLib64),
       "x86_64",
       "The name for X86_64 subtype CPU_SUBTYPE_386 with capability bits should be 'x86_64'"
     )
