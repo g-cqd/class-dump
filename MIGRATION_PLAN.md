@@ -24,7 +24,7 @@
 [x] 04 Convert fat/thin file selection tests to Swift (CDFatFile/CDMachOFile)
 [x] 05 Convert block signature tests to Swift (CDType private API exposure)
 [x] 06 Remove Obj-C UnitTests sources from target once Swift equivalents exist
-[ ] 07 Define Swift module layout for core + CLIs (Xcode targets or SPM), add shared Swift support
+[x] 07 Define Swift module layout for core + CLIs (Xcode targets or SPM), add shared Swift support
 [ ] 08 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
 [ ] 09 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
 [ ] 10 Migrate load command types (CDLC*), sections, symbols, relocation parsing
@@ -44,6 +44,12 @@
 - Avoid repeated parsing via caching of tables and strings
 - Replace NSMutableArray with Swift arrays and reserveCapacity
 
+## Module Layout (Swift Package Skeleton)
+- ClassDumpCore: shared parsing, modeling, and formatting logic
+- ClassDumpCLI: class-dump executable (Argument parsing + dispatch into ClassDumpCore)
+- DeprotectCLI: deprotect executable (segment decrypt + file write)
+- FormatTypeCLI: formatType executable (type format inspection)
+
 ## Modernity Adaptations Needed
 - Swift 6.2 strict concurrency with Sendable and actors
 - Replace getopt with ArgumentParser (optional) or Swift CLI parser
@@ -58,3 +64,4 @@
 - 2026-01-07: converted fat/thin file selection tests to Swift
 - 2026-01-07: converted block signature tests to Swift
 - 2026-01-07: removed Obj-C UnitTests sources from the project
+- 2026-01-07: added Swift package skeleton and module layout for core + CLIs
