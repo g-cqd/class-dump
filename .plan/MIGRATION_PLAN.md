@@ -61,19 +61,102 @@
     - Support merging multiple framework dumps into unified documentation
     - Symbol graph generation for integration with Xcode documentation
 
-## Phase 3: Advanced Capabilities
+## Phase 3: Modern Mach-O Support (iOS 14+ Compatibility)
 
-[ ] 28 Full Swift type support (generics, protocols, extensions, property wrappers)
-[ ] 29 Recursive framework dependency resolution with caching
-[ ] 30 Watch mode for incremental re-dumping on file changes
-[ ] 31 LSP integration for IDE support
+[ ] 28 Parse `LC_DYLD_CHAINED_FIXUPS` load command
+    - Reference: ipsw's `m.DyldChainedFixups()` in go-macho
+    - Handle DYLD_CHAINED_PTR_64, DYLD_CHAINED_PTR_ARM64E formats
+[ ] 29 Resolve chained binds to external symbols
+    - Map bind ordinals to imported symbol names
+    - Update superclass/protocol resolution to use fixup chains
+[ ] 30 Handle chained rebases for internal pointers
+    - Apply rebase info when reading ObjC metadata pointers
+
+## Phase 4: Swift Metadata Support
+
+[ ] 31 Detect Swift binaries
+    - Check for `__swift5_*` sections
+    - Implement `hasSwift` property on MachOFile
+[ ] 32 Parse Swift type descriptors
+    - Reference: ipsw's `m.GetSwiftTypes()` in go-macho
+    - Extract struct/class/enum definitions
+    - Parse field descriptors for properties
+[ ] 33 Parse Swift protocol descriptors
+    - Reference: ipsw's `m.GetSwiftProtocols()` in go-macho
+    - Extract protocol requirements (methods, associated types)
+[ ] 34 Parse protocol conformances
+    - Reference: ipsw's `m.GetSwiftProtocolConformances()` in go-macho
+    - Map types to their adopted protocols
+[ ] 35 Generate Swift-style headers
+    - Format Swift types as `.swiftinterface`-like output
+    - Handle generics, property wrappers, result builders
+
+## Phase 5: dyld_shared_cache Integration
+
+[ ] 36 Shared Cache Foundation
+    - Implement `MemoryMappedReader` for large file access (3+ GB files)
+    - Parse `dyld_cache_header` (magic, mappings, images)
+    - Support split caches (.01, .02, etc.) for modern iOS
+    - Reference: ipsw's `dyld.Open()` in pkg/dyld
+[ ] 37 Address Translation
+    - Implement `SharedCacheAddressTranslator` for VM-to-offset logic
+    - Parse `dyld_cache_slide_info` for pointer rebasing
+    - Handle multiple cache mappings with different permissions
+[ ] 38 In-Cache Image Analysis
+    - List available images in the shared cache
+    - Extract Mach-O data for specific image (zero-copy view)
+    - Adapt `ObjC2Processor` to work with in-cache images
+    - Handle DSC-specific ObjC optimizations (shared selector table)
+[ ] 39 ObjC Optimization Tables (Optional)
+    - Parse global class/selector/protocol tables for faster lookup
+    - Reference: ipsw's `f.GetAllObjCClasses()` etc.
+
+## Phase 6: Quality of Life Improvements
+
+[ ] 40 JSON output option (`--json`)
+    - Structured output for tooling integration
+    - Include class hierarchy, methods, properties, protocols
+[ ] 41 Inspection command (`class-dump info`)
+    - Display Mach-O header, load commands, sections
+    - Show architecture, platform, deployment target
+    - Useful for debugging parsing failures
+[ ] 42 Address utilities
+    - Expose `a2o` / `o2a` conversion for debugging
+    - Resolve addresses to symbol names for `-A` output
+[ ] 43 Lipo export functionality
+    - Extract single architecture to standalone file
+    - Useful for processing fat binaries
+[ ] 44 Entitlements display
+    - Parse LC_CODE_SIGNATURE blob
+    - Extract and display XML entitlements
+
+## Phase 7: Advanced Capabilities
+
+[ ] 45 Full Swift type support (generics, protocols, extensions, property wrappers)
+[ ] 46 Recursive framework dependency resolution with caching
+[ ] 47 Watch mode for incremental re-dumping on file changes
+[ ] 48 LSP integration for IDE support
+[ ] 49 Dylib extraction from shared cache
+    - Reconstruct standalone Mach-O from cached image
+    - Handle LINKEDIT reconstruction
 
 ## Concurrency and Performance Targets
 - Parallel parsing of independent Mach-O files (TaskGroup)
 - Concurrent processing of load commands/segments where safe
-- Memory-mapped file IO for large binaries
+- Memory-mapped file IO for large binaries (required for DSC support)
 - Avoid repeated parsing via caching of tables and strings
 - Replace NSMutableArray with Swift arrays and reserveCapacity
+
+## Reference Documentation
+- **Feature Gap Analysis**: See `.plan/docs/FEATURE_GAP_ANALYSIS.md` for detailed comparison with ipsw/go-macho
+- **Cutting-Edge Research**: See `.plan/docs/CUTTING_EDGE_RESEARCH.md` for latest binary format knowledge (2024-2025)
+- **ipsw dyld commands**: https://github.com/blacktop/ipsw/tree/master/cmd/ipsw/cmd/dyld
+- **ipsw macho commands**: https://github.com/blacktop/ipsw/tree/master/cmd/ipsw/cmd/macho
+- **go-macho library**: https://github.com/blacktop/go-macho (reference implementation for Swift/DSC/fixups)
+- **MachOKit (Swift)**: https://github.com/p-x9/MachOKit (Swift-native Mach-O parser with DSC support)
+- **MachOSwiftSection**: https://github.com/MxIris-Reverse-Engineering/MachOSwiftSection (Swift metadata extraction)
+- **Apple dyld source**: https://github.com/apple-oss-distributions/dyld
+- **Apple objc4 source**: https://github.com/apple-oss-distributions/objc4
 
 ## Module Layout (Swift Package Skeleton)
 - ClassDumpCore: shared parsing, modeling, and formatting logic

@@ -373,7 +373,7 @@ jobs:
         run: |
           swift package --allow-writing-to-directory ./docs \
             generate-documentation \
-            --target ClassDumpCore \
+            --target ClassDump \
             --disable-indexing \
             --transform-for-static-hosting \
             --hosting-base-path class-dump \
