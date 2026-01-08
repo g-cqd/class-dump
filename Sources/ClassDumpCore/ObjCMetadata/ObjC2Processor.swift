@@ -55,6 +55,12 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Chained fixups for resolving bind ordinals to symbol names.
     private let chainedFixups: ChainedFixups?
 
+    /// Swift metadata for resolving Swift ivar types.
+    private var swiftMetadata: SwiftMetadata?
+
+    /// Swift field descriptors indexed by mangled type name.
+    private var swiftFieldsByMangledName: [String: SwiftFieldDescriptor] = [:]
+
     /// Pointer size in bytes.
     private var ptrSize: Int {
         is64Bit ? 8 : 4
@@ -68,24 +74,35 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     /// Initialize with binary data and segment information.
     public init(
-        data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, is64Bit: Bool, chainedFixups: ChainedFixups? = nil
+        data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, is64Bit: Bool,
+        chainedFixups: ChainedFixups? = nil, swiftMetadata: SwiftMetadata? = nil
     ) {
         self.data = data
         self.segments = segments
         self.byteOrder = byteOrder
         self.is64Bit = is64Bit
         self.chainedFixups = chainedFixups
+        self.swiftMetadata = swiftMetadata
+
+        // Build Swift field lookup
+        if let swift = swiftMetadata {
+            for fd in swift.fieldDescriptors {
+                swiftFieldsByMangledName[fd.mangledTypeName] = fd
+            }
+        }
     }
 
     /// Convenience initializer from a MachOFile.
     public convenience init(machOFile: MachOFile) {
         let fixups = try? machOFile.parseChainedFixups()
+        let swift = try? machOFile.parseSwiftMetadata()
         self.init(
             data: machOFile.data,
             segments: machOFile.segments,
             byteOrder: machOFile.byteOrder,
             is64Bit: machOFile.uses64BitABI,
-            chainedFixups: fixups
+            chainedFixups: fixups,
+            swiftMetadata: swift
         )
     }
 
@@ -274,6 +291,87 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         // Not a chained fixup - return as-is
         return rawPointer
+    }
+
+    // MARK: - Swift Type Resolution
+
+    /// Try to resolve a Swift type name for an ivar based on class name and field name.
+    ///
+    /// Swift classes expose ivars to ObjC runtime but don't provide type encodings.
+    /// We can look up the type from Swift field descriptors if available.
+    private func resolveSwiftIvarType(className: String, ivarName: String) -> String? {
+        guard swiftMetadata != nil else { return nil }
+
+        // Extract the demangled class name from ObjC mangled name
+        // ObjC names look like "_TtC13IDEFoundation25SomeClassName"
+        var targetClassName = className
+
+        // Try to extract the actual class name from mangled ObjC format
+        if className.hasPrefix("_TtC") {
+            if let (_, name) = SwiftDemangler.demangleClassName(className) {
+                targetClassName = name
+            }
+        } else if className.hasPrefix("_Tt") {
+            // Other mangled formats - try to extract the last component
+            // The class name is typically at the end after module name
+            targetClassName = extractSimpleClassName(from: className)
+        }
+
+        // Try to find matching field descriptor
+        for (mangledTypeName, descriptor) in swiftFieldsByMangledName {
+            // The mangled type name in field descriptors may be a symbolic reference
+            // or a mangled string. Try to match based on demangled class name.
+            let demangled = SwiftDemangler.extractTypeName(mangledTypeName)
+
+            // Check if this descriptor matches our class
+            let descriptorClassName = extractSimpleClassName(from: demangled)
+
+            if descriptorClassName == targetClassName || demangled.hasSuffix(targetClassName)
+                || mangledTypeName.contains(targetClassName)
+            {
+                // Find the field with matching name
+                for record in descriptor.records {
+                    // Handle lazy storage prefix and other Swift internal prefixes
+                    var fieldName = record.name
+                    fieldName = fieldName.replacingOccurrences(of: "$__lazy_storage_$_", with: "")
+                    fieldName = fieldName.replacingOccurrences(of: "_$s", with: "")
+
+                    if fieldName == ivarName || record.name == ivarName {
+                        // Demangle the type
+                        if !record.mangledTypeName.isEmpty {
+                            let demangled = SwiftDemangler.demangle(record.mangledTypeName)
+                            if demangled != "/* symbolic ref */" {
+                                return demangled
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Extract simple class name from a fully qualified or mangled name.
+    private func extractSimpleClassName(from name: String) -> String {
+        // If it's a fully qualified name (Module.ClassName), extract last component
+        if name.contains(".") {
+            return String(name.split(separator: ".").last ?? Substring(name))
+        }
+
+        // If it looks like a mangled name, try to extract class name
+        if name.hasPrefix("_Tt") {
+            if let (_, className) = SwiftDemangler.demangleClassName(name) {
+                return className
+            }
+        }
+
+        return name
+    }
+
+    /// Check if a class name looks like a Swift class (has mangled name format).
+    private func isSwiftClass(name: String) -> Bool {
+        name.hasPrefix("_Tt") || name.hasPrefix("_$s")
     }
 
     // MARK: - Image Info
@@ -549,8 +647,8 @@ public final class ObjC2Processor: @unchecked Sendable {
             }
         }
 
-        // Load instance variables
-        for ivar in try loadInstanceVariables(at: classData.ivars) {
+        // Load instance variables (pass class name for Swift type resolution)
+        for ivar in try loadInstanceVariables(at: classData.ivars, className: aClass.name) {
             aClass.addInstanceVariable(ivar)
         }
 
@@ -818,7 +916,7 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Instance Variable Loading
 
-    private func loadInstanceVariables(at address: UInt64) throws -> [ObjCInstanceVariable] {
+    private func loadInstanceVariables(at address: UInt64, className: String = "") throws -> [ObjCInstanceVariable] {
         guard address != 0 else { return [] }
 
         // Decode the address (may be a chained fixup pointer)
@@ -830,6 +928,9 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         var ivars: [ObjCInstanceVariable] = []
 
+        // Check if this is a Swift class (for type resolution)
+        let isSwift = isSwiftClass(name: className)
+
         for _ in 0..<listHeader.count {
             let rawIvar = try ObjC2Ivar(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
 
@@ -839,7 +940,14 @@ public final class ObjC2Processor: @unchecked Sendable {
             guard let name = readString(at: nameAddr) else { continue }
 
             let typeAddr = decodeChainedFixupPointer(rawIvar.type)
-            let typeString = readString(at: typeAddr) ?? ""
+            var typeString = readString(at: typeAddr) ?? ""
+
+            // For Swift classes with empty type strings, try to resolve from Swift metadata
+            if typeString.isEmpty && isSwift {
+                if let swiftType = resolveSwiftIvarType(className: className, ivarName: name) {
+                    typeString = swiftType
+                }
+            }
 
             // Read the actual offset value from the offset pointer
             var actualOffset: UInt64 = 0

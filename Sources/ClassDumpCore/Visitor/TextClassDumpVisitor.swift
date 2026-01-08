@@ -239,6 +239,16 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if let parsedType = ivar.parsedType {
             let formatted = typeFormatter.formatVariable(name: ivar.name, type: parsedType)
             append("    \(formatted);")
+        } else if ivar.typeEncoding.isEmpty {
+            // Swift ivars often have no ObjC type encoding
+            // Check if we have a Swift-resolved type
+            if !ivar.typeString.isEmpty && ivar.typeString != ivar.typeEncoding {
+                // We resolved a Swift type
+                append("    \(ivar.typeString) \(ivar.name);")
+            } else {
+                // Show placeholder for Swift types
+                append("    /* Swift */ \(ivar.name);")
+            }
         } else {
             append("    /* \(ivar.typeEncoding) */ \(ivar.name);")
         }

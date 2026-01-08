@@ -60,3 +60,72 @@ struct TestChainedFixups {
             classesWithExternalSuperclass.count > 0, "Should have classes with external superclasses resolved via bind")
     }
 }
+
+@Suite("Swift Metadata Tests", .serialized)
+struct TestSwiftMetadata {
+    @Test("Detect Swift metadata in binary")
+    func testDetectSwiftMetadata() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        #expect(machO.hasSwiftMetadata, "IDEFoundation should have Swift metadata")
+    }
+
+    @Test("Parse Swift field descriptors")
+    func testParseSwiftFieldDescriptors() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // IDEFoundation has many Swift types
+        #expect(swiftMetadata.fieldDescriptors.count > 0, "Should have field descriptors")
+
+        // Check that field records have valid names
+        var foundValidRecord = false
+        for fd in swiftMetadata.fieldDescriptors.prefix(50) {
+            for record in fd.records {
+                if !record.name.isEmpty {
+                    foundValidRecord = true
+                    break
+                }
+            }
+            if foundValidRecord { break }
+        }
+        #expect(foundValidRecord, "Should have field records with names")
+    }
+
+    @Test("Parse Swift types")
+    func testParseSwiftTypes() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // Should find Swift types
+        #expect(swiftMetadata.types.count > 0, "Should have Swift types")
+
+        // Verify type names are valid
+        for type in swiftMetadata.types.prefix(10) {
+            #expect(!type.name.isEmpty, "Type names should not be empty")
+        }
+    }
+}

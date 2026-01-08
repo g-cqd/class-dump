@@ -77,22 +77,31 @@
 
 ## Phase 4: Swift Metadata Support
 
-[ ] 31 Detect Swift binaries
-    - Check for `__swift5_*` sections
-    - Implement `hasSwift` property on MachOFile
-[ ] 32 Parse Swift type descriptors
-    - Reference: ipsw's `m.GetSwiftTypes()` in go-macho
-    - Extract struct/class/enum definitions
-    - Parse field descriptors for properties
-[ ] 33 Parse Swift protocol descriptors
-    - Reference: ipsw's `m.GetSwiftProtocols()` in go-macho
-    - Extract protocol requirements (methods, associated types)
-[ ] 34 Parse protocol conformances
-    - Reference: ipsw's `m.GetSwiftProtocolConformances()` in go-macho
-    - Map types to their adopted protocols
+[x] 31 Detect Swift binaries
+    - Check for `__swift5_*` sections in __TEXT segment
+    - Implemented `hasSwiftMetadata` property on MachOFile
+    - Created SwiftMetadataProcessor for parsing Swift sections
+[~] 32 Parse Swift type descriptors (partial)
+    - Created SwiftMetadata.swift with type definitions
+    - Parse `__swift5_types` section to extract type descriptors
+    - Parse `__swift5_fieldmd` section for field descriptors
+    - Note: Symbolic type references need runtime resolution for full types
+[~] 33 Parse Swift protocol descriptors (partial)
+    - Parse `__swift5_protos` section for protocol names
+    - Full protocol requirements need more work
+[~] 34 Parse protocol conformances (partial)
+    - Parse `__swift5_proto` section for conformance records
+    - Type-to-protocol mapping extracted
 [ ] 35 Generate Swift-style headers
     - Format Swift types as `.swiftinterface`-like output
     - Handle generics, property wrappers, result builders
+    - Requires full symbolic reference resolution
+
+### Swift Support Notes
+- Swift ivar types now show `/* Swift */` instead of empty `/* */`
+- SwiftDemangler provides basic type name demangling
+- Full Swift type resolution requires resolving symbolic references (0x01-0x17 prefixed)
+  which point to type metadata via relative offsets - complex runtime-like resolution needed
 
 ## Phase 5: dyld_shared_cache Integration
 
@@ -197,3 +206,12 @@
     - External classes (like NSObject) now properly resolved via chained bind ordinals
     - Added MachOFile.hasChainedFixups and parseChainedFixups() API
     - Updated tests to verify chained fixups parsing and external superclass resolution. All 277 tests passing.
+- 2026-01-08: implemented Swift metadata support foundation (Phase 4, tasks 31-34 partial):
+    - Created Swift/ module with SwiftMetadata.swift, SwiftDemangler.swift, SwiftMetadataProcessor.swift
+    - Parse __swift5_types, __swift5_fieldmd, __swift5_protos, __swift5_proto sections
+    - Added MachOFile.hasSwiftMetadata and parseSwiftMetadata() API
+    - Integrated Swift metadata with ObjC2Processor for ivar type resolution
+    - Swift ivars now display `/* Swift */` instead of empty `/* */`
+    - Added SwiftDemangler for basic type name demangling
+    - Note: Full Swift type resolution requires symbolic reference resolution (future work)
+    - Added 3 new Swift metadata tests. All 280 tests passing.
