@@ -52,6 +52,9 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Whether the binary is 64-bit.
     private let is64Bit: Bool
 
+    /// Chained fixups for resolving bind ordinals to symbol names.
+    private let chainedFixups: ChainedFixups?
+
     /// Pointer size in bytes.
     private var ptrSize: Int {
         is64Bit ? 8 : 4
@@ -64,11 +67,26 @@ public final class ObjC2Processor: @unchecked Sendable {
     private var protocolsByAddress: [UInt64: ObjCProtocol] = [:]
 
     /// Initialize with binary data and segment information.
-    public init(data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, is64Bit: Bool) {
+    public init(
+        data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, is64Bit: Bool, chainedFixups: ChainedFixups? = nil
+    ) {
         self.data = data
         self.segments = segments
         self.byteOrder = byteOrder
         self.is64Bit = is64Bit
+        self.chainedFixups = chainedFixups
+    }
+
+    /// Convenience initializer from a MachOFile.
+    public convenience init(machOFile: MachOFile) {
+        let fixups = try? machOFile.parseChainedFixups()
+        self.init(
+            data: machOFile.data,
+            segments: machOFile.segments,
+            byteOrder: machOFile.byteOrder,
+            is64Bit: machOFile.uses64BitABI,
+            chainedFixups: fixups
+        )
     }
 
     // MARK: - Public API
@@ -170,6 +188,37 @@ public final class ObjC2Processor: @unchecked Sendable {
             let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
             return UInt64(value)
         }
+    }
+
+    /// Result of decoding a pointer that may be a chained fixup.
+    private enum PointerDecodeResult {
+        case address(UInt64)
+        case bindSymbol(String)
+        case bindOrdinal(UInt32)  // When we have ordinal but no symbol table
+    }
+
+    /// Decode a raw pointer value, returning either an address or bind symbol.
+    private func decodePointerWithBindInfo(_ rawPointer: UInt64) -> PointerDecodeResult {
+        // Use ChainedFixups if available for accurate decoding
+        if let fixups = chainedFixups {
+            let result = fixups.decodePointer(rawPointer)
+            switch result {
+            case .rebase(let target):
+                return .address(target)
+            case .bind(let ordinal, _):
+                if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
+                    // Strip leading underscore if present
+                    let name = symbolName.hasPrefix("_") ? String(symbolName.dropFirst()) : symbolName
+                    return .bindSymbol(name)
+                }
+                return .bindOrdinal(ordinal)
+            case .notFixup:
+                return .address(rawPointer)
+            }
+        }
+
+        // Fallback to heuristic decoding
+        return .address(decodeChainedFixupPointer(rawPointer))
     }
 
     /// Decode a chained fixup pointer to get the actual target address.
@@ -465,12 +514,26 @@ public final class ObjC2Processor: @unchecked Sendable {
         // Cache immediately
         classesByAddress[address] = aClass
 
-        // Load superclass (decode chained fixup pointer)
-        let superclassAddr = decodeChainedFixupPointer(rawClass.superclass)
-        if superclassAddr != 0 {
-            if let superclass = try loadClass(at: superclassAddr) {
+        // Load superclass - may be an address or a bind to external symbol
+        let superclassResult = decodePointerWithBindInfo(rawClass.superclass)
+        switch superclassResult {
+        case .address(let superclassAddr):
+            if superclassAddr != 0, let superclass = try loadClass(at: superclassAddr) {
                 aClass.superclassRef = ObjCClassReference(name: superclass.name, address: superclassAddr)
             }
+        case .bindSymbol(let symbolName):
+            // External superclass (e.g., NSObject from Foundation)
+            // The symbol name is the class name prefixed with OBJC_CLASS_$_
+            let className: String
+            if symbolName.hasPrefix("OBJC_CLASS_$_") {
+                className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
+            } else {
+                className = symbolName
+            }
+            aClass.superclassRef = ObjCClassReference(name: className, address: 0)
+        case .bindOrdinal(let ordinal):
+            // We have an ordinal but couldn't resolve the name
+            aClass.superclassRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
         }
 
         // Load instance methods
@@ -578,12 +641,24 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         let category = ObjCCategory(name: name, address: address)
 
-        // Set class reference
-        let clsAddr = decodeChainedFixupPointer(rawCategory.cls)
-        if clsAddr != 0 {
-            if let aClass = classesByAddress[clsAddr] ?? (try? loadClass(at: clsAddr)) {
+        // Set class reference - may be an address or a bind to external class
+        let clsResult = decodePointerWithBindInfo(rawCategory.cls)
+        switch clsResult {
+        case .address(let clsAddr):
+            if clsAddr != 0, let aClass = classesByAddress[clsAddr] ?? (try? loadClass(at: clsAddr)) {
                 category.classRef = ObjCClassReference(name: aClass.name, address: clsAddr)
             }
+        case .bindSymbol(let symbolName):
+            // External class (e.g., NSObject from Foundation)
+            let className: String
+            if symbolName.hasPrefix("OBJC_CLASS_$_") {
+                className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
+            } else {
+                className = symbolName
+            }
+            category.classRef = ObjCClassReference(name: className, address: 0)
+        case .bindOrdinal(let ordinal):
+            category.classRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
         }
 
         // Load instance methods

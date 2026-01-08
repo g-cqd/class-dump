@@ -113,13 +113,8 @@ struct ClassDumpCommand: AsyncParsableCommand {
         // Build SDK root if specified (reserved for future recursive framework loading)
         _ = resolveSDKRoot()
 
-        // Process ObjC metadata
-        let processor = ObjC2Processor(
-            data: machOFile.data,
-            segments: machOFile.segments,
-            byteOrder: machOFile.byteOrder,
-            is64Bit: machOFile.uses64BitABI
-        )
+        // Process ObjC metadata (uses chained fixups for external symbol resolution)
+        let processor = ObjC2Processor(machOFile: machOFile)
 
         let metadata: ObjCMetadata
         do {

@@ -63,14 +63,17 @@
 
 ## Phase 3: Modern Mach-O Support (iOS 14+ Compatibility)
 
-[ ] 28 Parse `LC_DYLD_CHAINED_FIXUPS` load command
+[x] 28 Parse `LC_DYLD_CHAINED_FIXUPS` load command
+    - Implemented ChainedFixups.swift with full header and import table parsing
+    - Handle DYLD_CHAINED_PTR_64, DYLD_CHAINED_PTR_ARM64E, ARM64E_USERLAND24 formats
     - Reference: ipsw's `m.DyldChainedFixups()` in go-macho
-    - Handle DYLD_CHAINED_PTR_64, DYLD_CHAINED_PTR_ARM64E formats
-[ ] 29 Resolve chained binds to external symbols
-    - Map bind ordinals to imported symbol names
-    - Update superclass/protocol resolution to use fixup chains
-[ ] 30 Handle chained rebases for internal pointers
-    - Apply rebase info when reading ObjC metadata pointers
+[x] 29 Resolve chained binds to external symbols
+    - Map bind ordinals to imported symbol names via ChainedFixups.symbolName(forOrdinal:)
+    - Update superclass resolution to use fixup chains (strips OBJC_CLASS_$_ prefix)
+    - Update category class reference resolution similarly
+[x] 30 Handle chained rebases for internal pointers
+    - decodePointer() method handles both rebases (extracting target address) and binds
+    - Supports multiple pointer formats: ARM64E, ARM64E_USERLAND24, PTR64, PTR32
 
 ## Phase 4: Swift Metadata Support
 
@@ -187,3 +190,10 @@
 - 2026-01-08: implemented deprotect and formatType CLIs in Swift with full functionality
 - 2026-01-08: modernization pass - added built-in arch tables to avoid deprecated NXGetArchInfo* APIs for common architectures (i386, x86_64, armv6/7/7s, arm64/e)
 - 2026-01-08: full CLI feature parity - added -a (ivar offsets), -A (method addresses), -f (find method), -H/-o (multi-file headers), -t (suppress header), --list-arches, --hide, --sdk-*, sorting flags. All 224 tests passing.
+- 2026-01-08: implemented comprehensive LC_DYLD_CHAINED_FIXUPS support (Phase 3, tasks 28-30):
+    - Created ChainedFixups.swift with full parsing of header, import table, and pointer formats
+    - Added ObjC2Processor convenience init from MachOFile that auto-parses chained fixups
+    - Updated superclass and category class resolution to use bind symbol names
+    - External classes (like NSObject) now properly resolved via chained bind ordinals
+    - Added MachOFile.hasChainedFixups and parseChainedFixups() API
+    - Updated tests to verify chained fixups parsing and external superclass resolution. All 277 tests passing.
