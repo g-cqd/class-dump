@@ -2,10 +2,10 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
     inputs:
       release:
@@ -188,14 +188,14 @@ jobs:
               "$EXEC_PATH" \
               -instr-profile="$PROFDATA_PATH" \
               -format=lcov \
-              -ignore-filename-regex='.build|Tests|Fixtures'
+              -ignore-filename-regex='.build|Tests|Fixtures' \
               > coverage.lcov
 
             # Generate text summary
             xcrun llvm-cov report \
               "$EXEC_PATH" \
               -instr-profile="$PROFDATA_PATH" \
-              -ignore-filename-regex='.build|Tests|Fixtures'
+              -ignore-filename-regex='.build|Tests|Fixtures' \
               > coverage.txt
 
             echo "Coverage Summary:"
@@ -346,7 +346,7 @@ jobs:
     name: Build Documentation
     runs-on: macos-15
     needs: test
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -540,7 +540,7 @@ jobs:
     name: Deploy Documentation
     runs-on: ubuntu-latest
     needs: docs
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     permissions:
       pages: write
       id-token: write
