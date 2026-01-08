@@ -137,6 +137,18 @@ extension ClassDumpVisitor {
 
 // MARK: - Options
 
+/// Style for demangling Swift names in output.
+public enum DemangleStyle: String, Sendable, CaseIterable {
+    /// Full Swift style: `Module.ClassName`
+    case swift
+
+    /// ObjC style: just `ClassName` (drop module prefix)
+    case objc
+
+    /// No demangling: show raw mangled names
+    case none
+}
+
 /// Configuration options for class dump visitors.
 public struct ClassDumpVisitorOptions: Sendable {
     /// Whether to show the structure section.
@@ -151,16 +163,21 @@ public struct ClassDumpVisitorOptions: Sendable {
     /// Whether to show method implementation addresses.
     public var shouldShowMethodAddresses: Bool
 
+    /// Style for demangling Swift names.
+    public var demangleStyle: DemangleStyle
+
     public init(
         shouldShowStructureSection: Bool = true,
         shouldShowProtocolSection: Bool = true,
         shouldShowIvarOffsets: Bool = false,
-        shouldShowMethodAddresses: Bool = false
+        shouldShowMethodAddresses: Bool = false,
+        demangleStyle: DemangleStyle = .swift
     ) {
         self.shouldShowStructureSection = shouldShowStructureSection
         self.shouldShowProtocolSection = shouldShowProtocolSection
         self.shouldShowIvarOffsets = shouldShowIvarOffsets
         self.shouldShowMethodAddresses = shouldShowMethodAddresses
+        self.demangleStyle = demangleStyle
     }
 }
 

@@ -7,7 +7,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "class-dump",
         abstract: "Generates Objective-C header files from Mach-O binaries.",
-        version: "4.0.0 (Swift)"
+        version: "4.0.1 (Swift)"
     )
 
     @Argument(help: "The Mach-O file to process")
@@ -84,6 +84,14 @@ struct ClassDumpCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Hide section (structures, protocols, or all)")
     var hide: [String] = []
 
+    // MARK: - Demangling Options
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Demangle Swift type names (default: true)")
+    var demangle: Bool = true
+
+    @Option(name: .long, help: "Demangling style: swift (Module.Type) or objc (Type only)")
+    var demangleStyle: String?
+
     mutating func run() async throws {
         // Load the Mach-O file
         let url = URL(fileURLWithPath: file)
@@ -123,12 +131,30 @@ struct ClassDumpCommand: AsyncParsableCommand {
             throw ClassDumpError.processingFailed(file, error)
         }
 
+        // Determine demangle style
+        let resolvedDemangleStyle: DemangleStyle
+        if !demangle {
+            resolvedDemangleStyle = .none
+        } else if let style = demangleStyle?.lowercased() {
+            switch style {
+            case "swift":
+                resolvedDemangleStyle = .swift
+            case "objc":
+                resolvedDemangleStyle = .objc
+            default:
+                resolvedDemangleStyle = .swift
+            }
+        } else {
+            resolvedDemangleStyle = .swift
+        }
+
         // Build visitor options
         let visitorOptions = ClassDumpVisitorOptions(
             shouldShowStructureSection: !hide.contains("structures") && !hide.contains("all"),
             shouldShowProtocolSection: !hide.contains("protocols") && !hide.contains("all"),
             shouldShowIvarOffsets: showIvarOffsets,
-            shouldShowMethodAddresses: showImpAddr
+            shouldShowMethodAddresses: showImpAddr,
+            demangleStyle: resolvedDemangleStyle
         )
 
         // Build processor info

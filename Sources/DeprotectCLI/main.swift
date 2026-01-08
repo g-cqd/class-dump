@@ -47,7 +47,7 @@ struct DeprotectCommand {
                 Darwin.exit(0)
 
             case "--version":
-                print("deprotect 4.0.0 (Swift)")
+                print("deprotect 4.0.1 (Swift)")
                 Darwin.exit(0)
 
             default:

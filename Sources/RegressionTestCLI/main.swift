@@ -19,7 +19,7 @@ struct RegressionTestCommand: AsyncParsableCommand {
               regression-test --reference ~/bin/class-dump-3.5 --ios
               regression-test --reference ~/bin/class-dump-3.5 --sdk iphoneos
             """,
-        version: "4.0.0 (Swift)"
+        version: "4.0.1 (Swift)"
     )
 
     // MARK: - Required Options

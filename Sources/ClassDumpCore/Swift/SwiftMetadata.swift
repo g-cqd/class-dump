@@ -137,7 +137,9 @@ public struct SwiftProtocol: Sendable {
 /// A Swift protocol requirement.
 public struct SwiftProtocolRequirement: Sendable {
     public enum Kind: Sendable {
+        case baseProtocol
         case method
+        case initializer
         case getter
         case setter
         case readCoroutine

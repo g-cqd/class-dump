@@ -42,10 +42,19 @@ public enum SwiftSymbolicReferenceKind: UInt8 {
 /// - A 4-byte signed relative offset to the actual type descriptor
 ///
 /// This class resolves those references to actual type names.
+///
+/// ## Thread Safety
+///
+/// This class is **not thread-safe** for concurrent access. It maintains internal caches
+/// (`resolvedTypes`, `moduleNames`) that are mutated during resolution.
+///
+/// **Usage Pattern**: Create an instance per processing task and use it from a single thread.
+/// The resolved type names can then be safely shared as they are plain `String` values.
 public final class SwiftSymbolicResolver {
     private let data: Data
     private let segments: [SegmentCommand]
     private let byteOrder: ByteOrder
+    private let chainedFixups: ChainedFixups?
 
     /// Cache of resolved type names by their descriptor address.
     private var resolvedTypes: [Int: String] = [:]
@@ -53,10 +62,11 @@ public final class SwiftSymbolicResolver {
     /// Cache of module names by their descriptor address.
     private var moduleNames: [Int: String] = [:]
 
-    public init(data: Data, segments: [SegmentCommand], byteOrder: ByteOrder) {
+    public init(data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, chainedFixups: ChainedFixups? = nil) {
         self.data = data
         self.segments = segments
         self.byteOrder = byteOrder
+        self.chainedFixups = chainedFixups
     }
 
     // MARK: - Public API
@@ -122,8 +132,8 @@ public final class SwiftSymbolicResolver {
             // Check for symbolic reference markers
             if (byte == 0x01 || byte == 0x02) && i + 5 <= bytes.count {
                 // Extract the symbolic reference (5 bytes: marker + 4-byte offset)
-                let refEndIndex = min(bytes.count, i + 5 + 20)
-                let refData = Data(bytes[i..<refEndIndex])
+                // We pass the rest of the buffer to allow resolving generic params that follow
+                let refData = Data(bytes[i..<bytes.count])
                 let refOffset = sourceOffset + i
 
                 let resolved = resolveSymbolicReference(
@@ -211,10 +221,6 @@ public final class SwiftSymbolicResolver {
             return "/* invalid offset: \(offset) */"
         }
 
-        // Read descriptor flags to determine kind
-        let flags = readUInt32(at: offset)
-        let kind = flags & 0x1F  // Lower 5 bits are the kind
-
         // Try to read the name
         // For nominal types, the name is at offset 8 (after Flags and Parent)
         // as a relative pointer
@@ -242,7 +248,7 @@ public final class SwiftSymbolicResolver {
 
         // Handle generic types - check if there's more data after the symbolic ref
         if mangledData.count > 5 {
-            let suffix = resolveGenericSuffix(mangledData: mangledData)
+            let (suffix, _) = resolveGenericSuffix(mangledData: mangledData, offset: offset + 5)
             if !suffix.isEmpty {
                 return "\(fullName)\(suffix)"
             }
@@ -264,6 +270,27 @@ public final class SwiftSymbolicResolver {
         // The offset points to a GOT-like entry containing a pointer
         // First try reading it as a 64-bit pointer (most common case)
         let targetPointer = readUInt64(at: offset)
+
+        // Check for chained fixups
+        if let fixups = chainedFixups {
+            let result = fixups.decodePointer(targetPointer)
+            switch result {
+            case .bind(let ordinal, _):
+                // It's bound to an external symbol
+                if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
+                    // Symbol name like _$s10Foundation4DateV...
+                    // We can demangle this directly
+                    return SwiftDemangler.extractTypeName(symbolName)
+                }
+            case .rebase(let target):
+                // It's a rebase to a local address
+                if let fileOff = self.fileOffset(for: target) {
+                    return resolveContextDescriptor(at: fileOff, mangledData: mangledData)
+                }
+            case .notFixup:
+                break  // Fall through to standard handling
+            }
+        }
 
         // If the pointer is 0, this is likely an unresolved external reference
         if targetPointer == 0 {
@@ -369,49 +396,58 @@ public final class SwiftSymbolicResolver {
     }
 
     /// Resolve generic type parameters from mangled suffix.
-    private func resolveGenericSuffix(mangledData: Data) -> String {
-        guard mangledData.count > 5 else { return "" }
+    /// - Returns: Tuple of (resolved string, bytes consumed)
+    private func resolveGenericSuffix(mangledData: Data, offset: Int) -> (String, Int) {
+        guard mangledData.count > 5 else { return ("", 0) }
 
         let suffix = mangledData.subdata(in: 5..<mangledData.count)
+
+        // If the suffix contains embedded symbolic references, we need to resolve them first
+        if hasEmbeddedSymbolicRef(suffix) {
+            let resolvedSuffix = resolveTypeWithEmbeddedRefs(mangledData: suffix, sourceOffset: offset)
+
+            // Now check for generic pattern in the resolved string
+            if resolvedSuffix.hasPrefix("y") {
+                var params = resolvedSuffix.dropFirst()
+                if params.hasSuffix("G") {
+                    params = params.dropLast()
+                }
+
+                if !params.isEmpty {
+                    let demangled = SwiftDemangler.demangleComplexType(String(params))
+                    return ("<\(demangled)>", suffix.count)
+                }
+            }
+
+            return ("", 0)
+        }
 
         // Check for common patterns
         // "Sg" = Optional wrapper
         // "yG" = Generic type
         if let suffixStr = String(data: suffix, encoding: .utf8) {
             if suffixStr.hasSuffix("Sg") || suffixStr.contains("Sg") {
-                return "?"  // Optional
+                return ("?", suffix.count)  // Assume it consumes all
             }
             if suffixStr.hasPrefix("y") {
                 // Generic parameter - try to parse
-                let params = suffixStr.dropFirst()
+                var params = suffixStr.dropFirst()
+                if params.hasSuffix("G") {
+                    params = params.dropLast()
+                }
                 if !params.isEmpty {
-                    let demangled = SwiftDemangler.demangle(String(params))
-                    if demangled != String(params) {
-                        return "<\(demangled)>"
+                    let demangled = SwiftDemangler.demangleComplexType(String(params))
+                    if demangled != String(params) || !demangled.isEmpty {
+                        return ("<\(demangled)>", suffix.count)
                     }
                 }
             }
         }
 
-        return ""
+        return ("", 0)
     }
 
     // MARK: - Helper Methods
-
-    private func contextKindName(_ kind: UInt32) -> String {
-        switch kind {
-        case 0: return ""  // Module
-        case 1: return ""  // Extension
-        case 2: return ""  // Anonymous
-        case 16: return ""  // Class
-        case 17: return ""  // Struct
-        case 18: return ""  // Enum
-        case 19: return ""  // Protocol
-        case 20: return ""  // TypeAlias
-        case 21: return ""  // OpaqueType
-        default: return ""
-        }
-    }
 
     private func readUInt32(at offset: Int) -> UInt32 {
         guard offset + 4 <= data.count else { return 0 }

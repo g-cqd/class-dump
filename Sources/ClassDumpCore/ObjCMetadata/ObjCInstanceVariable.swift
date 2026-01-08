@@ -5,7 +5,10 @@ public struct ObjCInstanceVariable: Sendable, Hashable {
     /// The ivar name
     public let name: String
 
-    /// The encoded type string
+    /// The encoded type string (ObjC encoding)
+    public let typeEncoding: String
+
+    /// The resolved Swift type string (if available)
     public let typeString: String
 
     /// The offset of this ivar within the object
@@ -19,12 +22,14 @@ public struct ObjCInstanceVariable: Sendable, Hashable {
 
     public init(
         name: String,
-        typeString: String,
+        typeEncoding: String,
+        typeString: String = "",
         offset: UInt64,
         size: UInt64? = nil,
         alignment: UInt32? = nil
     ) {
         self.name = name
+        self.typeEncoding = typeEncoding
         self.typeString = typeString
         self.offset = offset
         self.size = size

@@ -50,15 +50,12 @@ extension ObjCProperty {
 // MARK: - ObjCInstanceVariable Extensions for Visitors
 
 extension ObjCInstanceVariable {
-    /// The type encoding string (alias for typeString for visitor use)
-    public var typeEncoding: String {
-        typeString
-    }
+    // typeEncoding is now a stored property
 
     /// Parse the type encoding to get the ObjCType
     public var parsedType: ObjCType? {
-        guard !typeString.isEmpty else { return nil }
-        return try? ObjCType.parse(typeString)
+        guard !typeEncoding.isEmpty else { return nil }
+        return try? ObjCType.parse(typeEncoding)
     }
 }
 

@@ -14,16 +14,21 @@ public struct ObjCTypeFormatterOptions: Sendable {
     /// Whether to auto-expand certain types
     public var shouldAutoExpand: Bool = false
 
+    /// Style for demangling Swift names in type references
+    public var demangleStyle: DemangleStyle = .swift
+
     public init(
         baseLevel: Int = 0,
         spacesPerLevel: Int = 4,
         shouldExpand: Bool = false,
-        shouldAutoExpand: Bool = false
+        shouldAutoExpand: Bool = false,
+        demangleStyle: DemangleStyle = .swift
     ) {
         self.baseLevel = baseLevel
         self.spacesPerLevel = spacesPerLevel
         self.shouldExpand = shouldExpand
         self.shouldAutoExpand = shouldAutoExpand
+        self.demangleStyle = demangleStyle
     }
 }
 
@@ -40,6 +45,25 @@ public struct ObjCTypeFormatter: Sendable {
 
     public init(options: ObjCTypeFormatterOptions = .init()) {
         self.options = options
+    }
+
+    // MARK: - Demangling Helpers
+
+    /// Demangle a Swift name according to the configured style.
+    private func demangleName(_ name: String) -> String {
+        switch options.demangleStyle {
+        case .none:
+            return name
+        case .swift:
+            return SwiftDemangler.demangleSwiftName(name)
+        case .objc:
+            let demangled = SwiftDemangler.demangleSwiftName(name)
+            // Strip module prefix for ObjC style
+            if let lastDot = demangled.lastIndex(of: ".") {
+                return String(demangled[demangled.index(after: lastDot)...])
+            }
+            return demangled
+        }
     }
 
     // MARK: - Public API
@@ -110,13 +134,19 @@ public struct ObjCTypeFormatter: Sendable {
             onClassNameReferenced?(className ?? "")
 
             if let className = className {
-                let protocolStr = protocols.isEmpty ? "" : "<\(protocols.joined(separator: ", "))>"
+                // Demangle Swift class names for display
+                let displayName = demangleName(className)
+                // Also demangle any Swift protocol names
+                let demangledProtocols = protocols.map { demangleName($0) }
+                let protocolStr = demangledProtocols.isEmpty ? "" : "<\(demangledProtocols.joined(separator: ", "))>"
                 if let name = currentName {
-                    return "\(className)\(protocolStr) *\(name)"
+                    return "\(displayName)\(protocolStr) *\(name)"
                 }
-                return "\(className)\(protocolStr) *"
+                return "\(displayName)\(protocolStr) *"
             } else {
-                let protocolStr = protocols.isEmpty ? "" : " <\(protocols.joined(separator: ", "))>"
+                // Demangle protocol names even when no class name
+                let demangledProtocols = protocols.map { demangleName($0) }
+                let protocolStr = demangledProtocols.isEmpty ? "" : " <\(demangledProtocols.joined(separator: ", "))>"
                 if let name = currentName {
                     return "id\(protocolStr) \(name)"
                 }
@@ -178,12 +208,14 @@ public struct ObjCTypeFormatter: Sendable {
 
         case .block(let types):
             if let types = types, !types.isEmpty {
-                return formatBlockSignature(types: types)
+                return formatBlockSignature(types: types, variableName: currentName)
             }
+            // No signature information available - show as block with unknown parameters
+            // This is cleaner than "CDUnknownBlockType" which is a non-existent typedef
             if let name = currentName {
-                return "CDUnknownBlockType \(name)"
+                return "id /* block */ \(name)"
             }
-            return "CDUnknownBlockType"
+            return "id /* block */"
 
         case .const(let subtype), .in(let subtype), .inout(let subtype),
             .out(let subtype), .bycopy(let subtype), .byref(let subtype),
@@ -252,8 +284,13 @@ public struct ObjCTypeFormatter: Sendable {
         return result
     }
 
-    private func formatBlockSignature(types: [ObjCType]) -> String {
-        guard !types.isEmpty else { return "CDUnknownBlockType" }
+    private func formatBlockSignature(types: [ObjCType], variableName: String? = nil) -> String {
+        guard !types.isEmpty else {
+            if let name = variableName {
+                return "id /* block */ \(name)"
+            }
+            return "id /* block */"
+        }
 
         var result = ""
 
@@ -263,8 +300,12 @@ public struct ObjCTypeFormatter: Sendable {
                 result += format(type: type, previousName: nil, level: 0)
                 result += " "
             } else if i == 1 {
-                // Block pointer itself
-                result += "(^)"
+                // Block pointer itself - include variable name if provided
+                if let name = variableName {
+                    result += "(^\(name))"
+                } else {
+                    result += "(^)"
+                }
                 result += "("
             } else {
                 // Parameter types

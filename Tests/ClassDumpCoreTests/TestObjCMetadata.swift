@@ -77,23 +77,23 @@ struct ObjCPropertyTests {
 struct ObjCInstanceVariableTests {
     @Test("Basic ivar")
     func basicIvar() {
-        let ivar = ObjCInstanceVariable(name: "_name", typeString: "@\"NSString\"", offset: 8)
+        let ivar = ObjCInstanceVariable(name: "_name", typeEncoding: "@\"NSString\"", offset: 8)
         #expect(ivar.name == "_name")
-        #expect(ivar.typeString == "@\"NSString\"")
+        #expect(ivar.typeEncoding == "@\"NSString\"")
         #expect(ivar.offset == 8)
         #expect(ivar.isSynthesized)
     }
 
     @Test("Non-synthesized ivar")
     func nonSynthesized() {
-        let ivar = ObjCInstanceVariable(name: "count", typeString: "Q", offset: 16)
+        let ivar = ObjCInstanceVariable(name: "count", typeEncoding: "Q", offset: 16)
         #expect(!ivar.isSynthesized)
     }
 
     @Test("Ivar comparison by offset")
     func comparison() {
-        let ivar1 = ObjCInstanceVariable(name: "_a", typeString: "i", offset: 8)
-        let ivar2 = ObjCInstanceVariable(name: "_b", typeString: "i", offset: 16)
+        let ivar1 = ObjCInstanceVariable(name: "_a", typeEncoding: "i", offset: 8)
+        let ivar2 = ObjCInstanceVariable(name: "_b", typeEncoding: "i", offset: 16)
         #expect(ivar1 < ivar2)
     }
 }
@@ -160,7 +160,7 @@ struct ObjCClassTests {
     func addMembers() {
         let aClass = ObjCClass(name: "TestClass", address: 0)
 
-        let ivar = ObjCInstanceVariable(name: "_value", typeString: "Q", offset: 8)
+        let ivar = ObjCInstanceVariable(name: "_value", typeEncoding: "Q", offset: 8)
         aClass.addInstanceVariable(ivar)
 
         let method = ObjCMethod(name: "doWork", typeString: "v16@0:8")

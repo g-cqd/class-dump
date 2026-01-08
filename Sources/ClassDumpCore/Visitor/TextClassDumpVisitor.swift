@@ -22,7 +22,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     public init(options: ClassDumpVisitorOptions = .init()) {
         self.options = options
-        self.typeFormatter = ObjCTypeFormatter()
+
+        // Configure type formatter with matching demangle style
+        var formatterOptions = ObjCTypeFormatterOptions()
+        formatterOptions.demangleStyle = options.demangleStyle
+        self.typeFormatter = ObjCTypeFormatter(options: formatterOptions)
 
         // Wire up type formatter callbacks
         typeFormatter.onClassNameReferenced = { [weak self] name in
@@ -71,6 +75,28 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    // MARK: - Demangling Helpers
+
+    /// Demangle a Swift name according to the configured style.
+    ///
+    /// - Parameter name: The potentially mangled name.
+    /// - Returns: The demangled name based on `options.demangleStyle`.
+    public func demangleName(_ name: String) -> String {
+        switch options.demangleStyle {
+        case .none:
+            return name
+        case .swift:
+            return SwiftDemangler.demangleSwiftName(name)
+        case .objc:
+            let demangled = SwiftDemangler.demangleSwiftName(name)
+            // Strip module prefix for ObjC style
+            if let lastDot = demangled.lastIndex(of: ".") {
+                return String(demangled[demangled.index(after: lastDot)...])
+            }
+            return demangled
+        }
+    }
+
     // MARK: - Class Visits
 
     open func willVisitClass(_ objcClass: ObjCClass) {
@@ -78,13 +104,16 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             append("__attribute__((visibility(\"hidden\")))\n")
         }
 
-        append("@interface \(objcClass.name)")
+        let className = demangleName(objcClass.name)
+        append("@interface \(className)")
         if let superName = objcClass.superclassName {
-            append(" : \(superName)")
+            let demangledSuper = demangleName(superName)
+            append(" : \(demangledSuper)")
         }
 
         if !objcClass.protocols.isEmpty {
-            append(" <\(objcClass.protocols.joined(separator: ", "))>")
+            let demangledProtocols = objcClass.protocols.map { demangleName($0) }
+            append(" <\(demangledProtocols.joined(separator: ", "))>")
         }
 
         appendNewline()
@@ -114,10 +143,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     // MARK: - Category Visits
 
     open func willVisitCategory(_ category: ObjCCategory) {
-        append("@interface \(category.classNameForVisitor) (\(category.name))")
+        let className = demangleName(category.classNameForVisitor)
+        append("@interface \(className) (\(category.name))")
 
         if !category.protocols.isEmpty {
-            append(" <\(category.protocols.joined(separator: ", "))>")
+            let demangledProtocols = category.protocols.map { demangleName($0) }
+            append(" <\(demangledProtocols.joined(separator: ", "))>")
         }
 
         appendNewline()
@@ -142,10 +173,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     // MARK: - Protocol Visits
 
     open func willVisitProtocol(_ proto: ObjCProtocol) {
-        append("@protocol \(proto.name)")
+        let protoName = demangleName(proto.name)
+        append("@protocol \(protoName)")
 
         if !proto.protocols.isEmpty {
-            append(" <\(proto.protocols.joined(separator: ", "))>")
+            let demangledProtocols = proto.protocols.map { demangleName($0) }
+            append(" <\(demangledProtocols.joined(separator: ", "))>")
         }
 
         appendNewline()
@@ -236,19 +269,23 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     /// Append a formatted ivar declaration.
     open func appendIvar(_ ivar: ObjCInstanceVariable) {
+        // Prioritize resolved Swift types over ObjC encoding/parsing
+        if !ivar.typeString.isEmpty && ivar.typeString != ivar.typeEncoding {
+            append("    \(ivar.typeString) \(ivar.name);")
+            // Show ivar offset if enabled
+            if options.shouldShowIvarOffsets {
+                append(" // +\(ivar.offset)")
+            }
+            return
+        }
+
         if let parsedType = ivar.parsedType {
             let formatted = typeFormatter.formatVariable(name: ivar.name, type: parsedType)
             append("    \(formatted);")
         } else if ivar.typeEncoding.isEmpty {
             // Swift ivars often have no ObjC type encoding
-            // Check if we have a Swift-resolved type
-            if !ivar.typeString.isEmpty && ivar.typeString != ivar.typeEncoding {
-                // We resolved a Swift type
-                append("    \(ivar.typeString) \(ivar.name);")
-            } else {
-                // Show placeholder for Swift types
-                append("    /* Swift */ \(ivar.name);")
-            }
+            // Show Swift.AnyObject as the type (since we know it's a Swift type but not which one)
+            append("    Swift.AnyObject \(ivar.name);")
         } else {
             append("    /* \(ivar.typeEncoding) */ \(ivar.name);")
         }

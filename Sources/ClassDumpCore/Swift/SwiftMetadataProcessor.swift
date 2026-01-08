@@ -12,11 +12,21 @@ import Foundation
 /// - `__swift5_proto`: Protocol conformance records
 /// - `__swift5_typeref`: Type reference strings
 /// - `__swift5_reflstr`: Reflection strings (field names)
+///
+/// ## Thread Safety
+///
+/// This class is **not thread-safe** for concurrent access. It maintains internal caches
+/// (`fieldDescriptorsByType`, `typeNamesByAddress`) that are mutated during processing.
+///
+/// **Usage Pattern**: Create an instance, call `parseMetadata()` once, then safely share
+/// the resulting `SwiftMetadata` struct (which is `Sendable`). Do not call processing methods
+/// concurrently from multiple tasks.
 public final class SwiftMetadataProcessor {
     private let data: Data
     private let segments: [SegmentCommand]
     private let byteOrder: ByteOrder
     private let is64Bit: Bool
+    private let chainedFixups: ChainedFixups?
 
     /// Cache of field descriptors by mangled type name.
     private var fieldDescriptorsByType: [String: SwiftFieldDescriptor] = [:]
@@ -28,21 +38,25 @@ public final class SwiftMetadataProcessor {
         data: Data,
         segments: [SegmentCommand],
         byteOrder: ByteOrder,
-        is64Bit: Bool
+        is64Bit: Bool,
+        chainedFixups: ChainedFixups? = nil
     ) {
         self.data = data
         self.segments = segments
         self.byteOrder = byteOrder
         self.is64Bit = is64Bit
+        self.chainedFixups = chainedFixups
     }
 
     /// Convenience initializer from a MachOFile.
     public convenience init(machOFile: MachOFile) {
+        let fixups = try? machOFile.parseChainedFixups()
         self.init(
             data: machOFile.data,
             segments: machOFile.segments,
             byteOrder: machOFile.byteOrder,
-            is64Bit: machOFile.uses64BitABI
+            is64Bit: machOFile.uses64BitABI,
+            chainedFixups: fixups
         )
     }
 
@@ -104,7 +118,8 @@ public final class SwiftMetadataProcessor {
             let resolver = SwiftSymbolicResolver(
                 data: data,
                 segments: segments,
-                byteOrder: byteOrder
+                byteOrder: byteOrder,
+                chainedFixups: chainedFixups
             )
 
             if let mangledData = mangledTypeName.data(using: .utf8) {
@@ -134,7 +149,8 @@ public final class SwiftMetadataProcessor {
             let resolver = SwiftSymbolicResolver(
                 data: data,
                 segments: segments,
-                byteOrder: byteOrder
+                byteOrder: byteOrder,
+                chainedFixups: chainedFixups
             )
             return resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
         }
@@ -212,6 +228,15 @@ public final class SwiftMetadataProcessor {
         guard targetOffset >= 0 else { return nil }
 
         return UInt64(targetOffset)
+    }
+
+    private func readUInt32(at offset: Int) -> UInt32 {
+        guard offset + 4 <= data.count else { return 0 }
+        return data.withUnsafeBytes { ptr in
+            byteOrder == .little
+                ? ptr.loadUnaligned(fromByteOffset: offset, as: UInt32.self).littleEndian
+                : ptr.loadUnaligned(fromByteOffset: offset, as: UInt32.self).bigEndian
+        }
     }
 
     /// Read a string via relative pointer.
@@ -561,23 +586,72 @@ public final class SwiftMetadataProcessor {
     }
 
     private func parseProtocolDescriptor(at fileOffset: Int) -> SwiftProtocol? {
-        guard fileOffset + 24 <= data.count else { return nil }
+        guard fileOffset + 28 <= data.count else { return nil }
 
-        // struct TargetProtocolDescriptor {
-        //   ContextDescriptorFlags Flags;
-        //   int32_t Parent;
-        //   int32_t Name;
-        //   // ... more fields
-        // }
+        let name = readRelativeString(at: fileOffset + 8) ?? ""
 
-        let nameOffset = fileOffset + 8
-        let name = readRelativeString(at: nameOffset) ?? ""
+        let associatedTypeNamesStr = readRelativeString(at: fileOffset + 12) ?? ""
+        var associatedTypeNames =
+            associatedTypeNamesStr.isEmpty
+            ? []
+            : associatedTypeNamesStr.split(separator: " ").map(String.init)
+
+        let numRequirements = Int(readUInt32(at: fileOffset + 20))
+
+        var requirements: [SwiftProtocolRequirement] = []
+        requirements.reserveCapacity(max(0, numRequirements))
+
+        if numRequirements > 0,
+            let requirementsStart = readRelativePointer(at: fileOffset + 24)
+        {
+            var currentOffset = Int(requirementsStart)
+            for _ in 0..<numRequirements {
+                guard currentOffset + 8 <= data.count else { break }
+
+                let flags = readUInt32(at: currentOffset)
+                let kindValue = flags & 0x0F
+
+                let kind: SwiftProtocolRequirement.Kind?
+                switch kindValue {
+                case 0: kind = .baseProtocol
+                case 1: kind = .method
+                case 2: kind = .initializer
+                case 3: kind = .getter
+                case 4: kind = .setter
+                case 5: kind = .readCoroutine
+                case 6: kind = .modifyCoroutine
+                case 7: kind = .associatedTypeAccessFunction
+                case 8: kind = .associatedConformanceAccessFunction
+                default: kind = nil
+                }
+
+                if let kind {
+                    var requirementName = ""
+                    if kind == .baseProtocol {
+                        if let protoDescOffset = readRelativePointer(at: currentOffset + 4),
+                            let protoName = readRelativeString(at: Int(protoDescOffset) + 8),
+                            !protoName.isEmpty
+                        {
+                            requirementName = protoName
+                        }
+                    } else if kind == .associatedTypeAccessFunction {
+                        if !associatedTypeNames.isEmpty {
+                            requirementName = associatedTypeNames.removeFirst()
+                        }
+                    }
+
+                    requirements.append(SwiftProtocolRequirement(kind: kind, name: requirementName))
+                }
+
+                currentOffset += 8
+            }
+        }
 
         return SwiftProtocol(
             address: UInt64(fileOffset),
             name: name,
             mangledName: "",
-            requirements: []
+            requirements: requirements
         )
     }
 
