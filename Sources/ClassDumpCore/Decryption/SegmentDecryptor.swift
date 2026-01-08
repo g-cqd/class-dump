@@ -166,10 +166,12 @@ public struct SegmentDecryptor: Sendable {
         var bytesDecrypted: Int = 0
 
         source.withUnsafeBytes { srcBuffer in
-            let srcPtr = srcBuffer.baseAddress!.advanced(by: sourceOffset)
+            guard let srcBaseAddress = srcBuffer.baseAddress else { return }
+            let srcPtr = srcBaseAddress.advanced(by: sourceOffset)
 
             destination.withUnsafeMutableBytes { destBuffer in
-                let destPtr = destBuffer.baseAddress!.advanced(by: destOffset)
+                guard let destBaseAddress = destBuffer.baseAddress else { return }
+                let destPtr = destBaseAddress.advanced(by: destOffset)
 
                 status = CCCryptorUpdate(
                     cryptorRef,

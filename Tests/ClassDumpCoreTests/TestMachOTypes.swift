@@ -18,8 +18,8 @@ struct TestArch {
         let arm64 = Arch(name: "arm64")
         #expect(arm64?.cputype == CPU_TYPE_ARM64)
 
-        let x86_64 = Arch(name: "x86_64")
-        #expect(x86_64?.cputype == CPU_TYPE_X86_64)
+        let x8664 = Arch(name: "x86_64")
+        #expect(x8664?.cputype == CPU_TYPE_X86_64)
 
         let invalid = Arch(name: "invalid_arch_name_xyz")
         #expect(invalid == nil)
@@ -151,9 +151,9 @@ struct TestFatFile {
         // Fat header (big endian)
         var magic = FAT_MAGIC.bigEndian
         data.append(contentsOf: withUnsafeBytes(of: &magic) { Array($0) })
-        var nfat_arch: UInt32 = 2
-        nfat_arch = nfat_arch.bigEndian
-        data.append(contentsOf: withUnsafeBytes(of: &nfat_arch) { Array($0) })
+        var nfatArch: UInt32 = 2
+        nfatArch = nfatArch.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &nfatArch) { Array($0) })
 
         // First arch: arm64
         func appendFatArch(cputype: cpu_type_t, cpusubtype: cpu_subtype_t, offset: UInt32, size: UInt32, align: UInt32)
@@ -187,9 +187,9 @@ struct TestFatFile {
 
         var magic = FAT_MAGIC.bigEndian
         data.append(contentsOf: withUnsafeBytes(of: &magic) { Array($0) })
-        var nfat_arch: UInt32 = 2
-        nfat_arch = nfat_arch.bigEndian
-        data.append(contentsOf: withUnsafeBytes(of: &nfat_arch) { Array($0) })
+        var nfatArch: UInt32 = 2
+        nfatArch = nfatArch.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &nfatArch) { Array($0) })
 
         func appendFatArch(cputype: cpu_type_t, cpusubtype: cpu_subtype_t, offset: UInt32, size: UInt32, align: UInt32)
         {
@@ -223,9 +223,9 @@ struct TestFatFile {
 
         var magic = FAT_MAGIC.bigEndian
         data.append(contentsOf: withUnsafeBytes(of: &magic) { Array($0) })
-        var nfat_arch: UInt32 = 1
-        nfat_arch = nfat_arch.bigEndian
-        data.append(contentsOf: withUnsafeBytes(of: &nfat_arch) { Array($0) })
+        var nfatArch: UInt32 = 1
+        nfatArch = nfatArch.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &nfatArch) { Array($0) })
 
         var ct = UInt32(bitPattern: CPU_TYPE_ARM64).bigEndian
         var cs = UInt32(bitPattern: CPU_SUBTYPE_ARM_ALL).bigEndian
@@ -302,9 +302,9 @@ struct TestMachOBinary {
 
         var magic = FAT_MAGIC.bigEndian
         data.append(contentsOf: withUnsafeBytes(of: &magic) { Array($0) })
-        var nfat_arch: UInt32 = 1
-        nfat_arch = nfat_arch.bigEndian
-        data.append(contentsOf: withUnsafeBytes(of: &nfat_arch) { Array($0) })
+        var nfatArch: UInt32 = 1
+        nfatArch = nfatArch.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &nfatArch) { Array($0) })
 
         var ct = UInt32(bitPattern: CPU_TYPE_ARM64).bigEndian
         var cs = UInt32(bitPattern: CPU_SUBTYPE_ARM_ALL).bigEndian

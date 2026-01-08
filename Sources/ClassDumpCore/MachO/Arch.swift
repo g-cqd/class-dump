@@ -167,6 +167,7 @@ extension Arch {
     // CPU_SUBTYPE_I386_ALL = CPU_SUBTYPE_INTEL(3, 0) = 3
     public static let i386 = Arch(cputype: CPU_TYPE_I386, cpusubtype: 3)
     // CPU_SUBTYPE_X86_64_ALL = 3
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     public static let x86_64 = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
     public static let arm64 = Arch(cputype: CPU_TYPE_ARM64, cpusubtype: CPU_SUBTYPE_ARM_ALL)
     public static let arm64e = Arch(cputype: CPU_TYPE_ARM64, cpusubtype: 2)

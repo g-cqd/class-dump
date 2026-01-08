@@ -53,8 +53,7 @@ public struct ObjCProperty: Sendable, Hashable {
 
         let components = attributeString.split(separator: ",", omittingEmptySubsequences: false)
         for component in components {
-            guard !component.isEmpty else { continue }
-            let first = component.first!
+            guard !component.isEmpty, let first = component.first else { continue }
             let rest = String(component.dropFirst())
 
             switch first {

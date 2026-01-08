@@ -218,8 +218,10 @@ public struct ObjCTypeFormatter: Sendable {
         let nameStr = typeName?.description
         if nameStr == nil || nameStr == "?" {
             baseType = keyword
+        } else if let name = nameStr {
+            baseType = "\(keyword) \(name)"
         } else {
-            baseType = "\(keyword) \(nameStr!)"
+            baseType = keyword
         }
 
         // Decide whether to expand

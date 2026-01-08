@@ -9,24 +9,24 @@ import Foundation
 /// - Warning: Blowfish is a legacy cipher. Do not use for new applications.
 ///   This exists solely for compatibility with macOS 10.5-10.6 protected binaries.
 final class BlowfishLegacy: @unchecked Sendable {
-    private static let N = 16
+    private static let rounds = 16
 
     /// P-array (18 32-bit words)
-    private var P: [UInt32]
+    private var pArray: [UInt32]
 
     /// S-boxes (4 x 256 32-bit words, stored flat)
-    private var S: [UInt32]
+    private var sBoxes: [UInt32]
 
     /// Initialize Blowfish with a key (supports up to 72 bytes).
     /// - Parameter key: The encryption key (1-72 bytes)
     init(key: [UInt8]) {
         // Start with initial P and S values
-        P = Array(BlowfishConstants.origP)
-        S = Array(BlowfishConstants.origS)
+        pArray = Array(BlowfishConstants.origP)
+        sBoxes = Array(BlowfishConstants.origS)
 
         // XOR key into P-array
         var keyIndex = 0
-        for i in 0..<(Self.N + 2) {
+        for i in 0..<(Self.rounds + 2) {
             var data: UInt32 = 0
             for _ in 0..<4 {
                 data = (data << 8) | UInt32(key[keyIndex])
@@ -35,7 +35,7 @@ final class BlowfishLegacy: @unchecked Sendable {
                     keyIndex = 0
                 }
             }
-            P[i] ^= data
+            pArray[i] ^= data
         }
 
         // Encrypt successive values to build the key schedule
@@ -43,10 +43,10 @@ final class BlowfishLegacy: @unchecked Sendable {
         var right: UInt32 = 0
 
         var i = 0
-        while i < Self.N + 2 {
+        while i < Self.rounds + 2 {
             encryptBlock(left: &left, right: &right)
-            P[i] = left
-            P[i + 1] = right
+            pArray[i] = left
+            pArray[i + 1] = right
             i += 2
         }
 
@@ -54,8 +54,8 @@ final class BlowfishLegacy: @unchecked Sendable {
         var sIndex = 0
         while sIndex < 1024 {
             encryptBlock(left: &left, right: &right)
-            S[sIndex] = left
-            S[sIndex + 1] = right
+            sBoxes[sIndex] = left
+            sBoxes[sIndex + 1] = right
             sIndex += 2
         }
     }
@@ -69,9 +69,9 @@ final class BlowfishLegacy: @unchecked Sendable {
         let d = Int(x & 0xFF)
 
         // S[0][a] + S[1][b] XOR S[2][c] + S[3][d]
-        var y = S[a] &+ S[256 + b]
-        y ^= S[512 + c]
-        y = y &+ S[768 + d]
+        var y = sBoxes[a] &+ sBoxes[256 + b]
+        y ^= sBoxes[512 + c]
+        y = y &+ sBoxes[768 + d]
 
         return y
     }
@@ -81,8 +81,8 @@ final class BlowfishLegacy: @unchecked Sendable {
         var xl = left
         var xr = right
 
-        for i in 0..<Self.N {
-            xl ^= P[i]
+        for i in 0..<Self.rounds {
+            xl ^= pArray[i]
             xr = f(xl) ^ xr
             // Swap
             let temp = xl
@@ -95,8 +95,8 @@ final class BlowfishLegacy: @unchecked Sendable {
         xl = xr
         xr = temp
 
-        xr ^= P[Self.N]
-        xl ^= P[Self.N + 1]
+        xr ^= pArray[Self.rounds]
+        xl ^= pArray[Self.rounds + 1]
 
         left = xl
         right = xr
@@ -107,9 +107,9 @@ final class BlowfishLegacy: @unchecked Sendable {
         var xl = left
         var xr = right
 
-        var i = Self.N + 1
+        var i = Self.rounds + 1
         while i > 1 {
-            xl ^= P[i]
+            xl ^= pArray[i]
             xr = f(xl) ^ xr
             // Swap
             let temp = xl
@@ -123,8 +123,8 @@ final class BlowfishLegacy: @unchecked Sendable {
         xl = xr
         xr = temp
 
-        xr ^= P[1]
-        xl ^= P[0]
+        xr ^= pArray[1]
+        xl ^= pArray[0]
 
         left = xl
         right = xr

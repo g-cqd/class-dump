@@ -99,12 +99,12 @@ public struct FatFile: Sendable {
 
         do {
             var cursor = try DataCursor(data: data, offset: 4)
-            let nfat_arch = try cursor.readBigInt32()
+            let nfatArch = try cursor.readBigInt32()
 
             var arches: [FatArch] = []
-            arches.reserveCapacity(Int(nfat_arch))
+            arches.reserveCapacity(Int(nfatArch))
 
-            for _ in 0..<nfat_arch {
+            for _ in 0..<nfatArch {
                 if is64Bit {
                     arches.append(try FatArch(cursor64: &cursor))
                 } else {

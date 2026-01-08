@@ -323,9 +323,9 @@ public final class ObjCTypeParser: @unchecked Sendable {
         while case .quotedString(let name) = lookahead {
             if variableName == nil {
                 variableName = name
-            } else {
+            } else if let existingName = variableName {
                 // Multiple quoted strings - concatenate them
-                variableName = "\(variableName!)__\(name)"
+                variableName = "\(existingName)__\(name)"
             }
             lookahead = lexer.scanNextToken()
         }

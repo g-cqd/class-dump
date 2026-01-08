@@ -138,9 +138,9 @@ struct FormatTypeCommand {
                 let result: String?
                 switch formatType {
                 case .ivar:
-                    result = formatAsIvar(name: name!, typeString: typeString)
+                    result = formatAsIvar(name: name ?? "", typeString: typeString)
                 case .method:
-                    result = formatAsMethod(name: name!, typeString: typeString)
+                    result = formatAsMethod(name: name ?? "", typeString: typeString)
                 case .balance:
                     result = formatAsBalance(typeString: typeString)
                 }
@@ -220,7 +220,7 @@ struct BalanceFormatter {
             var pre = ""
             while index < string.endIndex {
                 let char = string[index]
-                if Self.bracketSet.contains(char.unicodeScalars.first!) {
+                if let scalar = char.unicodeScalars.first, Self.bracketSet.contains(scalar) {
                     break
                 }
                 pre.append(char)
