@@ -29,15 +29,17 @@
 [x] 08 Update Swift tools version to 6.2 in Package.swift
 [x] 09 Move tests to SPM (Tests/ClassDumpCoreTests, etc.) and make `swift test` the primary runner
 [x] 10 Add ARM64e/current ARM subtype parsing and tests (CDArchFromName/CDNameForCPUType)
-[ ] 11 Migrate byte parsing utilities (CDDataCursor, CDMachOFileDataCursor, ULEB128, byte order) to Swift structs
-[ ] 12 Migrate Mach-O model types (CDFile, CDFatFile, CDFatArch, CDMachOFile) to Swift, keep Obj-C shims
-[ ] 13 Migrate load command types (CDLC*), sections, symbols, relocation parsing
-[ ] 14 Migrate Objective-C metadata parsing (CDObjectiveC1/2Processor, CDOC* types)
-[ ] 15 Migrate type system and formatting (CDType*, formatter, lexer, parser)
-[ ] 16 Migrate visitor pipeline + output formatting (CDVisitor, CDClassDumpVisitor, CDTextClassDumpVisitor, etc.)
-[ ] 17 Migrate CLI entry points (class-dump, deprotect, formatType, MachObjC) to Swift async main
+[x] 11 Migrate byte parsing utilities (DataCursor, MachOFileDataCursor, ByteOrder) to Swift structs
+[x] 12 Migrate Mach-O model types (MachOFile, FatFile, MachOHeader, Arch) to Swift
+[x] 13 Migrate load command types (LoadCommand, SegmentCommand, etc.), sections, symbols
+[x] 14 Migrate Objective-C metadata parsing (ObjC2Processor, runtime structs, chained fixups, small methods)
+[x] 15 Migrate type system and formatting (ObjCType, ObjCTypeParser, ObjCTypeLexer, ObjCTypeFormatter)
+[x] 16 Migrate visitor pipeline + output formatting (TextClassDumpVisitor, ClassDumpHeaderVisitor, etc.)
+[x] 17 Migrate class-dump CLI to Swift with ArgumentParser
+[ ] 17b Implement deprotect CLI in Swift
+[ ] 17c Implement formatType CLI in Swift
 [ ] 18 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
-[ ] 19 Modernization pass (Swift 6.2 strict concurrency flags, Sendable annotations, Logger, URL APIs)
+[ ] 19 Modernization pass (Swift 6.2 strict concurrency audit, Sendable annotations, Logger, URL APIs)
 [ ] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
 [ ] 21 Final verification (tests, performance checks, docs update)
 
@@ -73,3 +75,4 @@
 - 2026-01-07: set Swift tools version to 6.2 and adjusted SPM migration steps
 - 2026-01-07: verified arm64e mapping via tests (no code change required)
 - 2026-01-07: moved Swift tests into SPM and made `swift test` the primary runner (ObjC core split into ClassDumpCoreObjC)
+- 2026-01-08: implemented full Swift 6 core - DataCursor, MachO types, load commands, ObjC2Processor with chained fixups and small methods, type system (parser/lexer/formatter), visitor pipeline, class-dump CLI with ArgumentParser. 265 tests passing. Pushed to fork.
