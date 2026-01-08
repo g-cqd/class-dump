@@ -1,6 +1,7 @@
-import Testing
-@testable import ClassDumpCore
 import MachO
+import Testing
+
+@testable import ClassDumpCore
 
 @Suite struct TestArchUses64BitABI {
     @Test func i386() {
@@ -14,7 +15,7 @@ import MachO
     }
 
     @Test func x86_64_lib64() {
-        let lib64 = cpu_subtype_t(bitPattern: 0x80000000)
+        let lib64 = cpu_subtype_t(bitPattern: 0x8000_0000)
         let arch = Arch(
             cputype: CPU_TYPE_X86_64,
             cpusubtype: 3 | lib64

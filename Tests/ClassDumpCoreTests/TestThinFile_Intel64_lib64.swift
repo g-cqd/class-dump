@@ -1,10 +1,11 @@
-import Testing
-@testable import ClassDumpCore
 import MachO
+import Testing
+
+@testable import ClassDumpCore
 
 @Suite struct TestThinFile_Intel64_lib64 {
     let binary: MachOBinary
-    let lib64 = Int32(bitPattern: 0x80000000)
+    let lib64 = Int32(bitPattern: 0x8000_0000)
 
     init() throws {
         let data = mockMachOData(cputype: CPU_TYPE_X86_64, cpusubtype: 3 | lib64, is64Bit: true)

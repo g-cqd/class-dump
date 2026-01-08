@@ -1,6 +1,7 @@
-import Testing
-@testable import ClassDumpCore
 import MachO
+import Testing
+
+@testable import ClassDumpCore
 
 @Suite struct TestNameForCPUType {
     @Test func armv6() {
@@ -24,12 +25,12 @@ import MachO
     }
 
     @Test func arm64e() {
-        let arch = Arch(cputype: CPU_TYPE_ARM | CPU_ARCH_ABI64, cpusubtype: 2) // CPU_SUBTYPE_ARM64E
+        let arch = Arch(cputype: CPU_TYPE_ARM | CPU_ARCH_ABI64, cpusubtype: 2)  // CPU_SUBTYPE_ARM64E
         #expect(arch.name == "arm64e")
     }
 
     @Test func i386() {
-        let arch = Arch(cputype: CPU_TYPE_X86, cpusubtype: 3) // CPU_SUBTYPE_I386_ALL
+        let arch = Arch(cputype: CPU_TYPE_X86, cpusubtype: 3)  // CPU_SUBTYPE_I386_ALL
         #expect(arch.name == "i386")
     }
 
@@ -39,7 +40,7 @@ import MachO
     }
 
     @Test func x86_64_lib64() {
-        let lib64 = Int32(bitPattern: 0x80000000)
+        let lib64 = Int32(bitPattern: 0x8000_0000)
         let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3 | lib64)
         #expect(arch.name == "x86_64")
     }

@@ -1,4 +1,5 @@
 import Testing
+
 @testable import ClassDumpCore
 
 @Suite struct TestBlockSignature {
@@ -32,7 +33,7 @@ import Testing
         // void (^)(void (^)(void))
         let nestedTypes: [ObjCType] = [.void, .block(types: nil)]
         let nestedBlock = ObjCType.block(types: nestedTypes)
-        
+
         let types: [ObjCType] = [.void, .block(types: nil), nestedBlock]
         let block = ObjCType.block(types: types)
         #expect(block.formatted() == "void (^)(void (^)(void))")

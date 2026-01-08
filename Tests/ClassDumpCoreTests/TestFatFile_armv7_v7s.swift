@@ -1,27 +1,28 @@
-import Testing
-@testable import ClassDumpCore
-import MachO
 import Foundation
+import MachO
+import Testing
+
+@testable import ClassDumpCore
 
 @Suite struct TestFatFile_armv7_v7s {
     let binary: MachOBinary
-    
+
     init() throws {
         let offsetV7: UInt32 = 0x1000
         let sizeV7: UInt32 = 0x100
         let alignV7: UInt32 = 12
-        
+
         let offsetV7s: UInt32 = 0x2000
         let sizeV7s: UInt32 = 0x100
         let alignV7s: UInt32 = 12
-        
+
         let arches = [
             (cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7, offset: offsetV7, size: sizeV7, align: alignV7),
-            (cputype: CPU_TYPE_ARM, cpusubtype: cpu_subtype_t(11), offset: offsetV7s, size: sizeV7s, align: alignV7s)
+            (cputype: CPU_TYPE_ARM, cpusubtype: cpu_subtype_t(11), offset: offsetV7s, size: sizeV7s, align: alignV7s),
         ]
-        
+
         var data = mockFatData(arches: arches)
-        
+
         // V7
         if data.count < offsetV7 {
             data.append(Data(repeating: 0, count: Int(offsetV7) - data.count))
@@ -30,7 +31,7 @@ import Foundation
         if data.count < offsetV7 + sizeV7 {
             data.append(Data(repeating: 0, count: Int(offsetV7 + sizeV7) - data.count))
         }
-        
+
         // V7s
         if data.count < offsetV7s {
             data.append(Data(repeating: 0, count: Int(offsetV7s) - data.count))
@@ -39,7 +40,7 @@ import Foundation
         if data.count < offsetV7s + sizeV7s {
             data.append(Data(repeating: 0, count: Int(offsetV7s + sizeV7s) - data.count))
         }
-        
+
         binary = try MachOBinary(data: data)
     }
 
