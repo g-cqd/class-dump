@@ -1,9 +1,6 @@
-// ClassDump - Unified documentation target
+// ClassDump - Unified module for class-dump functionality
 //
-// This module re-exports all class-dump components for unified documentation.
+// This module re-exports ClassDumpCore for convenient access to all
+// Mach-O parsing and Objective-C metadata extraction functionality.
 
-@_exported import ClassDumpCLI
 @_exported import ClassDumpCore
-@_exported import DeprotectCLI
-@_exported import FormatTypeCLI
-@_exported import RegressionTestCLI
