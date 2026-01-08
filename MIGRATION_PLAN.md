@@ -41,12 +41,12 @@
 [x] 17d Full CLI feature parity (-a, -A, -f, -H, -o, -t, --list-arches, --hide, --sdk-*, sorting)
 [ ] 18 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
 [x] 19 Modernization pass (Swift 6.2 strict concurrency audit, Sendable annotations, deprecated API migration)
-[ ] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
-[ ] 21 Final verification (tests, performance checks, docs update)
+[x] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
+[x] 21 Final verification (tests, performance checks, docs update)
 
 ## Phase 2: Swift Testing & Enhanced Features
 
-[ ] 22 Migrate all tests from XCTest to Swift Testing (@Test, @Suite, #expect)
+[x] 22 Migrate all tests from XCTest to Swift Testing (@Test, @Suite, #expect)
 [ ] 23 Add Swift name demangling support (swift_demangle API or custom demangler)
 [ ] 24 Add Swift metadata parsing (Swift reflection metadata, type descriptors, witness tables)
 [ ] 25 Investigate native Apple frameworks for lexer/parser (SwiftSyntax, swift-format infrastructure)
