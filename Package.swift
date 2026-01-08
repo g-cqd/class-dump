@@ -18,7 +18,8 @@ let package = Package(
         .executable(name: "regression-test", targets: ["RegressionTestCLI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.3.0"),
     ],
     targets: [
         .target(
@@ -62,5 +63,5 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
     ],
-    swiftLanguageVersions: [.v6]
+    swiftLanguageModes: [.v6]
 )
