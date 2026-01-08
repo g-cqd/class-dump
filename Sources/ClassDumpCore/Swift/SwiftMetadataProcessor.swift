@@ -88,6 +88,65 @@ public final class SwiftMetadataProcessor {
         fieldDescriptorsByType[mangledType]
     }
 
+    /// Resolve a field's mangled type name using the symbolic resolver.
+    ///
+    /// - Parameters:
+    ///   - mangledTypeName: The mangled type name (may contain symbolic refs).
+    ///   - sourceOffset: The file offset where this name was read.
+    /// - Returns: A human-readable type name.
+    public func resolveFieldType(_ mangledTypeName: String, at sourceOffset: Int) -> String {
+        guard !mangledTypeName.isEmpty else { return "" }
+
+        // Check if it starts with a symbolic reference marker
+        if let firstByte = mangledTypeName.utf8.first,
+            SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte)
+        {
+            let resolver = SwiftSymbolicResolver(
+                data: data,
+                segments: segments,
+                byteOrder: byteOrder
+            )
+
+            if let mangledData = mangledTypeName.data(using: .utf8) {
+                return resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
+            }
+        }
+
+        // Fall back to regular demangling
+        return SwiftDemangler.demangle(mangledTypeName)
+    }
+
+    /// Resolve a field's mangled type using raw data bytes.
+    ///
+    /// This is more reliable than string-based resolution for symbolic references.
+    ///
+    /// - Parameters:
+    ///   - mangledData: Raw bytes of the mangled type name.
+    ///   - sourceOffset: The file offset where this data was read.
+    /// - Returns: A human-readable type name.
+    public func resolveFieldTypeFromData(_ mangledData: Data, at sourceOffset: Int) -> String {
+        guard !mangledData.isEmpty else { return "" }
+
+        let firstByte = mangledData[mangledData.startIndex]
+
+        // Check if it starts with a symbolic reference marker
+        if SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte) {
+            let resolver = SwiftSymbolicResolver(
+                data: data,
+                segments: segments,
+                byteOrder: byteOrder
+            )
+            return resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
+        }
+
+        // Fall back to regular demangling
+        if let str = String(data: mangledData, encoding: .utf8) {
+            return SwiftDemangler.demangle(str)
+        }
+
+        return ""
+    }
+
     // MARK: - Section Finding
 
     private func findSection(segment segmentName: String, section sectionName: String) -> Section? {
@@ -168,6 +227,43 @@ public final class SwiftMetadataProcessor {
         guard end > Int(targetOffset) else { return nil }
         let stringData = data.subdata(in: Int(targetOffset)..<end)
         return String(data: stringData, encoding: .utf8)
+    }
+
+    /// Read raw bytes via relative pointer (for symbolic references).
+    ///
+    /// For symbolic references, we need to read a fixed amount of binary data
+    /// because the relative offset bytes can contain nulls.
+    private func readRelativeData(at fileOffset: Int) -> Data? {
+        guard let targetOffset = readRelativePointer(at: fileOffset) else { return nil }
+        guard targetOffset >= 0, targetOffset < data.count else { return nil }
+
+        // Check if this is a symbolic reference (first byte 0x01-0x17)
+        let firstByte = data[Int(targetOffset)]
+        if SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte) {
+            // For symbolic references, we need at least 5 bytes (marker + 4-byte offset)
+            // Then continue reading the suffix (mangled type info after the reference)
+            let minLen = 5
+            let maxLen = min(256, data.count - Int(targetOffset))
+            guard maxLen >= minLen else { return nil }
+
+            // Read 5 bytes for the symbolic ref, then continue until null for suffix
+            var end = Int(targetOffset) + minLen
+            while end < Int(targetOffset) + maxLen, data[end] != 0 {
+                end += 1
+            }
+
+            return data.subdata(in: Int(targetOffset)..<end)
+        }
+
+        // For regular strings, read until null terminator
+        var end = Int(targetOffset)
+        let maxLen = min(256, data.count - Int(targetOffset))
+        while end < Int(targetOffset) + maxLen, data[end] != 0 {
+            end += 1
+        }
+
+        guard end > Int(targetOffset) else { return nil }
+        return data.subdata(in: Int(targetOffset)..<end)
     }
 
     // MARK: - Field Descriptor Parsing
@@ -264,14 +360,26 @@ public final class SwiftMetadataProcessor {
                     }
                 }
 
+                // Calculate the actual offset where the type name data starts
+                // The relative pointer is at recordOffset + 4, pointing to the type name
+                let typeNamePointerOffset = recordOffset + 4
+                var typeNameDataOffset = 0
+                if let targetOffset = readRelativePointer(at: typeNamePointerOffset) {
+                    typeNameDataOffset = Int(targetOffset)
+                }
+
+                // Read both string representation and raw bytes
                 let fieldTypeName = readRelativeString(at: recordOffset + 4) ?? ""
+                let fieldTypeData = readRelativeData(at: recordOffset + 4) ?? Data()
                 let fieldName = readRelativeString(at: recordOffset + 8) ?? ""
 
                 records.append(
                     SwiftFieldRecord(
                         flags: flags,
                         name: fieldName,
-                        mangledTypeName: fieldTypeName
+                        mangledTypeName: fieldTypeName,
+                        mangledTypeData: fieldTypeData,
+                        mangledTypeNameOffset: typeNameDataOffset
                     ))
             }
 

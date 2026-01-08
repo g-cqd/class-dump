@@ -210,13 +210,32 @@ public struct SwiftFieldRecord: Sendable {
     public let flags: UInt32
     public let name: String
     public let mangledTypeName: String
+    /// Raw bytes of the mangled type name (for symbolic reference resolution).
+    public let mangledTypeData: Data
+    /// File offset where the mangled type name was read (for symbolic resolution).
+    public let mangledTypeNameOffset: Int
 
     public var isVar: Bool { (flags & 0x2) != 0 }
     public var isIndirect: Bool { (flags & 0x1) != 0 }
 
-    public init(flags: UInt32, name: String, mangledTypeName: String) {
+    /// Check if the type uses a symbolic reference.
+    public var hasSymbolicReference: Bool {
+        guard !mangledTypeData.isEmpty else { return false }
+        let firstByte = mangledTypeData[mangledTypeData.startIndex]
+        return SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte)
+    }
+
+    public init(
+        flags: UInt32,
+        name: String,
+        mangledTypeName: String,
+        mangledTypeData: Data = Data(),
+        mangledTypeNameOffset: Int = 0
+    ) {
         self.flags = flags
         self.name = name
         self.mangledTypeName = mangledTypeName
+        self.mangledTypeData = mangledTypeData
+        self.mangledTypeNameOffset = mangledTypeNameOffset
     }
 }

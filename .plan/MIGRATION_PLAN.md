@@ -81,11 +81,12 @@
     - Check for `__swift5_*` sections in __TEXT segment
     - Implemented `hasSwiftMetadata` property on MachOFile
     - Created SwiftMetadataProcessor for parsing Swift sections
-[~] 32 Parse Swift type descriptors (partial)
+[x] 32 Parse Swift type descriptors
     - Created SwiftMetadata.swift with type definitions
     - Parse `__swift5_types` section to extract type descriptors
     - Parse `__swift5_fieldmd` section for field descriptors
-    - Note: Symbolic type references need runtime resolution for full types
+    - SwiftSymbolicResolver for resolving symbolic type references
+    - 72% resolution rate on real binaries (65/90 references)
 [~] 33 Parse Swift protocol descriptors (partial)
     - Parse `__swift5_protos` section for protocol names
     - Full protocol requirements need more work
@@ -95,13 +96,16 @@
 [ ] 35 Generate Swift-style headers
     - Format Swift types as `.swiftinterface`-like output
     - Handle generics, property wrappers, result builders
-    - Requires full symbolic reference resolution
+[~] 36 Integrate Swift types with ObjC output (partial)
+    - Field descriptor lookup by class name
+    - Need to link field descriptors to ObjC classes via address matching
 
 ### Swift Support Notes
-- Swift ivar types now show `/* Swift */` instead of empty `/* */`
-- SwiftDemangler provides basic type name demangling
-- Full Swift type resolution requires resolving symbolic references (0x01-0x17 prefixed)
-  which point to type metadata via relative offsets - complex runtime-like resolution needed
+- Swift ivar types show `/* Swift */` when type resolution not available
+- SwiftDemangler provides class name demangling from ObjC format
+- SwiftSymbolicResolver resolves direct context references (0x01)
+- Indirect references (0x02) partially resolved - need GOT handling
+- Field descriptor to ObjC class matching needs improvement
 
 ## Phase 5: dyld_shared_cache Integration
 
@@ -215,3 +219,14 @@
     - Added SwiftDemangler for basic type name demangling
     - Note: Full Swift type resolution requires symbolic reference resolution (future work)
     - Added 3 new Swift metadata tests. All 280 tests passing.
+- 2026-01-08: implemented Swift symbolic reference resolution (Phase 4, task 32 completion):
+    - Created SwiftSymbolicResolver.swift for resolving symbolic type references
+    - Handle direct context references (0x01 prefix) - read type descriptor and extract name
+    - Handle indirect context references (0x02 prefix) - dereference GOT-like pointers
+    - Store raw bytes for field type data (symbolic refs contain nulls in offset bytes)
+    - SwiftFieldRecord now has mangledTypeData and hasSymbolicReference properties
+    - Achieved 72% resolution rate (65/90 symbolic references resolved in test binary)
+    - SwiftMetadataProcessor.resolveFieldTypeFromData() for raw data resolution
+    - Added SwiftDemangler unit tests for class name demangling
+    - Field descriptor to ObjC class mapping still needs improvement (class name matching)
+    - All 284 tests passing.

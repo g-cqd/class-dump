@@ -128,4 +128,50 @@ struct TestSwiftMetadata {
             #expect(!type.name.isEmpty, "Type names should not be empty")
         }
     }
+
+    @Test("Resolve symbolic type references")
+    func testResolveSymbolicReferences() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let processor = SwiftMetadataProcessor(machOFile: machO)
+        let metadata = try processor.process()
+
+        // Find a field descriptor with records that have type references
+        var resolvedCount = 0
+        var symbolicCount = 0
+
+        for fd in metadata.fieldDescriptors.prefix(100) {
+            for record in fd.records {
+                // Use raw data to check for symbolic references
+                guard !record.mangledTypeData.isEmpty else { continue }
+
+                // Check if it's a symbolic reference using raw data
+                if record.hasSymbolicReference {
+                    symbolicCount += 1
+
+                    // Try to resolve it using raw data
+                    let resolved = processor.resolveFieldTypeFromData(
+                        record.mangledTypeData,
+                        at: record.mangledTypeNameOffset
+                    )
+
+                    if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                        resolvedCount += 1
+                    }
+                }
+            }
+        }
+
+        // We should have found some symbolic references
+        #expect(symbolicCount > 0, "Should have symbolic type references")
+        // We should be able to resolve at least some of them
+        #expect(resolvedCount > 0, "Should resolve some symbolic references")
+    }
 }

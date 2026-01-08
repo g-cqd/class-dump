@@ -61,6 +61,9 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Swift field descriptors indexed by mangled type name.
     private var swiftFieldsByMangledName: [String: SwiftFieldDescriptor] = [:]
 
+    /// Swift field descriptors indexed by simple class name (for ObjC lookup).
+    private var swiftFieldsByClassName: [String: SwiftFieldDescriptor] = [:]
+
     /// Pointer size in bytes.
     private var ptrSize: Int {
         is64Bit ? 8 : 4
@@ -84,10 +87,41 @@ public final class ObjC2Processor: @unchecked Sendable {
         self.chainedFixups = chainedFixups
         self.swiftMetadata = swiftMetadata
 
-        // Build Swift field lookup
+        // Build Swift field lookups
         if let swift = swiftMetadata {
+            // First, build a mapping from Swift types to their simple names
+            var typeNameByAddress: [UInt64: String] = [:]
+            for swiftType in swift.types {
+                typeNameByAddress[swiftType.address] = swiftType.name
+            }
+
             for fd in swift.fieldDescriptors {
+                // Index by raw mangled type name
                 swiftFieldsByMangledName[fd.mangledTypeName] = fd
+
+                // Try to extract a simple name from the mangled type
+                var simpleName: String?
+
+                // First try extracting from the mangled name
+                let demangled = SwiftDemangler.extractTypeName(fd.mangledTypeName)
+                if !demangled.isEmpty && !demangled.hasPrefix("/*") {
+                    // Extract just the class name (last component)
+                    if demangled.contains(".") {
+                        simpleName = String(demangled.split(separator: ".").last ?? Substring(demangled))
+                    } else {
+                        simpleName = demangled
+                    }
+                }
+
+                // If we have a simple name, index by it
+                if let name = simpleName, !name.isEmpty, name != fd.mangledTypeName {
+                    swiftFieldsByClassName[name] = fd
+                }
+
+                // Also index by the address if we can match to a SwiftType
+                if let typeName = typeNameByAddress[fd.address] {
+                    swiftFieldsByClassName[typeName] = fd
+                }
             }
         }
     }
@@ -295,6 +329,11 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Swift Type Resolution
 
+    /// Lazy symbolic resolver for Swift type references.
+    private lazy var symbolicResolver: SwiftSymbolicResolver? = {
+        SwiftSymbolicResolver(data: data, segments: segments, byteOrder: byteOrder)
+    }()
+
     /// Try to resolve a Swift type name for an ivar based on class name and field name.
     ///
     /// Swift classes expose ivars to ObjC runtime but don't provide type encodings.
@@ -317,7 +356,14 @@ public final class ObjC2Processor: @unchecked Sendable {
             targetClassName = extractSimpleClassName(from: className)
         }
 
-        // Try to find matching field descriptor
+        // First, try direct lookup by class name (fastest path)
+        if let descriptor = swiftFieldsByClassName[targetClassName] {
+            if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+                return resolved
+            }
+        }
+
+        // Fall back to searching through all descriptors
         for (mangledTypeName, descriptor) in swiftFieldsByMangledName {
             // The mangled type name in field descriptors may be a symbolic reference
             // or a mangled string. Try to match based on demangled class name.
@@ -329,26 +375,48 @@ public final class ObjC2Processor: @unchecked Sendable {
             if descriptorClassName == targetClassName || demangled.hasSuffix(targetClassName)
                 || mangledTypeName.contains(targetClassName)
             {
-                // Find the field with matching name
-                for record in descriptor.records {
-                    // Handle lazy storage prefix and other Swift internal prefixes
-                    var fieldName = record.name
-                    fieldName = fieldName.replacingOccurrences(of: "$__lazy_storage_$_", with: "")
-                    fieldName = fieldName.replacingOccurrences(of: "_$s", with: "")
-
-                    if fieldName == ivarName || record.name == ivarName {
-                        // Demangle the type
-                        if !record.mangledTypeName.isEmpty {
-                            let demangled = SwiftDemangler.demangle(record.mangledTypeName)
-                            if demangled != "/* symbolic ref */" {
-                                return demangled
-                            }
-                        }
-                    }
+                if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+                    return resolved
                 }
             }
         }
 
+        return nil
+    }
+
+    /// Resolve a field's type from a descriptor by field name.
+    private func resolveFieldFromDescriptor(_ descriptor: SwiftFieldDescriptor, fieldName ivarName: String)
+        -> String?
+    {
+        for record in descriptor.records {
+            // Handle lazy storage prefix and other Swift internal prefixes
+            var fieldName = record.name
+            fieldName = fieldName.replacingOccurrences(of: "$__lazy_storage_$_", with: "")
+            fieldName = fieldName.replacingOccurrences(of: "_$s", with: "")
+
+            if fieldName == ivarName || record.name == ivarName {
+                // Try to resolve the type using symbolic resolver
+                // Prefer raw data for symbolic references
+                if record.hasSymbolicReference {
+                    // Use symbolic resolver with raw data
+                    if let resolver = symbolicResolver {
+                        let resolved = resolver.resolveType(
+                            mangledData: record.mangledTypeData,
+                            sourceOffset: record.mangledTypeNameOffset
+                        )
+                        if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                            return resolved
+                        }
+                    }
+                } else if !record.mangledTypeName.isEmpty {
+                    // Regular mangled name
+                    let demangled = SwiftDemangler.demangle(record.mangledTypeName)
+                    if demangled != "/* symbolic ref */" && demangled != record.mangledTypeName {
+                        return demangled
+                    }
+                }
+            }
+        }
         return nil
     }
 
