@@ -55,6 +55,10 @@
               "pattern": "formatType (\\d+\\.\\d+\\.\\d+) \\(Swift\\)"
             },
             {
+              "file": "Sources/RegressionTestCLI/main.swift",
+              "pattern": "version: \"(\\d+\\.\\d+\\.\\d+) \\(Swift\\)\""
+            },
+            {
               "file": "README.md",
               "pattern": "from: \"(\\d+\\.\\d+\\.\\d+)\""
             }

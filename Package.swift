@@ -47,13 +47,18 @@ let package = Package(
         .executableTarget(
             name: "RegressionTestCLI",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             swiftSettings: swiftSettings
         ),
         .testTarget(
             name: "ClassDumpCoreTests",
             dependencies: ["ClassDumpCore"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "RegressionTestCLITests",
+            dependencies: ["RegressionTestCLI"],
             swiftSettings: swiftSettings
         ),
     ],
