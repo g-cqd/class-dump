@@ -1,5 +1,13 @@
 ### Unreleased
 
+### Version 4.0.0 (Swift) - Released 2026-01-08
+
+* **Rewrite**: Complete rewrite in Swift 6.2.
+* **New Tools**: Added `deprotect` and `formatType` as standalone executables.
+* **Build System**: Adopted Swift Package Manager (`Package.swift`).
+* **CI/CD**: Added GitHub Actions workflow for building, testing, linting, and releasing.
+* **Tooling**: Integrated `swa` (Swift Static Analysis) for static analysis.
+* **Documentation**: Added DocC documentation support.
 * Building with the 10.14 SDK.
 * Fix parse error of _Atomic types.  (Thanks to Jacob Bandes-Storch (jtbandes)).
 * Work around many other parsing errors from blank types:

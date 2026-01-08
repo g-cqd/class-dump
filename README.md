@@ -6,53 +6,79 @@ segment of Mach-O files.  It generates declarations for the classes,
 categories and protocols.  This is the same information provided by
 using 'otool -ov', but presented as normal Objective-C declarations.
 
+**Version 4.0.0 is a complete rewrite in Swift.**
+
 The latest version and information is available at:
 
     http://stevenygard.com/projects/class-dump
 
 The source code is also available from my Github repository at:
 
-    https://github.com/nygard/class-dump
+    https://github.com/g-cqd/class-dump
+
+Installation
+------------
+
+### Swift Package Manager
+
+Add `class-dump` as a dependency in your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/g-cqd/class-dump.git", from: "4.0.0")
+]
+```
+
+### Pre-built Binaries
+
+You can download pre-built binaries for macOS from the [Releases](https://github.com/g-cqd/class-dump/releases) page.
 
 Usage
 -----
 
-    class-dump 3.5 (64 bit)
-    Usage: class-dump [options] <mach-o-file>
+    class-dump 4.0.0 (Swift)
+    Usage: class-dump [options] <file>
 
-      where options are:
-            -a             show instance variable offsets
-            -A             show implementation addresses
-            --arch <arch>  choose a specific architecture from a universal binary (ppc, ppc64, i386, x86_64)
-            -C <regex>     only display classes matching regular expression
-            -f <str>       find string in method name
-            -H             generate header files in current directory, or directory specified with -o
-            -I             sort classes, categories, and protocols by inheritance (overrides -s)
-            -o <dir>       output directory used for -H
-            -r             recursively expand frameworks and fixed VM shared libraries
-            -s             sort classes and categories by name
-            -S             sort methods by name
-            -t             suppress header in output, for testing
-            --list-arches  list the arches in the file, then exit
-            --sdk-ios      specify iOS SDK version (will look in /Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS<version>.sdk
-            --sdk-mac      specify Mac OS X version (will look in /Developer/SDKs/MacOSX<version>.sdk
-            --sdk-root     specify the full SDK root path (or use --sdk-ios/--sdk-mac for a shortcut)
+      ARGUMENTS:
+        <file>                  The Mach-O file to process
 
-- class-dump AppKit:
+      OPTIONS:
+        --arch <arch>           Select a specific architecture from a universal binary (ppc, ppc64, i386, x86_64, armv6, armv7, armv7s, arm64)
+        --list-arches           List the architectures in the file, then exit
+        -a                      Show instance variable offsets
+        -A                      Show implementation addresses
+        -t                      Suppress header in output, for testing
+        -s                      Sort classes and categories by name
+        -I                      Sort classes, categories, and protocols by inheritance (overrides -s)
+        -S                      Sort methods by name
+        -C <match>              Only display classes matching regular expression
+        -f <find>               Find string in method name
+        -H                      Generate header files in current directory, or directory specified with -o
+        -o <output-dir>         Output directory used for -H
+        -r                      Recursively expand frameworks and fixed VM shared libraries
+        --sdk-ios <sdk-ios>     Specify iOS SDK version
+        --sdk-mac <sdk-mac>     Specify Mac OS X SDK version
+        --sdk-root <sdk-root>   Specify the full SDK root path
+        --hide <hide>           Hide section (structures, protocols, or all)
+        -h, --help              Show help information
 
-    class-dump /System/Library/Frameworks/AppKit.framework
+Development
+-----------
 
-- class-dump UIKit:
+### Building
 
-    class-dump /Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.3.sdk/System/Library/Frameworks/UIKit.framework
+    swift build
 
-- class-dump UIKit and all the frameworks it uses:
+### Testing
 
-    class-dump /Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS4.3.sdk/System/Library/Frameworks/UIKit.framework -r --sdk-ios 4.3
+    swift test
 
-- class-dump UIKit (and all the frameworks it uses) from developer tools that have been installed in /Dev42 instead of /Developer:
+### Tools
 
-    class-dump /Dev42/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS5.0.sdk/System/Library/Frameworks/UIKit.framework -r --sdk-root /Dev42/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS5.0.sdk
+This project uses `swa` (Swift Static Analysis) for linting and quality checks.
+
+    swa unused Sources
+    swa duplicates Sources
 
 
 License
