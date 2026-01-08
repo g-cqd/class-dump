@@ -5,507 +5,507 @@ import MachO
 
 /// Dylinker load command (LC_LOAD_DYLINKER, LC_ID_DYLINKER, LC_DYLD_ENVIRONMENT).
 public struct DylinkerCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let name: String
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let name: String
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        let nameOffset = try cursor.readLittleInt32()
-        cursor = try DataCursor(data: data, offset: Int(nameOffset))
-        self.name = try cursor.readCString()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        let nameOffset = try cursor.readBigInt32()
-        cursor = try DataCursor(data: data, offset: Int(nameOffset))
-        self.name = try cursor.readCString()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                let nameOffset = try cursor.readLittleInt32()
+                cursor = try DataCursor(data: data, offset: Int(nameOffset))
+                self.name = try cursor.readCString()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                let nameOffset = try cursor.readBigInt32()
+                cursor = try DataCursor(data: data, offset: Int(nameOffset))
+                self.name = try cursor.readCString()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
+        }
     }
-  }
 }
 
 extension DylinkerCommand: CustomStringConvertible {
-  public var description: String {
-    "DylinkerCommand(\(commandName), \(name))"
-  }
+    public var description: String {
+        "DylinkerCommand(\(commandName), \(name))"
+    }
 }
 
 // MARK: - UUID Command
 
 /// UUID load command (LC_UUID).
 public struct UUIDCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let uuid: UUID
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let uuid: UUID
 
-  public init(data: Data) throws {
-    guard data.count >= 24 else {
-      throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
+    public init(data: Data) throws {
+        guard data.count >= 24 else {
+            throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
+        }
+
+        self.cmd = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
+        self.cmdsize = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
+
+        // Read 16-byte UUID
+        let uuidBytes = data.subdata(in: 8..<24)
+        self.uuid = uuidBytes.withUnsafeBytes { ptr in
+            UUID(uuid: ptr.loadUnaligned(as: uuid_t.self))
+        }
     }
 
-    self.cmd = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
-    self.cmdsize = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
-
-    // Read 16-byte UUID
-    let uuidBytes = data.subdata(in: 8..<24)
-    self.uuid = uuidBytes.withUnsafeBytes { ptr in
-      UUID(uuid: ptr.loadUnaligned(as: uuid_t.self))
+    public var uuidString: String {
+        uuid.uuidString
     }
-  }
-
-  public var uuidString: String {
-    uuid.uuidString
-  }
 }
 
 extension UUIDCommand: CustomStringConvertible {
-  public var description: String {
-    "UUIDCommand(\(uuidString))"
-  }
+    public var description: String {
+        "UUIDCommand(\(uuidString))"
+    }
 }
 
 // MARK: - Version Commands
 
 /// Version minimum load command (LC_VERSION_MIN_*).
 public struct VersionCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let version: DylibCommand.Version
-  public let sdk: DylibCommand.Version
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let version: DylibCommand.Version
+    public let sdk: DylibCommand.Version
 
-  public var platform: Platform {
-    switch cmd {
-    case UInt32(LC_VERSION_MIN_MACOSX): return .macOS
-    case UInt32(LC_VERSION_MIN_IPHONEOS): return .iOS
-    case UInt32(LC_VERSION_MIN_TVOS): return .tvOS
-    case UInt32(LC_VERSION_MIN_WATCHOS): return .watchOS
-    default: return .unknown
+    public var platform: Platform {
+        switch cmd {
+        case UInt32(LC_VERSION_MIN_MACOSX): return .macOS
+        case UInt32(LC_VERSION_MIN_IPHONEOS): return .iOS
+        case UInt32(LC_VERSION_MIN_TVOS): return .tvOS
+        case UInt32(LC_VERSION_MIN_WATCHOS): return .watchOS
+        default: return .unknown
+        }
     }
-  }
 
-  public enum Platform: Sendable {
-    case macOS
-    case iOS
-    case tvOS
-    case watchOS
-    case unknown
-  }
-
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
-
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.version = DylibCommand.Version(packed: try cursor.readLittleInt32())
-        self.sdk = DylibCommand.Version(packed: try cursor.readLittleInt32())
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.version = DylibCommand.Version(packed: try cursor.readBigInt32())
-        self.sdk = DylibCommand.Version(packed: try cursor.readBigInt32())
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+    public enum Platform: Sendable {
+        case macOS
+        case iOS
+        case tvOS
+        case watchOS
+        case unknown
     }
-  }
+
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
+
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.version = DylibCommand.Version(packed: try cursor.readLittleInt32())
+                self.sdk = DylibCommand.Version(packed: try cursor.readLittleInt32())
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.version = DylibCommand.Version(packed: try cursor.readBigInt32())
+                self.sdk = DylibCommand.Version(packed: try cursor.readBigInt32())
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+        }
+    }
 }
 
 extension VersionCommand: CustomStringConvertible {
-  public var description: String {
-    "VersionCommand(\(platform), version: \(version), sdk: \(sdk))"
-  }
+    public var description: String {
+        "VersionCommand(\(platform), version: \(version), sdk: \(sdk))"
+    }
 }
 
 // MARK: - Build Version Command
 
 /// Build platform type.
 public enum BuildPlatform: UInt32, Sendable {
-  case macOS = 1
-  case iOS = 2
-  case tvOS = 3
-  case watchOS = 4
-  case bridgeOS = 5
-  case macCatalyst = 6
-  case iOSSimulator = 7
-  case tvOSSimulator = 8
-  case watchOSSimulator = 9
-  case driverKit = 10
-  case visionOS = 11
-  case visionOSSimulator = 12
+    case macOS = 1
+    case iOS = 2
+    case tvOS = 3
+    case watchOS = 4
+    case bridgeOS = 5
+    case macCatalyst = 6
+    case iOSSimulator = 7
+    case tvOSSimulator = 8
+    case watchOSSimulator = 9
+    case driverKit = 10
+    case visionOS = 11
+    case visionOSSimulator = 12
 
-  public var name: String {
-    switch self {
-    case .macOS: return "macOS"
-    case .iOS: return "iOS"
-    case .tvOS: return "tvOS"
-    case .watchOS: return "watchOS"
-    case .bridgeOS: return "bridgeOS"
-    case .macCatalyst: return "macCatalyst"
-    case .iOSSimulator: return "iOS Simulator"
-    case .tvOSSimulator: return "tvOS Simulator"
-    case .watchOSSimulator: return "watchOS Simulator"
-    case .driverKit: return "DriverKit"
-    case .visionOS: return "visionOS"
-    case .visionOSSimulator: return "visionOS Simulator"
+    public var name: String {
+        switch self {
+        case .macOS: return "macOS"
+        case .iOS: return "iOS"
+        case .tvOS: return "tvOS"
+        case .watchOS: return "watchOS"
+        case .bridgeOS: return "bridgeOS"
+        case .macCatalyst: return "macCatalyst"
+        case .iOSSimulator: return "iOS Simulator"
+        case .tvOSSimulator: return "tvOS Simulator"
+        case .watchOSSimulator: return "watchOS Simulator"
+        case .driverKit: return "DriverKit"
+        case .visionOS: return "visionOS"
+        case .visionOSSimulator: return "visionOS Simulator"
+        }
     }
-  }
 }
 
 /// Build tool version information.
 public struct BuildToolVersion: Sendable {
-  public let tool: UInt32
-  public let version: DylibCommand.Version
+    public let tool: UInt32
+    public let version: DylibCommand.Version
 
-  public var toolName: String {
-    switch tool {
-    case 1: return "clang"
-    case 2: return "swift"
-    case 3: return "ld"
-    case 4: return "lld"
-    default: return "unknown(\(tool))"
+    public var toolName: String {
+        switch tool {
+        case 1: return "clang"
+        case 2: return "swift"
+        case 3: return "ld"
+        case 4: return "lld"
+        default: return "unknown(\(tool))"
+        }
     }
-  }
 }
 
 /// Build version load command (LC_BUILD_VERSION).
 public struct BuildVersionCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let platform: BuildPlatform?
-  public let platformRaw: UInt32
-  public let minos: DylibCommand.Version
-  public let sdk: DylibCommand.Version
-  public let tools: [BuildToolVersion]
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let platform: BuildPlatform?
+    public let platformRaw: UInt32
+    public let minos: DylibCommand.Version
+    public let sdk: DylibCommand.Version
+    public let tools: [BuildToolVersion]
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.platformRaw = try cursor.readLittleInt32()
-        self.minos = DylibCommand.Version(packed: try cursor.readLittleInt32())
-        self.sdk = DylibCommand.Version(packed: try cursor.readLittleInt32())
-        let ntools = try cursor.readLittleInt32()
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.platformRaw = try cursor.readLittleInt32()
+                self.minos = DylibCommand.Version(packed: try cursor.readLittleInt32())
+                self.sdk = DylibCommand.Version(packed: try cursor.readLittleInt32())
+                let ntools = try cursor.readLittleInt32()
 
-        var tools: [BuildToolVersion] = []
-        tools.reserveCapacity(Int(ntools))
-        for _ in 0..<ntools {
-          let tool = try cursor.readLittleInt32()
-          let version = DylibCommand.Version(packed: try cursor.readLittleInt32())
-          tools.append(BuildToolVersion(tool: tool, version: version))
+                var tools: [BuildToolVersion] = []
+                tools.reserveCapacity(Int(ntools))
+                for _ in 0..<ntools {
+                    let tool = try cursor.readLittleInt32()
+                    let version = DylibCommand.Version(packed: try cursor.readLittleInt32())
+                    tools.append(BuildToolVersion(tool: tool, version: version))
+                }
+                self.tools = tools
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.platformRaw = try cursor.readBigInt32()
+                self.minos = DylibCommand.Version(packed: try cursor.readBigInt32())
+                self.sdk = DylibCommand.Version(packed: try cursor.readBigInt32())
+                let ntools = try cursor.readBigInt32()
+
+                var tools: [BuildToolVersion] = []
+                tools.reserveCapacity(Int(ntools))
+                for _ in 0..<ntools {
+                    let tool = try cursor.readBigInt32()
+                    let version = DylibCommand.Version(packed: try cursor.readBigInt32())
+                    tools.append(BuildToolVersion(tool: tool, version: version))
+                }
+                self.tools = tools
+            }
+
+            self.platform = BuildPlatform(rawValue: platformRaw)
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
         }
-        self.tools = tools
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.platformRaw = try cursor.readBigInt32()
-        self.minos = DylibCommand.Version(packed: try cursor.readBigInt32())
-        self.sdk = DylibCommand.Version(packed: try cursor.readBigInt32())
-        let ntools = try cursor.readBigInt32()
-
-        var tools: [BuildToolVersion] = []
-        tools.reserveCapacity(Int(ntools))
-        for _ in 0..<ntools {
-          let tool = try cursor.readBigInt32()
-          let version = DylibCommand.Version(packed: try cursor.readBigInt32())
-          tools.append(BuildToolVersion(tool: tool, version: version))
-        }
-        self.tools = tools
-      }
-
-      self.platform = BuildPlatform(rawValue: platformRaw)
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
     }
-  }
 }
 
 extension BuildVersionCommand: CustomStringConvertible {
-  public var description: String {
-    let platformName = platform?.name ?? "unknown(\(platformRaw))"
-    return "BuildVersionCommand(\(platformName), minos: \(minos), sdk: \(sdk))"
-  }
+    public var description: String {
+        let platformName = platform?.name ?? "unknown(\(platformRaw))"
+        return "BuildVersionCommand(\(platformName), minos: \(minos), sdk: \(sdk))"
+    }
 }
 
 // MARK: - Main Command
 
 /// Main entry point load command (LC_MAIN).
 public struct MainCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let entryoff: UInt64   // File offset of main()
-  public let stacksize: UInt64  // Initial stack size (0 = default)
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let entryoff: UInt64  // File offset of main()
+    public let stacksize: UInt64  // Initial stack size (0 = default)
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.entryoff = try cursor.readLittleInt64()
-        self.stacksize = try cursor.readLittleInt64()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.entryoff = try cursor.readBigInt64()
-        self.stacksize = try cursor.readBigInt64()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.entryoff = try cursor.readLittleInt64()
+                self.stacksize = try cursor.readLittleInt64()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.entryoff = try cursor.readBigInt64()
+                self.stacksize = try cursor.readBigInt64()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
+        }
     }
-  }
 }
 
 extension MainCommand: CustomStringConvertible {
-  public var description: String {
-    "MainCommand(entryoff: 0x\(String(entryoff, radix: 16)), stacksize: \(stacksize))"
-  }
+    public var description: String {
+        "MainCommand(entryoff: 0x\(String(entryoff, radix: 16)), stacksize: \(stacksize))"
+    }
 }
 
 // MARK: - Source Version Command
 
 /// Source version load command (LC_SOURCE_VERSION).
 public struct SourceVersionCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let version: UInt64
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let version: UInt64
 
-  /// Parsed version components (A.B.C.D.E).
-  public var versionString: String {
-    let a = (version >> 40) & 0xFFFFFF
-    let b = (version >> 30) & 0x3FF
-    let c = (version >> 20) & 0x3FF
-    let d = (version >> 10) & 0x3FF
-    let e = version & 0x3FF
-    return "\(a).\(b).\(c).\(d).\(e)"
-  }
-
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
-
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.version = try cursor.readLittleInt64()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.version = try cursor.readBigInt64()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+    /// Parsed version components (A.B.C.D.E).
+    public var versionString: String {
+        let a = (version >> 40) & 0xFFFFFF
+        let b = (version >> 30) & 0x3FF
+        let c = (version >> 20) & 0x3FF
+        let d = (version >> 10) & 0x3FF
+        let e = version & 0x3FF
+        return "\(a).\(b).\(c).\(d).\(e)"
     }
-  }
+
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
+
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.version = try cursor.readLittleInt64()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.version = try cursor.readBigInt64()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+        }
+    }
 }
 
 extension SourceVersionCommand: CustomStringConvertible {
-  public var description: String {
-    "SourceVersionCommand(\(versionString))"
-  }
+    public var description: String {
+        "SourceVersionCommand(\(versionString))"
+    }
 }
 
 // MARK: - Encryption Info Command
 
 /// Encryption info load command (LC_ENCRYPTION_INFO, LC_ENCRYPTION_INFO_64).
 public struct EncryptionInfoCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let cryptoff: UInt32   // File offset of encrypted range
-  public let cryptsize: UInt32  // Size of encrypted range
-  public let cryptid: UInt32    // Encryption system ID (0 = not encrypted)
-  public let pad: UInt32        // 64-bit only padding
-  public let is64Bit: Bool
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let cryptoff: UInt32  // File offset of encrypted range
+    public let cryptsize: UInt32  // Size of encrypted range
+    public let cryptid: UInt32  // Encryption system ID (0 = not encrypted)
+    public let pad: UInt32  // 64-bit only padding
+    public let is64Bit: Bool
 
-  public var isEncrypted: Bool {
-    cryptid != 0
-  }
-
-  public init(data: Data, byteOrder: ByteOrder, is64Bit: Bool) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
-
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.cryptoff = try cursor.readLittleInt32()
-        self.cryptsize = try cursor.readLittleInt32()
-        self.cryptid = try cursor.readLittleInt32()
-        self.pad = is64Bit ? try cursor.readLittleInt32() : 0
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.cryptoff = try cursor.readBigInt32()
-        self.cryptsize = try cursor.readBigInt32()
-        self.cryptid = try cursor.readBigInt32()
-        self.pad = is64Bit ? try cursor.readBigInt32() : 0
-      }
-
-      self.is64Bit = is64Bit
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: is64Bit ? 24 : 20, actual: data.count)
+    public var isEncrypted: Bool {
+        cryptid != 0
     }
-  }
+
+    public init(data: Data, byteOrder: ByteOrder, is64Bit: Bool) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
+
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.cryptoff = try cursor.readLittleInt32()
+                self.cryptsize = try cursor.readLittleInt32()
+                self.cryptid = try cursor.readLittleInt32()
+                self.pad = is64Bit ? try cursor.readLittleInt32() : 0
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.cryptoff = try cursor.readBigInt32()
+                self.cryptsize = try cursor.readBigInt32()
+                self.cryptid = try cursor.readBigInt32()
+                self.pad = is64Bit ? try cursor.readBigInt32() : 0
+            }
+
+            self.is64Bit = is64Bit
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: is64Bit ? 24 : 20, actual: data.count)
+        }
+    }
 }
 
 extension EncryptionInfoCommand: CustomStringConvertible {
-  public var description: String {
-    "EncryptionInfoCommand(offset: 0x\(String(cryptoff, radix: 16)), size: \(cryptsize), encrypted: \(isEncrypted))"
-  }
+    public var description: String {
+        "EncryptionInfoCommand(offset: 0x\(String(cryptoff, radix: 16)), size: \(cryptsize), encrypted: \(isEncrypted))"
+    }
 }
 
 // MARK: - Linkedit Data Command
 
 /// Linkedit data load command (LC_CODE_SIGNATURE, LC_FUNCTION_STARTS, etc.).
 public struct LinkeditDataCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let dataoff: UInt32
-  public let datasize: UInt32
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let dataoff: UInt32
+    public let datasize: UInt32
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.dataoff = try cursor.readLittleInt32()
-        self.datasize = try cursor.readLittleInt32()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.dataoff = try cursor.readBigInt32()
-        self.datasize = try cursor.readBigInt32()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.dataoff = try cursor.readLittleInt32()
+                self.datasize = try cursor.readLittleInt32()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.dataoff = try cursor.readBigInt32()
+                self.datasize = try cursor.readBigInt32()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
+        }
     }
-  }
 }
 
 extension LinkeditDataCommand: CustomStringConvertible {
-  public var description: String {
-    "LinkeditDataCommand(\(commandName), offset: 0x\(String(dataoff, radix: 16)), size: \(datasize))"
-  }
+    public var description: String {
+        "LinkeditDataCommand(\(commandName), offset: 0x\(String(dataoff, radix: 16)), size: \(datasize))"
+    }
 }
 
 // MARK: - Rpath Command
 
 /// Runpath load command (LC_RPATH).
 public struct RpathCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
-  public let path: String
+    public let cmd: UInt32
+    public let cmdsize: UInt32
+    public let path: String
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        let pathOffset = try cursor.readLittleInt32()
-        cursor = try DataCursor(data: data, offset: Int(pathOffset))
-        self.path = try cursor.readCString()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        let pathOffset = try cursor.readBigInt32()
-        cursor = try DataCursor(data: data, offset: Int(pathOffset))
-        self.path = try cursor.readCString()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                let pathOffset = try cursor.readLittleInt32()
+                cursor = try DataCursor(data: data, offset: Int(pathOffset))
+                self.path = try cursor.readCString()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                let pathOffset = try cursor.readBigInt32()
+                cursor = try DataCursor(data: data, offset: Int(pathOffset))
+                self.path = try cursor.readCString()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
+        }
     }
-  }
 }
 
 extension RpathCommand: CustomStringConvertible {
-  public var description: String {
-    "RpathCommand(\(path))"
-  }
+    public var description: String {
+        "RpathCommand(\(path))"
+    }
 }
 
 // MARK: - Dyld Info Command
 
 /// Dyld info load command (LC_DYLD_INFO, LC_DYLD_INFO_ONLY).
 public struct DyldInfoCommand: LoadCommandProtocol, Sendable {
-  public let cmd: UInt32
-  public let cmdsize: UInt32
+    public let cmd: UInt32
+    public let cmdsize: UInt32
 
-  // Rebase info
-  public let rebaseOff: UInt32
-  public let rebaseSize: UInt32
+    // Rebase info
+    public let rebaseOff: UInt32
+    public let rebaseSize: UInt32
 
-  // Binding info
-  public let bindOff: UInt32
-  public let bindSize: UInt32
+    // Binding info
+    public let bindOff: UInt32
+    public let bindSize: UInt32
 
-  // Weak binding info
-  public let weakBindOff: UInt32
-  public let weakBindSize: UInt32
+    // Weak binding info
+    public let weakBindOff: UInt32
+    public let weakBindSize: UInt32
 
-  // Lazy binding info
-  public let lazyBindOff: UInt32
-  public let lazyBindSize: UInt32
+    // Lazy binding info
+    public let lazyBindOff: UInt32
+    public let lazyBindSize: UInt32
 
-  // Export info
-  public let exportOff: UInt32
-  public let exportSize: UInt32
+    // Export info
+    public let exportOff: UInt32
+    public let exportSize: UInt32
 
-  public init(data: Data, byteOrder: ByteOrder) throws {
-    do {
-      var cursor = try DataCursor(data: data, offset: 0)
+    public init(data: Data, byteOrder: ByteOrder) throws {
+        do {
+            var cursor = try DataCursor(data: data, offset: 0)
 
-      if byteOrder == .little {
-        self.cmd = try cursor.readLittleInt32()
-        self.cmdsize = try cursor.readLittleInt32()
-        self.rebaseOff = try cursor.readLittleInt32()
-        self.rebaseSize = try cursor.readLittleInt32()
-        self.bindOff = try cursor.readLittleInt32()
-        self.bindSize = try cursor.readLittleInt32()
-        self.weakBindOff = try cursor.readLittleInt32()
-        self.weakBindSize = try cursor.readLittleInt32()
-        self.lazyBindOff = try cursor.readLittleInt32()
-        self.lazyBindSize = try cursor.readLittleInt32()
-        self.exportOff = try cursor.readLittleInt32()
-        self.exportSize = try cursor.readLittleInt32()
-      } else {
-        self.cmd = try cursor.readBigInt32()
-        self.cmdsize = try cursor.readBigInt32()
-        self.rebaseOff = try cursor.readBigInt32()
-        self.rebaseSize = try cursor.readBigInt32()
-        self.bindOff = try cursor.readBigInt32()
-        self.bindSize = try cursor.readBigInt32()
-        self.weakBindOff = try cursor.readBigInt32()
-        self.weakBindSize = try cursor.readBigInt32()
-        self.lazyBindOff = try cursor.readBigInt32()
-        self.lazyBindSize = try cursor.readBigInt32()
-        self.exportOff = try cursor.readBigInt32()
-        self.exportSize = try cursor.readBigInt32()
-      }
-    } catch {
-      throw LoadCommandError.dataTooSmall(expected: 48, actual: data.count)
+            if byteOrder == .little {
+                self.cmd = try cursor.readLittleInt32()
+                self.cmdsize = try cursor.readLittleInt32()
+                self.rebaseOff = try cursor.readLittleInt32()
+                self.rebaseSize = try cursor.readLittleInt32()
+                self.bindOff = try cursor.readLittleInt32()
+                self.bindSize = try cursor.readLittleInt32()
+                self.weakBindOff = try cursor.readLittleInt32()
+                self.weakBindSize = try cursor.readLittleInt32()
+                self.lazyBindOff = try cursor.readLittleInt32()
+                self.lazyBindSize = try cursor.readLittleInt32()
+                self.exportOff = try cursor.readLittleInt32()
+                self.exportSize = try cursor.readLittleInt32()
+            } else {
+                self.cmd = try cursor.readBigInt32()
+                self.cmdsize = try cursor.readBigInt32()
+                self.rebaseOff = try cursor.readBigInt32()
+                self.rebaseSize = try cursor.readBigInt32()
+                self.bindOff = try cursor.readBigInt32()
+                self.bindSize = try cursor.readBigInt32()
+                self.weakBindOff = try cursor.readBigInt32()
+                self.weakBindSize = try cursor.readBigInt32()
+                self.lazyBindOff = try cursor.readBigInt32()
+                self.lazyBindSize = try cursor.readBigInt32()
+                self.exportOff = try cursor.readBigInt32()
+                self.exportSize = try cursor.readBigInt32()
+            }
+        } catch {
+            throw LoadCommandError.dataTooSmall(expected: 48, actual: data.count)
+        }
     }
-  }
 }
 
 extension DyldInfoCommand: CustomStringConvertible {
-  public var description: String {
-    "DyldInfoCommand(rebase: \(rebaseSize), bind: \(bindSize), weak: \(weakBindSize), lazy: \(lazyBindSize), export: \(exportSize))"
-  }
+    public var description: String {
+        "DyldInfoCommand(rebase: \(rebaseSize), bind: \(bindSize), weak: \(weakBindSize), lazy: \(lazyBindSize), export: \(exportSize))"
+    }
 }
