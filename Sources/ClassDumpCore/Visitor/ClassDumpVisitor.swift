@@ -1,0 +1,284 @@
+import Foundation
+
+/// Protocol defining the visitor pattern for class dump traversal.
+///
+/// Visitors traverse the ObjC metadata tree and can perform actions at each node.
+/// The visitor pattern allows separation of traversal logic from output generation.
+public protocol ClassDumpVisitor: AnyObject, Sendable {
+  /// Configuration options for the visitor
+  var options: ClassDumpVisitorOptions { get set }
+
+  // MARK: - Lifecycle
+
+  /// Called before visiting begins.
+  func willBeginVisiting()
+
+  /// Called after all visiting is complete.
+  func didEndVisiting()
+
+  // MARK: - Processor Visits
+
+  /// Called before visiting an ObjC processor.
+  func willVisitProcessor(_ processor: ObjCProcessorInfo)
+
+  /// Called while visiting an ObjC processor (before children).
+  func visitProcessor(_ processor: ObjCProcessorInfo)
+
+  /// Called after visiting an ObjC processor.
+  func didVisitProcessor(_ processor: ObjCProcessorInfo)
+
+  // MARK: - Protocol Visits
+
+  /// Called before visiting a protocol.
+  func willVisitProtocol(_ proto: ObjCProtocol)
+
+  /// Called after visiting a protocol.
+  func didVisitProtocol(_ proto: ObjCProtocol)
+
+  /// Called before visiting protocol properties.
+  func willVisitPropertiesOfProtocol(_ proto: ObjCProtocol)
+
+  /// Called after visiting protocol properties.
+  func didVisitPropertiesOfProtocol(_ proto: ObjCProtocol)
+
+  /// Called before visiting optional methods section.
+  func willVisitOptionalMethods()
+
+  /// Called after visiting optional methods section.
+  func didVisitOptionalMethods()
+
+  // MARK: - Class Visits
+
+  /// Called before visiting a class.
+  func willVisitClass(_ objcClass: ObjCClass)
+
+  /// Called after visiting a class.
+  func didVisitClass(_ objcClass: ObjCClass)
+
+  /// Called before visiting class ivars.
+  func willVisitIvarsOfClass(_ objcClass: ObjCClass)
+
+  /// Called after visiting class ivars.
+  func didVisitIvarsOfClass(_ objcClass: ObjCClass)
+
+  /// Called before visiting class properties.
+  func willVisitPropertiesOfClass(_ objcClass: ObjCClass)
+
+  /// Called after visiting class properties.
+  func didVisitPropertiesOfClass(_ objcClass: ObjCClass)
+
+  // MARK: - Category Visits
+
+  /// Called before visiting a category.
+  func willVisitCategory(_ category: ObjCCategory)
+
+  /// Called after visiting a category.
+  func didVisitCategory(_ category: ObjCCategory)
+
+  /// Called before visiting category properties.
+  func willVisitPropertiesOfCategory(_ category: ObjCCategory)
+
+  /// Called after visiting category properties.
+  func didVisitPropertiesOfCategory(_ category: ObjCCategory)
+
+  // MARK: - Member Visits
+
+  /// Visit a class method.
+  func visitClassMethod(_ method: ObjCMethod)
+
+  /// Visit an instance method with property state tracking.
+  func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState)
+
+  /// Visit an instance variable.
+  func visitIvar(_ ivar: ObjCInstanceVariable)
+
+  /// Visit a property.
+  func visitProperty(_ property: ObjCProperty)
+
+  /// Visit remaining properties that weren't emitted via accessor methods.
+  func visitRemainingProperties(_ propertyState: VisitorPropertyState)
+}
+
+// MARK: - Default Implementations
+
+extension ClassDumpVisitor {
+  public func willBeginVisiting() {}
+  public func didEndVisiting() {}
+
+  public func willVisitProcessor(_ processor: ObjCProcessorInfo) {}
+  public func visitProcessor(_ processor: ObjCProcessorInfo) {}
+  public func didVisitProcessor(_ processor: ObjCProcessorInfo) {}
+
+  public func willVisitProtocol(_ proto: ObjCProtocol) {}
+  public func didVisitProtocol(_ proto: ObjCProtocol) {}
+  public func willVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
+  public func didVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
+  public func willVisitOptionalMethods() {}
+  public func didVisitOptionalMethods() {}
+
+  public func willVisitClass(_ objcClass: ObjCClass) {}
+  public func didVisitClass(_ objcClass: ObjCClass) {}
+  public func willVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+  public func didVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+  public func willVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
+  public func didVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
+
+  public func willVisitCategory(_ category: ObjCCategory) {}
+  public func didVisitCategory(_ category: ObjCCategory) {}
+  public func willVisitPropertiesOfCategory(_ category: ObjCCategory) {}
+  public func didVisitPropertiesOfCategory(_ category: ObjCCategory) {}
+
+  public func visitClassMethod(_ method: ObjCMethod) {}
+  public func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState) {}
+  public func visitIvar(_ ivar: ObjCInstanceVariable) {}
+  public func visitProperty(_ property: ObjCProperty) {}
+  public func visitRemainingProperties(_ propertyState: VisitorPropertyState) {}
+}
+
+// MARK: - Options
+
+/// Configuration options for class dump visitors.
+public struct ClassDumpVisitorOptions: Sendable {
+  /// Whether to show the structure section.
+  public var shouldShowStructureSection: Bool
+
+  /// Whether to show the protocol section.
+  public var shouldShowProtocolSection: Bool
+
+  public init(
+    shouldShowStructureSection: Bool = true,
+    shouldShowProtocolSection: Bool = true
+  ) {
+    self.shouldShowStructureSection = shouldShowStructureSection
+    self.shouldShowProtocolSection = shouldShowProtocolSection
+  }
+}
+
+// MARK: - Processor Info
+
+/// Information about an ObjC processor being visited.
+public struct ObjCProcessorInfo: Sendable {
+  /// The Mach-O file being processed
+  public let machOFile: VisitorMachOFileInfo
+
+  /// Whether this file has ObjC runtime info
+  public let hasObjectiveCRuntimeInfo: Bool
+
+  /// Garbage collection status (if any)
+  public let garbageCollectionStatus: String?
+
+  public init(
+    machOFile: VisitorMachOFileInfo,
+    hasObjectiveCRuntimeInfo: Bool,
+    garbageCollectionStatus: String? = nil
+  ) {
+    self.machOFile = machOFile
+    self.hasObjectiveCRuntimeInfo = hasObjectiveCRuntimeInfo
+    self.garbageCollectionStatus = garbageCollectionStatus
+  }
+}
+
+/// Information about a Mach-O file being processed for visitor output.
+public struct VisitorMachOFileInfo: Sendable {
+  /// The filename
+  public let filename: String
+
+  /// UUID of the file (if available)
+  public let uuid: UUID?
+
+  /// Architecture name
+  public let archName: String
+
+  /// File type (MH_EXECUTE, MH_DYLIB, etc.)
+  public let filetype: UInt32
+
+  /// Whether the file is encrypted
+  public let isEncrypted: Bool
+
+  /// Whether the file has protected segments
+  public let hasProtectedSegments: Bool
+
+  /// Whether all protected segments can be decrypted
+  public let canDecryptAllSegments: Bool
+
+  /// Dylib identifier (for MH_DYLIB)
+  public let dylibIdentifier: DylibInfo?
+
+  /// Source version string
+  public let sourceVersion: String?
+
+  /// Build version string
+  public let buildVersion: String?
+
+  /// Build tools list
+  public let buildTools: [String]?
+
+  /// Minimum macOS version
+  public let minMacOSVersion: String?
+
+  /// Minimum iOS version
+  public let minIOSVersion: String?
+
+  /// SDK version
+  public let sdkVersion: String?
+
+  /// Run paths
+  public let runPaths: [(path: String, resolved: String)]
+
+  /// Dyld environment entries
+  public let dyldEnvironment: [String]
+
+  public init(
+    filename: String,
+    uuid: UUID? = nil,
+    archName: String,
+    filetype: UInt32 = 0,
+    isEncrypted: Bool = false,
+    hasProtectedSegments: Bool = false,
+    canDecryptAllSegments: Bool = true,
+    dylibIdentifier: DylibInfo? = nil,
+    sourceVersion: String? = nil,
+    buildVersion: String? = nil,
+    buildTools: [String]? = nil,
+    minMacOSVersion: String? = nil,
+    minIOSVersion: String? = nil,
+    sdkVersion: String? = nil,
+    runPaths: [(path: String, resolved: String)] = [],
+    dyldEnvironment: [String] = []
+  ) {
+    self.filename = filename
+    self.uuid = uuid
+    self.archName = archName
+    self.filetype = filetype
+    self.isEncrypted = isEncrypted
+    self.hasProtectedSegments = hasProtectedSegments
+    self.canDecryptAllSegments = canDecryptAllSegments
+    self.dylibIdentifier = dylibIdentifier
+    self.sourceVersion = sourceVersion
+    self.buildVersion = buildVersion
+    self.buildTools = buildTools
+    self.minMacOSVersion = minMacOSVersion
+    self.minIOSVersion = minIOSVersion
+    self.sdkVersion = sdkVersion
+    self.runPaths = runPaths
+    self.dyldEnvironment = dyldEnvironment
+  }
+}
+
+/// Information about a dylib.
+public struct DylibInfo: Sendable {
+  /// The dylib name/path
+  public let name: String
+
+  /// Current version string
+  public let currentVersion: String
+
+  /// Compatibility version string
+  public let compatibilityVersion: String
+
+  public init(name: String, currentVersion: String, compatibilityVersion: String) {
+    self.name = name
+    self.currentVersion = currentVersion
+    self.compatibilityVersion = compatibilityVersion
+  }
+}

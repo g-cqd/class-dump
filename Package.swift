@@ -16,6 +16,9 @@ let package = Package(
     .executable(name: "deprotect", targets: ["DeprotectCLI"]),
     .executable(name: "formatType", targets: ["FormatTypeCLI"]),
   ],
+  dependencies: [
+    .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+  ],
   targets: [
     .target(
       name: "ClassDumpCoreObjC",
@@ -39,7 +42,10 @@ let package = Package(
     ),
     .executableTarget(
       name: "ClassDumpCLI",
-      dependencies: ["ClassDumpCore"],
+      dependencies: [
+        "ClassDumpCore",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
       swiftSettings: swiftSettings
     ),
     .executableTarget(

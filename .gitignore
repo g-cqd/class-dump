@@ -1,0 +1,19 @@
+# Build artifacts
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# IDE
+.claude/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Package manager
+Package.resolved
+.swiftpm/
+
+# macOS
+.DS_Store
