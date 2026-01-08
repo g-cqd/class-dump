@@ -166,6 +166,7 @@ jobs:
           path: |
             .build
             ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
@@ -237,6 +238,7 @@ jobs:
           path: |
             .build
             ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
@@ -360,8 +362,12 @@ jobs:
           path: |
             .build
             ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve Dependencies
+        run: swift package resolve
 
       - name: Build Documentation
         run: |
@@ -401,6 +407,7 @@ jobs:
           path: |
             .build
             ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
