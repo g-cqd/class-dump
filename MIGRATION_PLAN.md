@@ -38,10 +38,35 @@
 [x] 17 Migrate class-dump CLI to Swift with ArgumentParser
 [x] 17b Implement deprotect CLI in Swift
 [x] 17c Implement formatType CLI in Swift
+[x] 17d Full CLI feature parity (-a, -A, -f, -H, -o, -t, --list-arches, --hide, --sdk-*, sorting)
 [ ] 18 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
 [x] 19 Modernization pass (Swift 6.2 strict concurrency audit, Sendable annotations, deprecated API migration)
 [ ] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
 [ ] 21 Final verification (tests, performance checks, docs update)
+
+## Phase 2: Swift Testing & Enhanced Features
+
+[ ] 22 Migrate all tests from XCTest to Swift Testing (@Test, @Suite, #expect)
+[ ] 23 Add Swift name demangling support (swift_demangle API or custom demangler)
+[ ] 24 Add Swift metadata parsing (Swift reflection metadata, type descriptors, witness tables)
+[ ] 25 Investigate native Apple frameworks for lexer/parser (SwiftSyntax, swift-format infrastructure)
+[ ] 26 Performance optimization pass (zero-copy parsing, memory mapping, extreme parallelism)
+    - Reference: g-cqd/SwiftStaticAnalysis patterns
+    - Memory-mapped Data with no intermediate copies
+    - Parallel segment/section processing with TaskGroup
+    - Lock-free concurrent caches
+    - SIMD-accelerated string scanning where applicable
+[ ] 27 Create DocC generator from class-dump output
+    - Generate DocC-compatible documentation from dumped headers
+    - Support merging multiple framework dumps into unified documentation
+    - Symbol graph generation for integration with Xcode documentation
+
+## Phase 3: Advanced Capabilities
+
+[ ] 28 Full Swift type support (generics, protocols, extensions, property wrappers)
+[ ] 29 Recursive framework dependency resolution with caching
+[ ] 30 Watch mode for incremental re-dumping on file changes
+[ ] 31 LSP integration for IDE support
 
 ## Concurrency and Performance Targets
 - Parallel parsing of independent Mach-O files (TaskGroup)
@@ -78,3 +103,4 @@
 - 2026-01-08: implemented full Swift 6 core - DataCursor, MachO types, load commands, ObjC2Processor with chained fixups and small methods, type system (parser/lexer/formatter), visitor pipeline, class-dump CLI with ArgumentParser. 265 tests passing. Pushed to fork.
 - 2026-01-08: implemented deprotect and formatType CLIs in Swift with full functionality
 - 2026-01-08: modernization pass - added built-in arch tables to avoid deprecated NXGetArchInfo* APIs for common architectures (i386, x86_64, armv6/7/7s, arm64/e)
+- 2026-01-08: full CLI feature parity - added -a (ivar offsets), -A (method addresses), -f (find method), -H/-o (multi-file headers), -t (suppress header), --list-arches, --hide, --sdk-*, sorting flags. All 224 tests passing.

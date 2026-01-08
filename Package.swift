@@ -21,22 +21,7 @@ let package = Package(
   ],
   targets: [
     .target(
-      name: "ClassDumpCoreObjC",
-      path: ".",
-      sources: [
-        "Source",
-        "ThirdParty/blowfish.c",
-      ],
-      publicHeadersPath: "SPMHeaders",
-      cSettings: [
-        .headerSearchPath("Source"),
-        .headerSearchPath("ThirdParty"),
-        .unsafeFlags(["-include", "MachObjC-Prefix.pch"]),
-      ]
-    ),
-    .target(
       name: "ClassDumpCore",
-      dependencies: ["ClassDumpCoreObjC"],
       path: "Sources/ClassDumpCore",
       swiftSettings: swiftSettings
     ),
