@@ -237,33 +237,48 @@ public final class SwiftMetadataProcessor {
         guard let targetOffset = readRelativePointer(at: fileOffset) else { return nil }
         guard targetOffset >= 0, targetOffset < data.count else { return nil }
 
-        // Check if this is a symbolic reference (first byte 0x01-0x17)
-        let firstByte = data[Int(targetOffset)]
-        if SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte) {
-            // For symbolic references, we need at least 5 bytes (marker + 4-byte offset)
-            // Then continue reading the suffix (mangled type info after the reference)
-            let minLen = 5
-            let maxLen = min(256, data.count - Int(targetOffset))
-            guard maxLen >= minLen else { return nil }
+        let startOffset = Int(targetOffset)
+        let maxLen = min(256, data.count - startOffset)
+        guard maxLen > 0 else { return nil }
 
-            // Read 5 bytes for the symbolic ref, then continue until null for suffix
-            var end = Int(targetOffset) + minLen
-            while end < Int(targetOffset) + maxLen, data[end] != 0 {
-                end += 1
+        // Read data, handling embedded symbolic references
+        // Symbolic refs are 5 bytes that can contain nulls in the offset bytes
+        var end = startOffset
+
+        while end < startOffset + maxLen {
+            let byte = data[end]
+
+            if byte == 0 {
+                // Check if this could be part of a symbolic reference
+                // Look back up to 4 bytes to see if there was a 0x01 or 0x02 marker
+                var isInSymbolicRef = false
+                for lookback in 1...4 where end - lookback >= startOffset {
+                    let prevByte = data[end - lookback]
+                    if prevByte == 0x01 || prevByte == 0x02 {
+                        // This null is likely part of the 4-byte offset in a symbolic ref
+                        isInSymbolicRef = true
+                        break
+                    }
+                }
+
+                if !isInSymbolicRef {
+                    // Real null terminator
+                    break
+                }
             }
 
-            return data.subdata(in: Int(targetOffset)..<end)
-        }
+            // Check for symbolic reference markers in the middle
+            if (byte == 0x01 || byte == 0x02) && end + 5 <= startOffset + maxLen {
+                // Skip over the 5-byte symbolic reference
+                end += 5
+                continue
+            }
 
-        // For regular strings, read until null terminator
-        var end = Int(targetOffset)
-        let maxLen = min(256, data.count - Int(targetOffset))
-        while end < Int(targetOffset) + maxLen, data[end] != 0 {
             end += 1
         }
 
-        guard end > Int(targetOffset) else { return nil }
-        return data.subdata(in: Int(targetOffset)..<end)
+        guard end > startOffset else { return nil }
+        return data.subdata(in: startOffset..<end)
     }
 
     // MARK: - Field Descriptor Parsing
@@ -293,13 +308,20 @@ public final class SwiftMetadataProcessor {
             //   uint32_t NumFields;
             // }
 
-            let mangledTypeNameOffset = descriptorOffset
+            let mangledTypeNamePointerOffset = descriptorOffset
             let superclassOffset = descriptorOffset + 4
             let kindOffset = descriptorOffset + 8
             let fieldRecordSizeOffset = descriptorOffset + 10
             let numFieldsOffset = descriptorOffset + 12
 
-            let mangledTypeName = readRelativeString(at: mangledTypeNameOffset) ?? ""
+            // Read both string and raw data for the mangled type name
+            let mangledTypeName = readRelativeString(at: mangledTypeNamePointerOffset) ?? ""
+            let mangledTypeNameData = readRelativeData(at: mangledTypeNamePointerOffset) ?? Data()
+            // Calculate the actual offset where the type name data starts
+            var mangledTypeNameDataOffset = 0
+            if let targetOffset = readRelativePointer(at: mangledTypeNamePointerOffset) {
+                mangledTypeNameDataOffset = Int(targetOffset)
+            }
             let superclassMangledName = readRelativeString(at: superclassOffset)
 
             let kindRaw: UInt16
@@ -390,6 +412,8 @@ public final class SwiftMetadataProcessor {
                     address: UInt64(descriptorOffset),
                     kind: kind,
                     mangledTypeName: mangledTypeName,
+                    mangledTypeNameData: mangledTypeNameData,
+                    mangledTypeNameOffset: mangledTypeNameDataOffset,
                     superclassMangledName: superclassMangledName,
                     records: records
                 ))

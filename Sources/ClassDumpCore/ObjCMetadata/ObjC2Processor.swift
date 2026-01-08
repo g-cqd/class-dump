@@ -89,6 +89,9 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         // Build Swift field lookups
         if let swift = swiftMetadata {
+            // Create a symbolic resolver for resolving field descriptor type names
+            let resolver = SwiftSymbolicResolver(data: data, segments: segments, byteOrder: byteOrder)
+
             // First, build a mapping from Swift types to their simple names
             var typeNameByAddress: [UInt64: String] = [:]
             for swiftType in swift.types {
@@ -102,14 +105,32 @@ public final class ObjC2Processor: @unchecked Sendable {
                 // Try to extract a simple name from the mangled type
                 var simpleName: String?
 
-                // First try extracting from the mangled name
-                let demangled = SwiftDemangler.extractTypeName(fd.mangledTypeName)
-                if !demangled.isEmpty && !demangled.hasPrefix("/*") {
-                    // Extract just the class name (last component)
-                    if demangled.contains(".") {
-                        simpleName = String(demangled.split(separator: ".").last ?? Substring(demangled))
-                    } else {
-                        simpleName = demangled
+                // First, try using symbolic resolver if this is a symbolic reference
+                if fd.hasSymbolicReference {
+                    let resolved = resolver.resolveType(
+                        mangledData: fd.mangledTypeNameData,
+                        sourceOffset: fd.mangledTypeNameOffset
+                    )
+                    if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                        // Extract just the class name (last component)
+                        if resolved.contains(".") {
+                            simpleName = String(resolved.split(separator: ".").last ?? Substring(resolved))
+                        } else {
+                            simpleName = resolved
+                        }
+                    }
+                }
+
+                // Fall back to regular demangling if symbolic resolution didn't work
+                if simpleName == nil {
+                    let demangled = SwiftDemangler.extractTypeName(fd.mangledTypeName)
+                    if !demangled.isEmpty && !demangled.hasPrefix("/*") {
+                        // Extract just the class name (last component)
+                        if demangled.contains(".") {
+                            simpleName = String(demangled.split(separator: ".").last ?? Substring(demangled))
+                        } else {
+                            simpleName = demangled
+                        }
                     }
                 }
 
@@ -396,20 +417,21 @@ public final class ObjC2Processor: @unchecked Sendable {
 
             if fieldName == ivarName || record.name == ivarName {
                 // Try to resolve the type using symbolic resolver
-                // Prefer raw data for symbolic references
-                if record.hasSymbolicReference {
-                    // Use symbolic resolver with raw data
+                // Always try the resolver first with raw data (handles embedded refs too)
+                if !record.mangledTypeData.isEmpty {
                     if let resolver = symbolicResolver {
                         let resolved = resolver.resolveType(
                             mangledData: record.mangledTypeData,
                             sourceOffset: record.mangledTypeNameOffset
                         )
-                        if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                        if !resolved.isEmpty && !resolved.hasPrefix("/*") && resolved != record.mangledTypeName {
                             return resolved
                         }
                     }
-                } else if !record.mangledTypeName.isEmpty {
-                    // Regular mangled name
+                }
+
+                // Fall back to regular demangling if resolver didn't work
+                if !record.mangledTypeName.isEmpty {
                     let demangled = SwiftDemangler.demangle(record.mangledTypeName)
                     if demangled != "/* symbolic ref */" && demangled != record.mangledTypeName {
                         return demangled

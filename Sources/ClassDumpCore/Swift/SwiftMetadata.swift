@@ -187,19 +187,34 @@ public struct SwiftFieldDescriptor: Sendable {
     public let address: UInt64
     public let kind: SwiftFieldDescriptorKind
     public let mangledTypeName: String
+    /// Raw bytes of the mangled type name (for symbolic reference resolution).
+    public let mangledTypeNameData: Data
+    /// File offset where the mangled type name was read (for symbolic resolution).
+    public let mangledTypeNameOffset: Int
     public let superclassMangledName: String?
     public let records: [SwiftFieldRecord]
+
+    /// Check if the owning type uses a symbolic reference.
+    public var hasSymbolicReference: Bool {
+        guard !mangledTypeNameData.isEmpty else { return false }
+        let firstByte = mangledTypeNameData[mangledTypeNameData.startIndex]
+        return SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte)
+    }
 
     public init(
         address: UInt64,
         kind: SwiftFieldDescriptorKind,
         mangledTypeName: String,
+        mangledTypeNameData: Data = Data(),
+        mangledTypeNameOffset: Int = 0,
         superclassMangledName: String? = nil,
         records: [SwiftFieldRecord] = []
     ) {
         self.address = address
         self.kind = kind
         self.mangledTypeName = mangledTypeName
+        self.mangledTypeNameData = mangledTypeNameData
+        self.mangledTypeNameOffset = mangledTypeNameOffset
         self.superclassMangledName = superclassMangledName
         self.records = records
     }
@@ -218,11 +233,27 @@ public struct SwiftFieldRecord: Sendable {
     public var isVar: Bool { (flags & 0x2) != 0 }
     public var isIndirect: Bool { (flags & 0x1) != 0 }
 
-    /// Check if the type uses a symbolic reference.
+    /// Check if the type uses a symbolic reference at the start.
     public var hasSymbolicReference: Bool {
         guard !mangledTypeData.isEmpty else { return false }
         let firstByte = mangledTypeData[mangledTypeData.startIndex]
         return SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte)
+    }
+
+    /// Check if the type contains any embedded symbolic references.
+    /// Swift mangled names can have symbolic refs embedded anywhere, not just at the start.
+    public var hasEmbeddedSymbolicReference: Bool {
+        guard mangledTypeData.count >= 6 else { return false }
+        let bytes = Array(mangledTypeData)
+        // Look for symbolic reference markers (0x01, 0x02) after the first byte
+        // A symbolic ref is 5 bytes, so the marker can appear at most at count-4
+        for i in 1..<bytes.count {
+            let byte = bytes[i]
+            if byte == 0x01 || byte == 0x02 {
+                return true
+            }
+        }
+        return false
     }
 
     public init(

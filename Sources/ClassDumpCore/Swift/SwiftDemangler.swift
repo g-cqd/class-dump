@@ -43,6 +43,11 @@ public enum SwiftDemangler {
         "Bp": "Builtin.RawPointer",
         "Bw": "Builtin.Word",
         "BB": "Builtin.UnsafeValueBuffer",
+        "BD": "Builtin.DefaultActorStorage",
+        "Be": "Builtin.Executor",
+        "Bi": "Builtin.Int",
+        "Bf": "Builtin.FPIEEE",
+        "Bv": "Builtin.Vec",
     ]
 
     /// Common mangled type patterns.
@@ -66,6 +71,11 @@ public enum SwiftDemangler {
         "Sg": "Optional",
         "ySg": "?",
         "Sq": "Optional",
+        "yt": "()",
+        "ScT": "Task",
+        "Scg": "TaskGroup",
+        "ScP": "TaskPriority",
+        "ScA": "Actor",
     ]
 
     // MARK: - Public API

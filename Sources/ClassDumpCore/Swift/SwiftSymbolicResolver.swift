@@ -70,7 +70,7 @@ public final class SwiftSymbolicResolver {
     public func resolveType(mangledData: Data, sourceOffset: Int) -> String {
         guard !mangledData.isEmpty else { return "" }
 
-        // Check if this is a symbolic reference
+        // Check if this is a symbolic reference at the start
         let firstByte = mangledData[mangledData.startIndex]
         if SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte) {
             return resolveSymbolicReference(
@@ -80,12 +80,81 @@ public final class SwiftSymbolicResolver {
             )
         }
 
+        // Check for embedded symbolic references
+        if hasEmbeddedSymbolicRef(mangledData) {
+            return resolveTypeWithEmbeddedRefs(mangledData: mangledData, sourceOffset: sourceOffset)
+        }
+
         // Otherwise try to demangle as a regular mangled name
         if let mangledString = String(data: mangledData, encoding: .utf8) {
             return SwiftDemangler.demangle(mangledString)
         }
 
         return "/* unknown type */"
+    }
+
+    /// Check if data contains embedded symbolic references (0x01 or 0x02).
+    private func hasEmbeddedSymbolicRef(_ data: Data) -> Bool {
+        guard data.count >= 6 else { return false }
+        let bytes = Array(data)
+        // Look for symbolic reference markers after the first byte
+        for i in 1..<bytes.count {
+            let byte = bytes[i]
+            if byte == 0x01 || byte == 0x02 {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Resolve a mangled type that contains embedded symbolic references.
+    ///
+    /// This walks through the data, extracting regular text and resolving
+    /// symbolic references inline.
+    private func resolveTypeWithEmbeddedRefs(mangledData: Data, sourceOffset: Int) -> String {
+        var result = ""
+        let bytes = Array(mangledData)
+        var i = 0
+
+        while i < bytes.count {
+            let byte = bytes[i]
+
+            // Check for symbolic reference markers
+            if (byte == 0x01 || byte == 0x02) && i + 5 <= bytes.count {
+                // Extract the symbolic reference (5 bytes: marker + 4-byte offset)
+                let refEndIndex = min(bytes.count, i + 5 + 20)
+                let refData = Data(bytes[i..<refEndIndex])
+                let refOffset = sourceOffset + i
+
+                let resolved = resolveSymbolicReference(
+                    kind: SwiftSymbolicReferenceKind(marker: byte),
+                    data: refData,
+                    sourceOffset: refOffset
+                )
+
+                // If we got a useful resolution, use it; otherwise use placeholder
+                if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                    result += resolved
+                } else {
+                    result += "?"  // Unknown embedded type
+                }
+
+                // Skip the 5-byte symbolic reference
+                i += 5
+            } else if byte == 0 {
+                // Null terminator - stop
+                break
+            } else {
+                // Regular character - only add if it's a valid ASCII character
+                if byte >= 0x20 && byte < 0x7F {
+                    result.append(Character(UnicodeScalar(byte)))
+                }
+                i += 1
+            }
+        }
+
+        // Now try to demangle the assembled string
+        return SwiftDemangler.demangle(result)
     }
 
     /// Resolve a symbolic reference to a type name.
