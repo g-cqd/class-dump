@@ -1,0 +1,553 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create release'
+        type: boolean
+        default: false
+      version:
+        description: 'Version override (e.g., 4.0.0)'
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  XCODE_VERSION: '16.1'
+
+jobs:
+  # ============================================================================ 
+  # STAGE 1: Setup & Code Quality Checks (run in parallel)
+  # ============================================================================ 
+  setup-swa:
+    name: Setup SWA
+    runs-on: macos-15
+    steps:
+      - name: Cache SWA Binary
+        id: cache-swa
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/swa
+          key: swa-${{ runner.os }}-latest
+
+      - name: Download SWA
+        if: steps.cache-swa.outputs.cache-hit != 'true'
+        run: |
+          echo "Fetching latest swa release..."
+          LATEST_TAG=$(curl -sI "https://github.com/g-cqd/SwiftStaticAnalysis/releases/latest" | grep -i "^location:" | sed 's/.*tag\///' | tr -d '\r\n')
+          if [[ -n "$LATEST_TAG" ]]; then
+            SWA_VERSION="${LATEST_TAG#v}"
+            DOWNLOAD_URL="https://github.com/g-cqd/SwiftStaticAnalysis/releases/download/${LATEST_TAG}/swa-${SWA_VERSION}-macos-universal.tar.gz"
+            echo "Downloading swa ${LATEST_TAG}..."
+            curl -fsSL "$DOWNLOAD_URL" -o /tmp/swa.tar.gz
+            tar -xzf /tmp/swa.tar.gz -C /tmp
+            sudo mv /tmp/swa /usr/local/bin/swa
+            sudo chmod +x /usr/local/bin/swa
+            echo "Installed swa ${LATEST_TAG}"
+          else
+            echo "Failed to fetch latest release"
+            exit 1
+          fi
+
+      - name: Upload SWA Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: swa-binary
+          path: /usr/local/bin/swa
+          retention-days: 1
+
+  format-check:
+    name: Format Check
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+
+      - name: Check Formatting
+        run: |
+          # Read paths and excludePaths from .spk.json
+          PATHS=$(jq -r '.hooks.tasks.format.paths // ["Sources/", "Tests/"] | .[]' .spk.json | tr '\n' ' ')
+          EXCLUDE_PATTERNS=$(jq -r '.hooks.tasks.format.excludePaths // [] | .[] | gsub("*\*/"; "") | gsub("/\*\*"; "")' .spk.json)
+
+          # Find all Swift files
+          FILES=$(find $PATHS -name '*.swift' 2>/dev/null)
+
+          # Filter out excluded patterns using grep
+          for pattern in $EXCLUDE_PATTERNS; do
+            FILES=$(echo "$FILES" | grep -v "$pattern" || true)
+          done
+
+          # Run swift-format on remaining files
+          if [[ -n "$FILES" ]]; then
+            echo "$FILES" | xargs swift format lint --strict --parallel --ignore-unparsable-files
+          else
+            echo "No Swift files to check"
+          fi
+
+  duplicates-check:
+    name: Duplicates Check
+    runs-on: macos-15
+    needs: setup-swa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download SWA Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: swa-binary
+          path: /tmp
+
+      - name: Setup SWA
+        run: |
+          sudo mv /tmp/swa /usr/local/bin/swa
+          sudo chmod +x /usr/local/bin/swa
+
+      - name: Check Duplicates
+        run: |
+          swa duplicates Sources \
+            --min-tokens 50 \
+            --format text
+
+  unused-check:
+    name: Unused Code Check
+    runs-on: macos-15
+    needs: setup-swa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download SWA Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: swa-binary
+          path: /tmp
+
+      - name: Setup SWA
+        run: |
+          sudo mv /tmp/swa /usr/local/bin/swa
+          sudo chmod +x /usr/local/bin/swa
+
+      - name: Check Unused Code
+        run: |
+          swa unused Sources \
+            --mode reachability \
+            --sensible-defaults \
+            --format text
+
+  # ============================================================================ 
+  # STAGE 2: Test with Coverage
+  # ============================================================================ 
+  test:
+    name: Test
+    runs-on: macos-15
+    needs: [format-check, duplicates-check, unused-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+
+      - name: Cache SPM Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Run Tests with Coverage
+        run: swift test --parallel --enable-code-coverage
+
+      - name: Generate Coverage Report
+        run: |
+          BIN_PATH=$(swift build --show-bin-path)
+          XCTEST_PATH=$(find "$BIN_PATH" -name '*.xctest' -type d | head -1)
+          PROFDATA_PATH=$(find .build -name 'default.profdata' -type f | head -1)
+
+          if [[ -n "$XCTEST_PATH" && -n "$PROFDATA_PATH" ]]; then
+            # Get the executable inside the xctest bundle
+            EXEC_NAME=$(basename "$XCTEST_PATH" .xctest)
+            EXEC_PATH="$XCTEST_PATH/Contents/MacOS/$EXEC_NAME"
+
+            # Generate lcov report
+            xcrun llvm-cov export \
+              "$EXEC_PATH" \
+              -instr-profile="$PROFDATA_PATH" \
+              -format=lcov \
+              -ignore-filename-regex='.build|Tests|Fixtures'
+              > coverage.lcov
+
+            # Generate text summary
+            xcrun llvm-cov report \
+              "$EXEC_PATH" \
+              -instr-profile="$PROFDATA_PATH" \
+              -ignore-filename-regex='.build|Tests|Fixtures'
+              > coverage.txt
+
+            echo "Coverage Summary:"
+            cat coverage.txt
+          else
+            echo "Could not find xctest or profdata files"
+            exit 1
+          fi
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.lcov
+            coverage.txt
+          retention-days: 30
+
+  # ============================================================================ 
+  # STAGE 3: CodeQL, Prepare Release, Docs (after tests)
+  # ============================================================================ 
+  codeql:
+    name: CodeQL Analysis
+    runs-on: macos-15
+    needs: test
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+
+      - name: Restore SPM Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+
+      - name: Build for CodeQL
+        run: swift build -c release --arch arm64
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:swift"
+
+  prepare-release:
+    name: Prepare Release
+    runs-on: macos-15
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+      changelog: ${{ steps.changelog.outputs.content }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -f ".spk.json" ]]; then
+            VERSION=$(jq -r '.project.version // empty' .spk.json)
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            if [[ ! "$INPUT_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid version format: $INPUT_VERSION"
+              exit 1
+            fi
+            VERSION="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            echo "No version source found"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists - skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version ${VERSION} - will create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          PREVIOUS=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          RANGE="${PREVIOUS:+$PREVIOUS..}HEAD"
+
+          {
+            echo "content<<EOF"
+
+            FEATURES=$(git log $RANGE --pretty=format:"- %s (%h)" --grep="^feat" --grep="^add" --grep="^new" -i 2>/dev/null | head -20 || echo "")
+            if [[ -n "$FEATURES" ]]; then
+              echo "### Features"
+              echo "$FEATURES"
+              echo ""
+            fi
+
+            FIXES=$(git log $RANGE --pretty=format:"- %s (%h)" --grep="^fix" -i 2>/dev/null | head -20 || echo "")
+            if [[ -n "$FIXES" ]]; then
+              echo "### Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+
+            PERF=$(git log $RANGE --pretty=format:"- %s (%h)" --grep="^perf" -i 2>/dev/null | head -10 || echo "")
+            if [[ -n "$PERF" ]]; then
+              echo "### Performance"
+              echo "$PERF"
+              echo ""
+            fi
+
+            OTHER=$(git log $RANGE --pretty=format:"- %s (%h)" --invert-grep --grep="^feat" --grep="^fix" --grep="^perf" --grep="^add" --grep="^new" -i 2>/dev/null | head -15 || echo "")
+            if [[ -n "$OTHER" ]]; then
+              echo "### Other Changes"
+              echo "$OTHER"
+              echo ""
+            fi
+
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+  docs:
+    name: Build Documentation
+    runs-on: macos-15
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+
+      - name: Restore SPM Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build Documentation
+        run: |
+          swift package --allow-writing-to-directory ./docs \
+            generate-documentation \
+            --target ClassDumpCore \
+            --disable-indexing \
+            --transform-for-static-hosting \
+            --hosting-base-path class-dump \
+            --output-path ./docs
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+
+  # ============================================================================ 
+  # STAGE 4: Release (after prepare-release)
+  # ============================================================================ 
+  release:
+    name: Create Release
+    runs-on: macos-15
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+
+      - name: Restore SPM Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build Universal Binaries
+        run: |
+          mkdir -p .build/release
+          
+          for ARCH in arm64 x86_64;
+            do
+            echo "Building for $ARCH..."
+            swift build -c release --arch "$ARCH"
+            
+            for BIN in class-dump deprotect formatType;
+              do
+              # Source path depends on arch folder naming convention
+              SRC=".build/${ARCH}-apple-macosx/release/${BIN}"
+              DEST=".build/${BIN}-${ARCH}"
+              cp "$SRC" "$DEST"
+            done
+          done
+
+          # Create Universal Binaries
+          for BIN in class-dump deprotect formatType;
+            do
+            lipo -create -output ".build/release/${BIN}" \
+              ".build/${BIN}-arm64" \
+              ".build/${BIN}-x86_64"
+            
+            lipo -info ".build/release/${BIN}"
+          done
+
+      - name: Package Binaries
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          mkdir -p release
+
+          # Function to package a binary
+          package_bin() {
+            local BIN_NAME=$1
+            local ARCH=$2
+            local SRC_PATH=$3
+            
+            cp "$SRC_PATH" "release/$BIN_NAME"
+            tar -C release -czvf "release/${BIN_NAME}-${VERSION}-macos-${ARCH}.tar.gz" "$BIN_NAME"
+            rm "release/$BIN_NAME"
+          }
+
+          for BIN in class-dump deprotect formatType;
+             do
+             # Universal
+             package_bin "$BIN" "universal" ".build/release/$BIN"
+             
+             # Arm64
+             package_bin "$BIN" "arm64" ".build/${BIN}-arm64"
+             
+             # x86_64
+             package_bin "$BIN" "x86_64" ".build/${BIN}-x86_64"
+          done
+
+          cd release && shasum -a 256 *.tar.gz > checksums.txt
+
+      - name: Create Tag
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.prepare-release.outputs.tag }}" -m "Release ${{ needs.prepare-release.outputs.version }}" || true
+          git push origin "${{ needs.prepare-release.outputs.tag }}" || true
+
+      - name: Prepare Release Notes
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          TAG="${{ needs.prepare-release.outputs.tag }}"
+          cat > release_notes.md << RELEASE_EOF
+          ## class-dump ${VERSION}
+
+          ${{ needs.prepare-release.outputs.changelog }}
+
+          ---
+
+          ### Installation
+
+          **Swift Package Manager:**
+          `swift
+          .package(url: "https://github.com/g-cqd/class-dump.git", from: "${VERSION}")
+          `
+
+          **Pre-built Binaries (macOS):**
+          
+          **class-dump:**
+          `bash
+          # Universal
+          curl -L https://github.com/g-cqd/class-dump/releases/download/${TAG}/class-dump-${VERSION}-macos-universal.tar.gz | tar xz
+          sudo mv class-dump /usr/local/bin/
+          `
+
+          **deprotect:**
+          `bash
+          # Universal
+          curl -L https://github.com/g-cqd/class-dump/releases/download/${TAG}/deprotect-${VERSION}-macos-universal.tar.gz | tar xz
+          sudo mv deprotect /usr/local/bin/
+          `
+
+          **formatType:**
+          `bash
+          # Universal
+          curl -L https://github.com/g-cqd/class-dump/releases/download/${TAG}/formatType-${VERSION}-macos-universal.tar.gz | tar xz
+          sudo mv formatType /usr/local/bin/
+          `
+
+          ### Checksums
+
+          `
+          $(cat release/checksums.txt)
+          `
+
+          RELEASE_EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: class-dump ${{ needs.prepare-release.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.prepare-release.outputs.version, 'alpha') || contains(needs.prepare-release.outputs.version, 'beta') }}
+          files: |
+            release/*.tar.gz
+            release/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================ 
+  # Deploy Documentation (after docs build)
+  # ============================================================================ 
+  deploy-docs:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    needs: docs
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
