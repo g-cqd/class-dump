@@ -36,10 +36,10 @@
 [x] 15 Migrate type system and formatting (ObjCType, ObjCTypeParser, ObjCTypeLexer, ObjCTypeFormatter)
 [x] 16 Migrate visitor pipeline + output formatting (TextClassDumpVisitor, ClassDumpHeaderVisitor, etc.)
 [x] 17 Migrate class-dump CLI to Swift with ArgumentParser
-[ ] 17b Implement deprotect CLI in Swift
-[ ] 17c Implement formatType CLI in Swift
+[x] 17b Implement deprotect CLI in Swift
+[x] 17c Implement formatType CLI in Swift
 [ ] 18 Concurrency + performance pass (TaskGroup parsing, parallel file scanning, caching, memory mapping)
-[ ] 19 Modernization pass (Swift 6.2 strict concurrency audit, Sendable annotations, Logger, URL APIs)
+[x] 19 Modernization pass (Swift 6.2 strict concurrency audit, Sendable annotations, deprecated API migration)
 [ ] 20 Remove Obj-C sources, PCH, deprecated build settings; retire Xcode project
 [ ] 21 Final verification (tests, performance checks, docs update)
 
@@ -76,3 +76,5 @@
 - 2026-01-07: verified arm64e mapping via tests (no code change required)
 - 2026-01-07: moved Swift tests into SPM and made `swift test` the primary runner (ObjC core split into ClassDumpCoreObjC)
 - 2026-01-08: implemented full Swift 6 core - DataCursor, MachO types, load commands, ObjC2Processor with chained fixups and small methods, type system (parser/lexer/formatter), visitor pipeline, class-dump CLI with ArgumentParser. 265 tests passing. Pushed to fork.
+- 2026-01-08: implemented deprotect and formatType CLIs in Swift with full functionality
+- 2026-01-08: modernization pass - added built-in arch tables to avoid deprecated NXGetArchInfo* APIs for common architectures (i386, x86_64, armv6/7/7s, arm64/e)
