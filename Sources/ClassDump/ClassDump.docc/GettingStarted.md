@@ -1,17 +1,17 @@
-# Getting Started with ClassDumpCore
+# Getting Started with ClassDump
 
-Learn how to use ClassDumpCore to parse Mach-O binaries and extract Objective-C metadata.
+Learn how to use ClassDump to parse Mach-O binaries and extract Objective-C metadata.
 
 ## Overview
 
-ClassDumpCore provides a comprehensive API for analyzing Mach-O binaries. This guide walks you through the fundamental concepts and common use cases.
+ClassDump provides a comprehensive API for analyzing Mach-O binaries. This guide walks you through the fundamental concepts and common use cases.
 
 ## Loading a Binary
 
 The entry point for binary analysis is ``MachOBinary``. It handles both thin (single architecture) and fat (universal) binaries automatically:
 
 ```swift
-import ClassDumpCore
+import ClassDump
 
 // Load a binary from disk
 let url = URL(fileURLWithPath: "/path/to/binary")

@@ -11,6 +11,7 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.macOS(.v15)],
     products: [
+        .library(name: "ClassDump", targets: ["ClassDump"]),
         .library(name: "ClassDumpCore", targets: ["ClassDumpCore"]),
         .executable(name: "class-dump", targets: ["ClassDumpCLI"]),
         .executable(name: "deprotect", targets: ["DeprotectCLI"]),
@@ -22,6 +23,11 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.3.0"),
     ],
     targets: [
+        .target(
+            name: "ClassDump",
+            dependencies: ["ClassDumpCore"],
+            swiftSettings: swiftSettings
+        ),
         .target(
             name: "ClassDumpCore",
             path: "Sources/ClassDumpCore",

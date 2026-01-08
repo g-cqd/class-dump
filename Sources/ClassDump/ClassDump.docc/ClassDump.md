@@ -1,10 +1,10 @@
-# ``ClassDumpCore``
+# ``ClassDump``
 
 A Swift library for parsing Mach-O binaries and extracting Objective-C runtime metadata.
 
 ## Overview
 
-ClassDumpCore is the core library behind the `class-dump` suite of tools. It provides comprehensive support for:
+ClassDump is the core library behind the `class-dump` suite of tools. It provides comprehensive support for:
 
 - **Mach-O Binary Parsing**: Read and analyze Mach-O executables, frameworks, and libraries
 - **Universal Binary Support**: Handle fat binaries containing multiple architectures
