@@ -15,6 +15,7 @@ let package = Package(
         .executable(name: "class-dump", targets: ["ClassDumpCLI"]),
         .executable(name: "deprotect", targets: ["DeprotectCLI"]),
         .executable(name: "formatType", targets: ["FormatTypeCLI"]),
+        .executable(name: "regression-test", targets: ["RegressionTestCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
@@ -41,6 +42,13 @@ let package = Package(
         .executableTarget(
             name: "FormatTypeCLI",
             dependencies: ["ClassDumpCore"],
+            swiftSettings: swiftSettings
+        ),
+        .executableTarget(
+            name: "RegressionTestCLI",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
             swiftSettings: swiftSettings
         ),
         .testTarget(

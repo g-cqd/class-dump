@@ -78,7 +78,7 @@ jobs:
         run: |
           # Read paths and excludePaths from .spk.json
           PATHS=$(jq -r '.hooks.tasks.format.paths // ["Sources/", "Tests/"] | .[]' .spk.json | tr '\n' ' ')
-          EXCLUDE_PATTERNS=$(jq -r '.hooks.tasks.format.excludePaths // [] | .[] | gsub("*\*/"; "") | gsub("/\*\*"; "")' .spk.json)
+          EXCLUDE_PATTERNS=$(jq -r '.hooks.tasks.format.excludePaths // [] | .[] | gsub("\\*\\*/"; "") | gsub("/\\*\\*"; "")' .spk.json)
 
           # Find all Swift files
           FILES=$(find $PATHS -name '*.swift' 2>/dev/null)
