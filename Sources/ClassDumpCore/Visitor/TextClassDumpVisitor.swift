@@ -225,6 +225,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
       // Fallback if formatting fails
       append("(\(method.typeEncoding))\(method.name);")
     }
+
+    // Show implementation address if enabled
+    if options.shouldShowMethodAddresses && method.address != 0 {
+      append(String(format: " // IMP=0x%llx", method.address))
+    }
   }
 
   /// Append a formatted ivar declaration.
@@ -234,6 +239,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
       append("    \(formatted);")
     } else {
       append("    /* \(ivar.typeEncoding) */ \(ivar.name);")
+    }
+
+    // Show ivar offset if enabled
+    if options.shouldShowIvarOffsets {
+      append(" // +\(ivar.offset)")
     }
   }
 

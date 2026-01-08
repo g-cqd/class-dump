@@ -13,20 +13,72 @@ struct ClassDumpCommand: AsyncParsableCommand {
   @Argument(help: "The Mach-O file to process")
   var file: String
 
-  @Option(name: .shortAndLong, help: "Select a specific architecture from a fat binary")
+  // MARK: - Architecture Options
+
+  @Option(name: .long, help: "Select a specific architecture from a universal binary (ppc, ppc64, i386, x86_64, armv6, armv7, armv7s, arm64)")
   var arch: String?
 
-  @Flag(name: .long, help: "Sort classes and categories by name")
+  @Flag(name: .long, help: "List the architectures in the file, then exit")
+  var listArches: Bool = false
+
+  // MARK: - Display Options
+
+  @Flag(name: .customShort("a"), help: "Show instance variable offsets")
+  var showIvarOffsets: Bool = false
+
+  @Flag(name: .customShort("A"), help: "Show implementation addresses")
+  var showImpAddr: Bool = false
+
+  @Flag(name: .customShort("t"), help: "Suppress header in output, for testing")
+  var suppressHeader: Bool = false
+
+  // MARK: - Sorting Options
+
+  @Flag(name: .customShort("s"), help: "Sort classes and categories by name")
   var sort: Bool = false
 
-  @Flag(name: .long, help: "Sort classes by inheritance")
+  @Flag(name: .customShort("I"), help: "Sort classes, categories, and protocols by inheritance (overrides -s)")
   var sortByInheritance: Bool = false
 
-  @Flag(name: .long, help: "Sort methods by name")
+  @Flag(name: .customShort("S"), help: "Sort methods by name")
   var sortMethods: Bool = false
 
-  @Option(name: .shortAndLong, help: "Only show classes/protocols matching this regex")
+  // MARK: - Filtering Options
+
+  @Option(name: .customShort("C"), help: "Only display classes matching regular expression")
   var match: String?
+
+  @Option(name: .customShort("f"), help: "Find string in method name")
+  var find: String?
+
+  // MARK: - Output Options
+
+  @Flag(name: .customShort("H"), help: "Generate header files in current directory, or directory specified with -o")
+  var generateHeaders: Bool = false
+
+  @Option(name: .customShort("o"), help: "Output directory used for -H")
+  var outputDir: String?
+
+  // MARK: - Framework Options
+
+  @Flag(name: .customShort("r"), help: "Recursively expand frameworks and fixed VM shared libraries")
+  var recursive: Bool = false
+
+  // MARK: - SDK Options
+
+  @Option(name: .long, help: "Specify iOS SDK version")
+  var sdkIos: String?
+
+  @Option(name: .long, help: "Specify Mac OS X SDK version")
+  var sdkMac: String?
+
+  @Option(name: .long, help: "Specify the full SDK root path")
+  var sdkRoot: String?
+
+  // MARK: - Hide Options
+
+  @Option(name: .long, help: "Hide section (structures, protocols, or all)")
+  var hide: [String] = []
 
   mutating func run() async throws {
     // Load the Mach-O file
@@ -36,8 +88,15 @@ struct ClassDumpCommand: AsyncParsableCommand {
     }
 
     let binary = try MachOBinary(contentsOf: url)
-    let machOFile: MachOFile
 
+    // Handle --list-arches
+    if listArches {
+      print(binary.archNames.joined(separator: " "))
+      return
+    }
+
+    // Select architecture
+    let machOFile: MachOFile
     if let archName = arch {
       guard let requestedArch = Arch(name: archName) else {
         throw ClassDumpError.invalidArch(archName)
@@ -46,6 +105,9 @@ struct ClassDumpCommand: AsyncParsableCommand {
     } else {
       machOFile = try binary.bestMatchForLocal()
     }
+
+    // Build SDK root if specified (reserved for future recursive framework loading)
+    _ = resolveSDKRoot()
 
     // Process ObjC metadata
     let processor = ObjC2Processor(
@@ -62,8 +124,13 @@ struct ClassDumpCommand: AsyncParsableCommand {
       throw ClassDumpError.processingFailed(file, error)
     }
 
-    // Create visitor and generate output
-    let visitor = TextClassDumpVisitor()
+    // Build visitor options
+    let visitorOptions = ClassDumpVisitorOptions(
+      shouldShowStructureSection: !hide.contains("structures") && !hide.contains("all"),
+      shouldShowProtocolSection: !hide.contains("protocols") && !hide.contains("all"),
+      shouldShowIvarOffsets: showIvarOffsets,
+      shouldShowMethodAddresses: showImpAddr
+    )
 
     // Build processor info
     let machOFileInfo = VisitorMachOFileInfo(
@@ -76,11 +143,74 @@ struct ClassDumpCommand: AsyncParsableCommand {
       hasObjectiveCRuntimeInfo: !metadata.classes.isEmpty || !metadata.protocols.isEmpty || !metadata.categories.isEmpty
     )
 
-    // Visit metadata
+    // Handle -f (find method)
+    if let searchString = find {
+      let findVisitor = FindMethodVisitor(options: visitorOptions)
+      findVisitor.searchString = searchString
+      if !suppressHeader {
+        findVisitor.headerString = generateHeaderString()
+      }
+      visitMetadata(metadata, processorInfo: processorInfo, with: findVisitor)
+      return
+    }
+
+    // Handle -H (generate separate headers)
+    if generateHeaders {
+      let multiVisitor = MultiFileVisitor(options: visitorOptions)
+      multiVisitor.outputPath = outputDir ?? "."
+      if !suppressHeader {
+        multiVisitor.headerString = generateHeaderString()
+      }
+      visitMetadata(metadata, processorInfo: processorInfo, with: multiVisitor)
+      return
+    }
+
+    // Standard output
+    let visitor: ClassDumpVisitor
+    if suppressHeader {
+      visitor = TextClassDumpVisitor(options: visitorOptions)
+    } else {
+      let headerVisitor = ClassDumpHeaderVisitor(options: visitorOptions)
+      headerVisitor.headerString = generateHeaderString()
+      visitor = headerVisitor
+    }
+
     visitMetadata(metadata, processorInfo: processorInfo, with: visitor)
 
     // Output result
-    print(visitor.resultString)
+    if let textVisitor = visitor as? TextClassDumpVisitor {
+      print(textVisitor.resultString)
+    }
+  }
+
+  // MARK: - Helper Methods
+
+  private func resolveSDKRoot() -> String? {
+    if let root = sdkRoot {
+      return root
+    }
+
+    if let version = sdkIos {
+      if FileManager.default.fileExists(atPath: "/Applications/Xcode.app") {
+        return "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS\(version).sdk"
+      } else if FileManager.default.fileExists(atPath: "/Developer") {
+        return "/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS\(version).sdk"
+      }
+    }
+
+    if let version = sdkMac {
+      if FileManager.default.fileExists(atPath: "/Applications/Xcode.app") {
+        return "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX\(version).sdk"
+      } else if FileManager.default.fileExists(atPath: "/Developer") {
+        return "/Developer/SDKs/MacOSX\(version).sdk"
+      }
+    }
+
+    return nil
+  }
+
+  private func generateHeaderString() -> String {
+    ClassDumpHeaderVisitor.generateHeader(generatedBy: "class-dump", version: "4.0.0 (Swift)")
   }
 
   private func shouldShow(name: String) -> Bool {
@@ -124,14 +254,16 @@ struct ClassDumpCommand: AsyncParsableCommand {
     visitor.willVisitProcessor(processorInfo)
     visitor.visitProcessor(processorInfo)
 
-    // Visit protocols
-    let protocols = sort || sortByInheritance
-      ? metadata.protocols.sorted { $0.name < $1.name }
-      : metadata.protocols
+    // Visit protocols (only if not hidden)
+    if visitor.options.shouldShowProtocolSection {
+      let protocols = sort || sortByInheritance
+        ? metadata.protocols.sorted { $0.name < $1.name }
+        : metadata.protocols
 
-    for proto in protocols {
-      if shouldShow(name: proto.name) {
-        visitProtocol(proto, with: visitor)
+      for proto in protocols {
+        if shouldShow(name: proto.name) {
+          visitProtocol(proto, with: visitor)
+        }
       }
     }
 

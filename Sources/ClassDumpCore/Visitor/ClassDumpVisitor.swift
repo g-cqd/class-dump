@@ -145,12 +145,22 @@ public struct ClassDumpVisitorOptions: Sendable {
   /// Whether to show the protocol section.
   public var shouldShowProtocolSection: Bool
 
+  /// Whether to show instance variable offsets.
+  public var shouldShowIvarOffsets: Bool
+
+  /// Whether to show method implementation addresses.
+  public var shouldShowMethodAddresses: Bool
+
   public init(
     shouldShowStructureSection: Bool = true,
-    shouldShowProtocolSection: Bool = true
+    shouldShowProtocolSection: Bool = true,
+    shouldShowIvarOffsets: Bool = false,
+    shouldShowMethodAddresses: Bool = false
   ) {
     self.shouldShowStructureSection = shouldShowStructureSection
     self.shouldShowProtocolSection = shouldShowProtocolSection
+    self.shouldShowIvarOffsets = shouldShowIvarOffsets
+    self.shouldShowMethodAddresses = shouldShowMethodAddresses
   }
 }
 
