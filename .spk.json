@@ -44,19 +44,19 @@
           "syncTargets": [
             {
               "file": "Sources/ClassDumpCLI/main.swift",
-              "pattern": "version: \"(\d+\.\d+\.\d+) \(Swift\)""
+              "pattern": "version: \"(\\d+\\.\\d+\\.\\d+) \\(Swift\\)\""
             },
             {
               "file": "Sources/DeprotectCLI/main.swift",
-              "pattern": "deprotect (\d+\.\d+\.\d+) \(Swift\)"
+              "pattern": "deprotect (\\d+\\.\\d+\\.\\d+) \\(Swift\\)" 
             },
             {
               "file": "Sources/FormatTypeCLI/main.swift",
-              "pattern": "formatType (\d+\.\d+\.\d+) \(Swift\)"
+              "pattern": "formatType (\\d+\\.\\d+\\.\\d+) \\(Swift\\)"
             },
             {
               "file": "README.md",
-              "pattern": "from: \"(\d+\.\d+\.\d+)\""
+              "pattern": "from: \"(\\d+\\.\\d+\\.\\d+)\""
             }
           ]
         }
