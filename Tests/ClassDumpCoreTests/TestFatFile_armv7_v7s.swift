@@ -1,54 +1,57 @@
-import ClassDumpCore
-import XCTest
+import Testing
+@testable import ClassDumpCore
+import MachO
+import Foundation
 
-final class TestFatFile_armv7_v7s: XCTestCase {
-    private var fatFile: CDFatFile!
-    private var archV7: CDFatArch!
-    private var archV7s: CDFatArch!
-    private var machoV7: CDMachOFile!
-    private var machoV7s: CDMachOFile!
-
-    override func setUp() {
-        super.setUp()
-
-        fatFile = CDFatFile()
-
-        machoV7 = CDMachOFile()
-        machoV7.cputype = CPU_TYPE_ARM
-        machoV7.cpusubtype = CPU_SUBTYPE_ARM_V7
-
-        archV7 = CDFatArch(machOFile: machoV7)
-        fatFile.addArchitecture(archV7)
-
-        machoV7s = CDMachOFile()
-        machoV7s.cputype = CPU_TYPE_ARM
-        machoV7s.cpusubtype = 11
-
-        archV7s = CDFatArch(machOFile: machoV7s)
-        fatFile.addArchitecture(archV7s)
+@Suite struct TestFatFile_armv7_v7s {
+    let binary: MachOBinary
+    
+    init() throws {
+        let offsetV7: UInt32 = 0x1000
+        let sizeV7: UInt32 = 0x100
+        let alignV7: UInt32 = 12
+        
+        let offsetV7s: UInt32 = 0x2000
+        let sizeV7s: UInt32 = 0x100
+        let alignV7s: UInt32 = 12
+        
+        let arches = [
+            (cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7, offset: offsetV7, size: sizeV7, align: alignV7),
+            (cputype: CPU_TYPE_ARM, cpusubtype: cpu_subtype_t(11), offset: offsetV7s, size: sizeV7s, align: alignV7s)
+        ]
+        
+        var data = mockFatData(arches: arches)
+        
+        // V7
+        if data.count < offsetV7 {
+            data.append(Data(repeating: 0, count: Int(offsetV7) - data.count))
+        }
+        data.append(mockMachOData(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7, is64Bit: false))
+        if data.count < offsetV7 + sizeV7 {
+            data.append(Data(repeating: 0, count: Int(offsetV7 + sizeV7) - data.count))
+        }
+        
+        // V7s
+        if data.count < offsetV7s {
+            data.append(Data(repeating: 0, count: Int(offsetV7s) - data.count))
+        }
+        data.append(mockMachOData(cputype: CPU_TYPE_ARM, cpusubtype: 11, is64Bit: false))
+        if data.count < offsetV7s + sizeV7s {
+            data.append(Data(repeating: 0, count: Int(offsetV7s + sizeV7s) - data.count))
+        }
+        
+        binary = try MachOBinary(data: data)
     }
 
-    override func tearDown() {
-        fatFile = nil
-        archV7 = nil
-        archV7s = nil
-        machoV7 = nil
-        machoV7s = nil
-
-        super.tearDown()
+    @Test func machOFileWithArch_armv7() throws {
+        let arch = Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7)
+        let machOFile = try binary.machOFile(for: arch)
+        #expect(machOFile.arch.cpusubtype == CPU_SUBTYPE_ARM_V7)
     }
 
-    func testMachOFileWithArch_armv7() {
-        let arch = CDArch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7)
-        let machOFile = fatFile.machOFile(with: arch)
-        XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
-        XCTAssertTrue(machOFile === machoV7, "Didn't find correct Mach-O file")
-    }
-
-    func testMachOFileWithArch_armv7s() {
-        let arch = CDArch(cputype: CPU_TYPE_ARM, cpusubtype: 11)
-        let machOFile = fatFile.machOFile(with: arch)
-        XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
-        XCTAssertTrue(machOFile === machoV7s, "Didn't find correct Mach-O file")
+    @Test func machOFileWithArch_armv7s() throws {
+        let arch = Arch(cputype: CPU_TYPE_ARM, cpusubtype: 11)
+        let machOFile = try binary.machOFile(for: arch)
+        #expect(machOFile.arch.cpusubtype == 11)
     }
 }

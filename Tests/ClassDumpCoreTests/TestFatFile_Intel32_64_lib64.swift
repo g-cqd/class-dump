@@ -1,67 +1,64 @@
-import ClassDumpCore
-import XCTest
+import Testing
+@testable import ClassDumpCore
+import MachO
+import Foundation
 
-final class TestFatFile_Intel32_64_lib64: XCTestCase {
-    private var fatFile: CDFatFile!
-    private var archI386: CDFatArch!
-    private var archX86_64: CDFatArch!
-    private var machoI386: CDMachOFile!
-    private var machoX86_64: CDMachOFile!
-
-    override func setUp() {
-        super.setUp()
-
-        fatFile = CDFatFile()
-
-        machoI386 = CDMachOFile()
-        machoI386.cputype = CPU_TYPE_X86
-        machoI386.cpusubtype = cpuSubtype386
-
-        archI386 = CDFatArch(machOFile: machoI386)
-        fatFile.addArchitecture(archI386)
-
-        machoX86_64 = CDMachOFile()
-        machoX86_64.cputype = CPU_TYPE_X86_64
-        machoX86_64.cpusubtype = cpuSubtype386 | cpuSubtypeLib64
-
-        archX86_64 = CDFatArch(machOFile: machoX86_64)
-        fatFile.addArchitecture(archX86_64)
+@Suite struct TestFatFile_Intel32_64_lib64 {
+    let binary: MachOBinary
+    let lib64 = Int32(bitPattern: 0x80000000)
+    
+    init() throws {
+        let offset32: UInt32 = 0x1000
+        let size32: UInt32 = 0x100
+        let align32: UInt32 = 12
+        
+        let offset64: UInt32 = 0x2000
+        let size64: UInt32 = 0x100
+        let align64: UInt32 = 12
+        
+        let arches = [
+            (cputype: CPU_TYPE_X86, cpusubtype: cpu_subtype_t(3), offset: offset32, size: size32, align: align32),
+            (cputype: CPU_TYPE_X86_64, cpusubtype: cpu_subtype_t(3) | lib64, offset: offset64, size: size64, align: align64)
+        ]
+        
+        var data = mockFatData(arches: arches)
+        
+        if data.count < offset32 {
+            data.append(Data(repeating: 0, count: Int(offset32) - data.count))
+        }
+        data.append(mockMachOData(cputype: CPU_TYPE_X86, cpusubtype: 3, is64Bit: false))
+        if data.count < offset32 + size32 {
+            data.append(Data(repeating: 0, count: Int(offset32 + size32) - data.count))
+        }
+        
+        if data.count < offset64 {
+            data.append(Data(repeating: 0, count: Int(offset64) - data.count))
+        }
+        data.append(mockMachOData(cputype: CPU_TYPE_X86_64, cpusubtype: 3 | lib64, is64Bit: true))
+        if data.count < offset64 + size64 {
+            data.append(Data(repeating: 0, count: Int(offset64 + size64) - data.count))
+        }
+        
+        binary = try MachOBinary(data: data)
     }
 
-    override func tearDown() {
-        fatFile = nil
-        archI386 = nil
-        archX86_64 = nil
-        machoI386 = nil
-        machoX86_64 = nil
-
-        super.tearDown()
+    @Test func bestMatchIntel64() throws {
+        let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
+        let result = try binary.bestMatch(for: arch)
+        #expect(result.arch.cputype == CPU_TYPE_X86_64)
+        #expect(result.arch.cpusubtype == 3 | lib64)
     }
 
-    func testBestMatchIntel64() {
-        var arch = CDArch(cputype: CPU_TYPE_X86_64, cpusubtype: cpuSubtype386)
-
-        let result = fatFile.bestMatch(for: &arch)
-        XCTAssertTrue(result, "Didn't find a best match for x86_64")
-        XCTAssertEqual(arch.cputype, CPU_TYPE_X86_64, "Best match cputype should be CPU_TYPE_X86_64")
-        XCTAssertEqual(
-            arch.cpusubtype,
-            cpuSubtype386 | cpuSubtypeLib64,
-            "Best match cpusubtype should be CPU_SUBTYPE_386"
-        )
+    @Test func machOFileWithArch_x86_64() throws {
+        let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
+        let machOFile = try binary.machOFile(for: arch)
+        #expect(machOFile.arch.cputype == CPU_TYPE_X86_64)
+        #expect(machOFile.arch.cpusubtype == 3 | lib64)
     }
 
-    func testMachOFileWithArch_x86_64() {
-        let arch = CDArch(cputype: CPU_TYPE_X86_64, cpusubtype: cpuSubtype386)
-        let machOFile = fatFile.machOFile(with: arch)
-        XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
-        XCTAssertTrue(machOFile === machoX86_64, "Didn't find correct Mach-O file")
-    }
-
-    func testMachOFileWithArch_i386() {
-        let arch = CDArch(cputype: CPU_TYPE_X86, cpusubtype: cpuSubtype386)
-        let machOFile = fatFile.machOFile(with: arch)
-        XCTAssertNotNil(machOFile, "The Mach-O file shouldn't be nil")
-        XCTAssertTrue(machOFile === machoI386, "Didn't find correct Mach-O file")
+    @Test func machOFileWithArch_i386() throws {
+        let arch = Arch(cputype: CPU_TYPE_X86, cpusubtype: 3)
+        let machOFile = try binary.machOFile(for: arch)
+        #expect(machOFile.arch.cputype == CPU_TYPE_X86)
     }
 }

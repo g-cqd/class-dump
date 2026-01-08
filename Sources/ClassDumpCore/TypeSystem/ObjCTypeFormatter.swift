@@ -275,7 +275,7 @@ public struct ObjCTypeFormatter: Sendable {
 
         // Close parameters
         if types.count == 2 {
-            result += "(void)"
+            result += "void)"
         } else if types.count > 2 {
             result += ")"
         }

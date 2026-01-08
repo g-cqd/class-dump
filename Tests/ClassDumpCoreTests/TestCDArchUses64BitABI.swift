@@ -1,27 +1,29 @@
-import ClassDumpCore
-import XCTest
+import Testing
+@testable import ClassDumpCore
+import MachO
 
-final class TestCDArchUses64BitABI: XCTestCase {
-    func testI386() {
-        let arch = CDArch(cputype: CPU_TYPE_X86, cpusubtype: cpuSubtype386)
-        XCTAssertFalse(CDArchUses64BitABI(arch), "i386 does not use 64 bit ABI")
+@Suite struct TestArchUses64BitABI {
+    @Test func i386() {
+        let arch = Arch(cputype: CPU_TYPE_X86, cpusubtype: 3)
+        #expect(!arch.uses64BitABI, "i386 does not use 64 bit ABI")
     }
 
-    func testX86_64() {
-        let arch = CDArch(cputype: CPU_TYPE_X86_64, cpusubtype: cpuSubtype386)
-        XCTAssertTrue(CDArchUses64BitABI(arch), "x86_64 uses 64 bit ABI")
+    @Test func x86_64() {
+        let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
+        #expect(arch.uses64BitABI, "x86_64 uses 64 bit ABI")
     }
 
-    func testX86_64_lib64() {
-        let arch = CDArch(
+    @Test func x86_64_lib64() {
+        let lib64 = cpu_subtype_t(bitPattern: 0x80000000)
+        let arch = Arch(
             cputype: CPU_TYPE_X86_64,
-            cpusubtype: cpuSubtype386 | cpuSubtypeLib64
+            cpusubtype: 3 | lib64
         )
-        XCTAssertTrue(CDArchUses64BitABI(arch), "x86_64 (with LIB64 capability bit) uses 64 bit ABI")
+        #expect(arch.uses64BitABI, "x86_64 (with LIB64 capability bit) uses 64 bit ABI")
     }
 
-    func testX86_64PlusOtherCapability() {
-        let arch = CDArch(cputype: CPU_TYPE_X86_64 | 0x4000_0000, cpusubtype: cpuSubtype386)
-        XCTAssertTrue(CDArchUses64BitABI(arch), "x86_64 (with other capability bit) uses 64 bit ABI")
+    @Test func x86_64PlusOtherCapability() {
+        let arch = Arch(cputype: CPU_TYPE_X86_64 | 0x4000_0000, cpusubtype: 3)
+        #expect(arch.uses64BitABI, "x86_64 (with other capability bit) uses 64 bit ABI")
     }
 }

@@ -1,76 +1,48 @@
-import ClassDumpCore
-import XCTest
+import Testing
+@testable import ClassDumpCore
 
-final class TestBlockSignature: XCTestCase {
-    private func ascii(_ scalar: UnicodeScalar) -> Int32 {
-        Int32(scalar.value)
+@Suite struct TestBlockSignature {
+    @Test func zeroArguments() {
+        // void (^)(void)
+        // types[0] = return type (void)
+        // types[1] = block self (@?)
+        let types: [ObjCType] = [.void, .block(types: nil)]
+        let block = ObjCType.block(types: types)
+        #expect(block.formatted() == "void (^)(void)")
     }
 
-    func testZeroArguments() throws {
-        var types: [CDType] = []
-        types.append(CDType(simpleType: ascii("v")))
-        types.append(CDType(blockTypeWithTypes: nil))
-
-        let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
-        let blockSignatureString = blockType.blockSignatureString()
-
-        XCTAssertEqual(blockSignatureString, "void (^)(void)")
+    @Test func oneArgument() {
+        // void (^)(NSData *)
+        let nsData = ObjCType.id(className: "NSData", protocols: [])
+        let types: [ObjCType] = [.void, .block(types: nil), nsData]
+        let block = ObjCType.block(types: types)
+        #expect(block.formatted() == "void (^)(NSData *)")
     }
 
-    func testOneArgument() throws {
-        var types: [CDType] = []
-        types.append(CDType(simpleType: ascii("v")))
-        types.append(CDType(blockTypeWithTypes: nil))
-
-        let typeName = CDTypeName()
-        typeName.name = "NSData"
-        types.append(CDType(idType: typeName))
-
-        let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
-        let blockSignatureString = blockType.blockSignatureString()
-
-        XCTAssertEqual(blockSignatureString, "void (^)(NSData *)")
+    @Test func twoArguments() {
+        // void (^)(id, NSError *)
+        let idType = ObjCType.id(className: nil, protocols: [])
+        let nsError = ObjCType.id(className: "NSError", protocols: [])
+        let types: [ObjCType] = [.void, .block(types: nil), idType, nsError]
+        let block = ObjCType.block(types: types)
+        #expect(block.formatted() == "void (^)(id, NSError *)")
     }
 
-    func testTwoArguments() throws {
-        var types: [CDType] = []
-        types.append(CDType(simpleType: ascii("v")))
-        types.append(CDType(blockTypeWithTypes: nil))
-        types.append(CDType(idType: nil))
-
-        let typeName = CDTypeName()
-        typeName.name = "NSError"
-        types.append(CDType(idType: typeName))
-
-        let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
-        let blockSignatureString = blockType.blockSignatureString()
-
-        XCTAssertEqual(blockSignatureString, "void (^)(id, NSError *)")
+    @Test func blockArgument() {
+        // void (^)(void (^)(void))
+        let nestedTypes: [ObjCType] = [.void, .block(types: nil)]
+        let nestedBlock = ObjCType.block(types: nestedTypes)
+        
+        let types: [ObjCType] = [.void, .block(types: nil), nestedBlock]
+        let block = ObjCType.block(types: types)
+        #expect(block.formatted() == "void (^)(void (^)(void))")
     }
 
-    func testBlockArgument() throws {
-        var types: [CDType] = []
-        types.append(CDType(simpleType: ascii("v")))
-        types.append(CDType(blockTypeWithTypes: nil))
-
-        let nestedTypes = types
-        types.append(CDType(blockTypeWithTypes: nestedTypes))
-
-        let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
-        let blockSignatureString = blockType.blockSignatureString()
-
-        XCTAssertEqual(blockSignatureString, "void (^)(void (^)(void))")
-    }
-
-    func testBoolArgument() throws {
-        var types: [CDType] = []
-        types.append(CDType(simpleType: ascii("v")))
-        types.append(CDType(blockTypeWithTypes: nil))
-        types.append(CDType(simpleType: ascii("c")))
-
-        let blockType = try XCTUnwrap(CDType(blockTypeWithTypes: types))
-        let blockSignatureString = blockType.blockSignatureString()
-
-        XCTAssertEqual(blockSignatureString, "void (^)(BOOL)")
+    @Test func charArgument() {
+        // Legacy test called this "BoolArgument" but used 'c' (char).
+        // New formatter outputs "char" for .char.
+        let types: [ObjCType] = [.void, .block(types: nil), .char]
+        let block = ObjCType.block(types: types)
+        #expect(block.formatted() == "void (^)(char)")
     }
 }

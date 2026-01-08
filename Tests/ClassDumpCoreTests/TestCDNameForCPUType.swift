@@ -1,68 +1,46 @@
-import ClassDumpCore
-import XCTest
+import Testing
+@testable import ClassDumpCore
+import MachO
 
-final class TestCDNameForCPUType: XCTestCase {
-    func testArmv6() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V6),
-            "armv6",
-            "The name for ARM subtype CPU_SUBTYPE_ARM_V6 should be 'armv6'"
-        )
+@Suite struct TestNameForCPUType {
+    @Test func armv6() {
+        let arch = Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V6)
+        #expect(arch.name == "armv6")
     }
 
-    func testArmv7() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7),
-            "armv7",
-            "The name for ARM subtype CPU_SUBTYPE_ARM_V7 should be 'armv7'"
-        )
+    @Test func armv7() {
+        let arch = Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7)
+        #expect(arch.name == "armv7")
     }
 
-    func testArmv7s() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_ARM, 11),
-            "armv7s",
-            "The name for ARM subtype 11 should be 'armv7s'"
-        )
+    @Test func armv7s() {
+        let arch = Arch(cputype: CPU_TYPE_ARM, cpusubtype: 11)
+        #expect(arch.name == "armv7s")
     }
 
-    func testArm64() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_ARM | CPU_ARCH_ABI64, CPU_SUBTYPE_ARM_ALL),
-            "arm64",
-            "The name for ARM 64-bit subtype CPU_SUBTYPE_ARM_ALL should be 'arm64'"
-        )
+    @Test func arm64() {
+        let arch = Arch(cputype: CPU_TYPE_ARM | CPU_ARCH_ABI64, cpusubtype: CPU_SUBTYPE_ARM_ALL)
+        #expect(arch.name == "arm64")
     }
 
-    func testArm64e() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_ARM | CPU_ARCH_ABI64, CPU_SUBTYPE_ARM64E),
-            "arm64e",
-            "The name for ARM 64-bit subtype CPU_SUBTYPE_ARM64E should be 'arm64e'"
-        )
+    @Test func arm64e() {
+        let arch = Arch(cputype: CPU_TYPE_ARM | CPU_ARCH_ABI64, cpusubtype: 2) // CPU_SUBTYPE_ARM64E
+        #expect(arch.name == "arm64e")
     }
 
-    func testI386() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_X86, cpuSubtype386),
-            "i386",
-            "The name for X86 subtype CPU_SUBTYPE_386 should be 'i386'"
-        )
+    @Test func i386() {
+        let arch = Arch(cputype: CPU_TYPE_X86, cpusubtype: 3) // CPU_SUBTYPE_I386_ALL
+        #expect(arch.name == "i386")
     }
 
-    func testX86_64() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_X86_64, cpuSubtype386),
-            "x86_64",
-            "The name for X86_64 subtype CPU_SUBTYPE_386 should be 'x86_64'"
-        )
+    @Test func x86_64() {
+        let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
+        #expect(arch.name == "x86_64")
     }
 
-    func testX86_64_lib64() {
-        XCTAssertEqual(
-            CDNameForCPUType(CPU_TYPE_X86_64, cpuSubtype386 | cpuSubtypeLib64),
-            "x86_64",
-            "The name for X86_64 subtype CPU_SUBTYPE_386 with capability bits should be 'x86_64'"
-        )
+    @Test func x86_64_lib64() {
+        let lib64 = Int32(bitPattern: 0x80000000)
+        let arch = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3 | lib64)
+        #expect(arch.name == "x86_64")
     }
 }
