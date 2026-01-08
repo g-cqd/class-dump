@@ -371,9 +371,12 @@ jobs:
 
       - name: Build Documentation
         run: |
+          # Build comprehensive documentation for ClassDumpCore (main API)
+          # with extended types to include all re-exported symbols
           swift package --allow-writing-to-directory ./docs \
             generate-documentation \
-            --target ClassDump \
+            --target ClassDumpCore \
+            --include-extended-types \
             --disable-indexing \
             --transform-for-static-hosting \
             --hosting-base-path class-dump \

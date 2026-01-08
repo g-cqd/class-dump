@@ -16,8 +16,10 @@ The library is designed with Swift 6 strict concurrency in mind and provides a c
 
 ## Topics
 
-### Essentials
+### Getting Started
 
+- <doc:Installation>
+- <doc:Usage>
 - <doc:GettingStarted>
 - <doc:CommandLineTools>
 
