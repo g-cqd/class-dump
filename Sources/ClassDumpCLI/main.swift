@@ -7,7 +7,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "class-dump",
         abstract: "Generates Objective-C header files from Mach-O binaries.",
-        version: "4.0.2 (Swift)"
+        version: "4.0.3 (Swift)"
     )
 
     @Argument(help: "The Mach-O file to process")
@@ -302,7 +302,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
     }
 
     private func generateHeaderString() -> String {
-        ClassDumpHeaderVisitor.generateHeader(generatedBy: "class-dump", version: "4.0.2 (Swift)")
+        ClassDumpHeaderVisitor.generateHeader(generatedBy: "class-dump", version: "4.0.3 (Swift)")
     }
 
     private func shouldShow(name: String) -> Bool {

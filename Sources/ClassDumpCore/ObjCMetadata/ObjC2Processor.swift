@@ -50,17 +50,15 @@ public struct ObjCMetadata: Sendable {
 ///
 /// ## Thread Safety
 ///
-/// This class is **not thread-safe** for concurrent access. It maintains internal caches
-/// (`classesByAddress`, `protocolsByAddress`, `swiftFieldsByClassName`) that are mutated
-/// during processing.
+/// This class uses thread-safe caches for classes, protocols, and strings, enabling
+/// concurrent access during processing. The internal caches (`classesByAddress`,
+/// `protocolsByAddress`, `stringCache`) are protected by locks.
 ///
-/// **Usage Pattern**: Create an instance, call `processMetadata()` once, then safely share
-/// the resulting `ObjCMetadata` struct (which is `Sendable`). Do not call processing methods
-/// concurrently from multiple tasks.
+/// **Usage Pattern**: Create an instance, call `process()` once, then safely share
+/// the resulting `ObjCMetadata` struct (which is `Sendable`).
 ///
-/// The `@unchecked Sendable` conformance is provided to allow passing the processor between
-/// isolation domains (e.g., from an async context), but the caller must ensure single-threaded
-/// access to processing methods.
+/// The `@unchecked Sendable` conformance is provided because the class uses internal
+/// synchronization via `ThreadSafeCache` and `StringTableCache`.
 public final class ObjC2Processor: @unchecked Sendable {
     /// The raw binary data.
     private let data: Data
@@ -91,11 +89,17 @@ public final class ObjC2Processor: @unchecked Sendable {
         is64Bit ? 8 : 4
     }
 
-    /// Cache of loaded classes by address.
-    private var classesByAddress: [UInt64: ObjCClass] = [:]
+    /// Thread-safe cache of loaded classes by address.
+    private let classesByAddress = ThreadSafeCache<UInt64, ObjCClass>()
 
-    /// Cache of loaded protocols by address (for uniquing).
-    private var protocolsByAddress: [UInt64: ObjCProtocol] = [:]
+    /// Thread-safe cache of loaded protocols by address (for uniquing).
+    private let protocolsByAddress = ThreadSafeCache<UInt64, ObjCProtocol>()
+
+    /// Thread-safe cache for string table lookups (reduces repeated reads).
+    private let stringCache = StringTableCache()
+
+    /// Fast address-to-file-offset translator with binary search.
+    private let addressTranslator: AddressTranslator
 
     /// Initialize with binary data and segment information.
     public init(
@@ -108,6 +112,9 @@ public final class ObjC2Processor: @unchecked Sendable {
         self.is64Bit = is64Bit
         self.chainedFixups = chainedFixups
         self.swiftMetadata = swiftMetadata
+
+        // Initialize the address translator with binary search index
+        self.addressTranslator = AddressTranslator(segments: segments)
 
         // Build Swift field lookups
         if let swift = swiftMetadata {
@@ -213,8 +220,9 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Process all ObjC metadata from the binary.
     public func process() throws -> ObjCMetadata {
         // Clear caches
-        classesByAddress.removeAll()
-        protocolsByAddress.removeAll()
+        classesByAddress.clear()
+        protocolsByAddress.clear()
+        stringCache.clear()
 
         // Load image info first
         let imageInfo = try? loadImageInfo()
@@ -373,30 +381,27 @@ public final class ObjC2Processor: @unchecked Sendable {
     // MARK: - Address Translation
 
     /// Translate a virtual address to a file offset.
+    ///
+    /// Uses the pre-built address translator with O(log n) binary search
+    /// and O(1) cached lookups for repeated addresses.
     private func fileOffset(for address: UInt64) -> Int? {
-        for segment in segments {
-            if let offset = segment.fileOffset(for: address) {
-                return Int(offset)
-            }
-        }
-        return nil
+        addressTranslator.fileOffset(for: address)
     }
 
     /// Read a null-terminated string at the given virtual address.
+    ///
+    /// Uses SIMD-accelerated null terminator detection for performance.
     private func readString(at address: UInt64) -> String? {
         guard address != 0 else { return nil }
-        guard let offset = fileOffset(for: address) else { return nil }
-        guard offset >= 0 && offset < data.count else { return nil }
 
-        // Find the null terminator
-        var end = offset
-        while end < data.count && data[end] != 0 {
-            end += 1
+        // Check cache first (thread-safe)
+        return stringCache.getOrRead(at: address) { [self] in
+            guard let offset = fileOffset(for: address) else { return nil }
+            guard offset >= 0 && offset < data.count else { return nil }
+
+            // Use SIMD-accelerated null terminator detection and zero-copy string creation
+            return SIMDStringUtils.readNullTerminatedString(from: data, at: offset)
         }
-
-        guard end > offset else { return nil }
-        let stringData = data.subdata(in: offset..<end)
-        return String(data: stringData, encoding: .utf8)
     }
 
     /// Read a pointer value at the given virtual address.
@@ -726,8 +731,8 @@ public final class ObjC2Processor: @unchecked Sendable {
     private func loadProtocol(at address: UInt64) throws -> ObjCProtocol? {
         guard address != 0 else { return nil }
 
-        // Check cache first
-        if let cached = protocolsByAddress[address] {
+        // Check cache first (thread-safe)
+        if let cached = protocolsByAddress.get(address) {
             return cached
         }
 
@@ -746,8 +751,8 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         let proto = ObjCProtocol(name: name, address: address)
 
-        // Cache immediately to handle circular references
-        protocolsByAddress[address] = proto
+        // Cache immediately to handle circular references (thread-safe)
+        protocolsByAddress.set(address, value: proto)
 
         // Load adopted protocols
         if rawProtocol.protocols != 0 {
@@ -864,8 +869,8 @@ public final class ObjC2Processor: @unchecked Sendable {
     private func loadClass(at address: UInt64) throws -> ObjCClass? {
         guard address != 0 else { return nil }
 
-        // Check cache first
-        if let cached = classesByAddress[address] {
+        // Check cache first (thread-safe)
+        if let cached = classesByAddress.get(address) {
             return cached
         }
 
@@ -905,8 +910,8 @@ public final class ObjC2Processor: @unchecked Sendable {
         aClass.classDataAddress = rawClass.dataPointer
         aClass.metaclassAddress = rawClass.isa
 
-        // Cache immediately
-        classesByAddress[address] = aClass
+        // Cache immediately (thread-safe)
+        classesByAddress.set(address, value: aClass)
 
         // Load superclass - may be an address or a bind to external symbol
         let superclassResult = decodePointerWithBindInfo(rawClass.superclass)
@@ -950,10 +955,10 @@ public final class ObjC2Processor: @unchecked Sendable {
             aClass.addInstanceVariable(ivar)
         }
 
-        // Load protocols
+        // Load protocols (use thread-safe cache lookup)
         let protocolAddresses = try loadProtocolAddressList(at: classData.baseProtocols)
         for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress[protoAddr] ?? (try? loadProtocol(at: protoAddr)) {
+            if let proto = protocolsByAddress.get(protoAddr) ?? (try? loadProtocol(at: protoAddr)) {
                 aClass.addAdoptedProtocol(proto)
             }
         }
@@ -1052,7 +1057,7 @@ public final class ObjC2Processor: @unchecked Sendable {
         let clsResult = decodePointerWithBindInfo(rawCategory.cls)
         switch clsResult {
         case .address(let clsAddr):
-            if clsAddr != 0, let aClass = classesByAddress[clsAddr] ?? (try? loadClass(at: clsAddr)) {
+            if clsAddr != 0, let aClass = classesByAddress.get(clsAddr) ?? (try? loadClass(at: clsAddr)) {
                 category.classRef = ObjCClassReference(name: aClass.name, address: clsAddr)
             }
         case .bindSymbol(let symbolName):
@@ -1078,10 +1083,10 @@ public final class ObjC2Processor: @unchecked Sendable {
             category.addClassMethod(method)
         }
 
-        // Load protocols
+        // Load protocols (use thread-safe cache lookup)
         let protocolAddresses = try loadProtocolAddressList(at: rawCategory.protocols)
         for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress[protoAddr] ?? (try? loadProtocol(at: protoAddr)) {
+            if let proto = protocolsByAddress.get(protoAddr) ?? (try? loadProtocol(at: protoAddr)) {
                 category.addAdoptedProtocol(proto)
             }
         }

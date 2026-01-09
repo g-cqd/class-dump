@@ -1183,6 +1183,41 @@ public enum SwiftDemangler: Sendable {
             }
         }
 
+        // AsyncStream with generic parameter (ScSy...G)
+        if mangled.hasPrefix("ScSy") && mangled.hasSuffix("G") {
+            let inner = String(mangled.dropFirst(4).dropLast(1))
+            if let (element, _) = parseGenericTypeArg(Substring(inner), depth: 0) {
+                return "AsyncStream<\(element)>"
+            }
+        }
+
+        // AsyncThrowingStream with generic parameter (ScFy...G)
+        if mangled.hasPrefix("ScFy") && mangled.hasSuffix("G") {
+            let inner = String(mangled.dropFirst(4).dropLast(1))
+            if let (element, _) = parseGenericTypeArg(Substring(inner), depth: 0) {
+                return "AsyncThrowingStream<\(element)>"
+            }
+        }
+
+        // CheckedContinuation with generic parameters (ScCy...G)
+        if mangled.hasPrefix("ScCy") && mangled.hasSuffix("G") {
+            if let (result, _) = parseTaskGenericArgsFromInput(
+                Substring(mangled.dropFirst(4)))
+            {
+                // CheckedContinuation uses same format as Task: <Success, Failure>
+                return result.replacingOccurrences(of: "Task", with: "CheckedContinuation")
+            }
+        }
+
+        // UnsafeContinuation with generic parameters (ScUy...G)
+        if mangled.hasPrefix("ScUy") && mangled.hasSuffix("G") {
+            if let (result, _) = parseTaskGenericArgsFromInput(
+                Substring(mangled.dropFirst(4)))
+            {
+                return result.replacingOccurrences(of: "Task", with: "UnsafeContinuation")
+            }
+        }
+
         // Optional suffix (Sg)
         if mangled.hasSuffix("Sg") {
             let base = String(mangled.dropLast(2))
@@ -1326,6 +1361,11 @@ public enum SwiftDemangler: Sendable {
             }
         }
 
+        // Check for literal "Never" - used in Task failure type
+        if input.hasPrefix("Never") {
+            return ("Never", input.dropFirst(5))
+        }
+
         // Check for ObjC imported type (So prefix) - MUST be before single-char shortcuts
         // to prevent 'S' from matching as String
         if input.hasPrefix("So") {
@@ -1360,6 +1400,33 @@ public enum SwiftDemangler: Sendable {
             return ("Array", remaining)
         }
 
+        // Check for concurrency types with generic parameters (ScTy...G, ScSy...G, etc.)
+        if input.hasPrefix("ScT") && input.dropFirst(3).hasPrefix("y") {
+            // Task with generic parameters: ScTy<success>y<failure>G
+            let afterScT = input.dropFirst(3)  // Remove "ScT"
+            if afterScT.hasPrefix("y") {
+                let remaining = afterScT.dropFirst()  // Remove first 'y'
+                if let (task, rest) = parseTaskGenericArgsFromInput(remaining) {
+                    return (task, rest)
+                }
+            }
+        }
+
+        if input.hasPrefix("ScS") && input.dropFirst(3).hasPrefix("y") {
+            // AsyncStream with generic parameter: ScSy<element>G
+            let afterScS = input.dropFirst(3)  // Remove "ScS"
+            if afterScS.hasPrefix("y") {
+                let remaining = afterScS.dropFirst()  // Remove 'y'
+                if let (element, rest) = parseGenericTypeArg(remaining, depth: depth + 1) {
+                    var finalRest = rest
+                    if finalRest.hasPrefix("G") {
+                        finalRest = finalRest.dropFirst()
+                    }
+                    return ("AsyncStream<\(element)>", finalRest)
+                }
+            }
+        }
+
         // Check for two-character patterns (SS, Si, Sb, Sd, Sf, Su, Sc*, etc.)
         if input.count >= 2 {
             let twoChars = String(input.prefix(2))
@@ -1383,9 +1450,9 @@ public enum SwiftDemangler: Sendable {
             return (shortcut, remaining)
         }
 
-        // Check for length-prefixed module.type
+        // Check for length-prefixed module.type (including protocol existentials)
         if let first = input.first, first.isNumber {
-            if let (typeName, rest) = parseLengthPrefixed(input) {
+            if let (typeName, rest) = parseModuleQualifiedType(input, depth: depth) {
                 // Skip type suffix
                 var remaining = rest
                 while let c = remaining.first, "CVOPy".contains(c) {
@@ -1516,6 +1583,91 @@ public enum SwiftDemangler: Sendable {
         }
 
         return (result, inner)
+    }
+
+    /// Parse Task generic arguments from input.
+    ///
+    /// Task has two type parameters: Success and Failure.
+    /// Format: `ScTy<success><failure>G` where success can be `yt` (Void) and failure is often `Never` (s5NeverO).
+    ///
+    /// - Parameter input: Input starting after "ScTy".
+    /// - Returns: Tuple of (formatted Task type, remaining input) or nil.
+    private static func parseTaskGenericArgsFromInput(_ input: Substring) -> (String, Substring)? {
+        var inner = input
+        var typeArgs: [String] = []
+
+        // Parse success type
+        if let (arg, rest) = parseGenericTypeArg(inner, depth: 0) {
+            typeArgs.append(arg)
+            inner = rest
+        } else {
+            return nil
+        }
+
+        // Check for second 'y' separator or continue parsing failure type
+        if inner.hasPrefix("y") {
+            inner = inner.dropFirst()
+        }
+
+        // Parse failure type
+        if let (arg, rest) = parseGenericTypeArg(inner, depth: 0) {
+            typeArgs.append(arg)
+            inner = rest
+        } else {
+            return nil
+        }
+
+        // Look for closing G
+        if inner.hasPrefix("G") {
+            inner = inner.dropFirst()
+        }
+
+        guard typeArgs.count == 2 else { return nil }
+
+        return ("Task<\(typeArgs[0]), \(typeArgs[1])>", inner)
+    }
+
+    /// Parse a module-qualified type (e.g., 13IDEFoundation19IDETestingSpecifier).
+    ///
+    /// Handles:
+    /// - Single component: `7MyClass` → "MyClass"
+    /// - Module.Type: `13IDEFoundation19IDETestingSpecifier` → "IDEFoundation.IDETestingSpecifier"
+    /// - Protocol existential: `13IDEFoundation19IDETestingSpecifier_p` → "any IDETestingSpecifier"
+    ///
+    /// - Parameters:
+    ///   - input: Input starting with a digit.
+    ///   - depth: Current recursion depth.
+    /// - Returns: Tuple of (type name, remaining input) or nil.
+    private static func parseModuleQualifiedType(_ input: Substring, depth: Int = 0) -> (String, Substring)? {
+        guard let first = input.first, first.isNumber else {
+            return nil
+        }
+
+        // Parse first component
+        guard let (firstName, afterFirst) = parseLengthPrefixed(input) else {
+            return nil
+        }
+
+        // Check if there's another length-prefixed component (module.type pattern)
+        if let secondFirst = afterFirst.first, secondFirst.isNumber {
+            if let (secondName, afterSecond) = parseLengthPrefixed(afterFirst) {
+                // Check for protocol existential suffix (_p)
+                if afterSecond.hasPrefix("_p") {
+                    let remaining = afterSecond.dropFirst(2)  // Remove "_p"
+                    return ("any \(secondName)", remaining)
+                }
+                // Regular module.type
+                return ("\(firstName).\(secondName)", afterSecond)
+            }
+        }
+
+        // Single component - check for protocol existential suffix
+        if afterFirst.hasPrefix("_p") {
+            let remaining = afterFirst.dropFirst(2)  // Remove "_p"
+            return ("any \(firstName)", remaining)
+        }
+
+        return (firstName, afterFirst)
     }
 
     // MARK: - ObjC Class Name Parsing

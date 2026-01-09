@@ -52,7 +52,7 @@ struct FormatTypeCommand {
                 Darwin.exit(0)
 
             case "--version":
-                print("formatType 4.0.2 (Swift)")
+                print("formatType 4.0.3 (Swift)")
                 Darwin.exit(0)
 
             default:

@@ -25,7 +25,7 @@ Add `class-dump` as a dependency in your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/g-cqd/class-dump.git", from: "4.0.2")
+    .package(url: "https://github.com/g-cqd/class-dump.git", from: "4.0.3")
 ]
 ```
 

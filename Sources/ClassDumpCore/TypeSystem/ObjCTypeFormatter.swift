@@ -365,9 +365,26 @@ public struct ObjCTypeFormatter: Sendable {
             if let className = className {
                 // Demangle Swift class names for display
                 let displayName = demangleName(className)
+
+                // In ObjC output mode, convert Swift.AnyObject and AnyObject to id
+                if options.outputStyle == .objc
+                    && (displayName == "AnyObject" || displayName == "Swift.AnyObject" || className == "Swift.AnyObject"
+                        || className == "AnyObject")
+                {
+                    // Demangle protocol names even when no class name
+                    let demangledProtocols = protocols.map { demangleName($0) }
+                    let protocolStr =
+                        demangledProtocols.isEmpty ? "" : " <\(demangledProtocols.joined(separator: ", "))>"
+                    if let name = currentName {
+                        return "id\(protocolStr) \(name)"
+                    }
+                    return "id\(protocolStr)"
+                }
+
                 // Also demangle any Swift protocol names
                 let demangledProtocols = protocols.map { demangleName($0) }
-                let protocolStr = demangledProtocols.isEmpty ? "" : "<\(demangledProtocols.joined(separator: ", "))>"
+                let protocolStr =
+                    demangledProtocols.isEmpty ? "" : "<\(demangledProtocols.joined(separator: ", "))>"
                 if let name = currentName {
                     return "\(displayName)\(protocolStr) *\(name)"
                 }

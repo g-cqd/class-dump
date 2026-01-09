@@ -97,6 +97,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     private func convertSwiftTypeToObjC(_ typeName: String) -> String {
         var result = typeName
 
+        // Handle Swift.AnyObject and AnyObject → id
+        if result == "Swift.AnyObject" || result == "AnyObject" {
+            return "id"
+        }
+
         // Handle Swift closure syntax: (Params) -> Return → Return (^)(Params)
         // This handles both `(Type) -> Void` and `@escaping (Type) -> Void` patterns
         if let converted = convertSwiftClosureToObjCBlock(result) {
@@ -105,7 +110,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
         // Handle Swift optional suffix: Type? → Type *
         if result.hasSuffix("?") {
-            result = String(result.dropLast())
+            let base = String(result.dropLast())
+            // Handle optional Swift.AnyObject specially
+            if base == "Swift.AnyObject" || base == "AnyObject" {
+                return "id"
+            }
+            result = base
             return "\(result) *"
         }
 
@@ -259,6 +269,7 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             "Float": "float",
             "Any": "id",
             "AnyObject": "id",
+            "Swift.AnyObject": "id",
             "Data": "NSData *",
             "Date": "NSDate *",
             "URL": "NSURL *",
