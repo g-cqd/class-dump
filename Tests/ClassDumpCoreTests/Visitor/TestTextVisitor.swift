@@ -211,6 +211,208 @@ struct TextClassDumpVisitorTests {
     }
 }
 
+// MARK: - Show Raw Types Tests
+
+@Suite("Show Raw Types Tests")
+struct ShowRawTypesTests {
+    @Test("Method shows raw type encoding when enabled")
+    func methodShowsRawType() {
+        let options = ClassDumpVisitorOptions(shouldShowRawTypes: true)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let method = ObjCMethod(
+            name: "doSomething:",
+            typeString: "@24@0:8@16",
+            address: 0
+        )
+
+        visitor.append("- ")
+        visitor.appendMethod(method)
+
+        #expect(visitor.resultString.contains("// @24@0:8@16"))
+    }
+
+    @Test("Method hides raw type encoding when disabled")
+    func methodHidesRawType() {
+        let options = ClassDumpVisitorOptions(shouldShowRawTypes: false)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let method = ObjCMethod(
+            name: "doSomething:",
+            typeString: "@24@0:8@16",
+            address: 0
+        )
+
+        visitor.append("- ")
+        visitor.appendMethod(method)
+
+        #expect(!visitor.resultString.contains("// @24@0:8@16"))
+    }
+
+    @Test("Ivar shows raw type encoding when enabled")
+    func ivarShowsRawType() {
+        let options = ClassDumpVisitorOptions(shouldShowRawTypes: true)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_value",
+            typeEncoding: "@\"NSString\"",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("// @\"NSString\""))
+    }
+
+    @Test("Property shows raw attribute string when enabled")
+    func propertyShowsRawType() {
+        let options = ClassDumpVisitorOptions(shouldShowRawTypes: true)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let property = ObjCProperty(
+            name: "name",
+            attributeString: "T@\"NSString\",R,C,V_name"
+        )
+
+        if let parsedType = property.parsedType {
+            visitor.appendProperty(property, parsedType: parsedType)
+            #expect(visitor.resultString.contains("// T@\"NSString\",R,C,V_name"))
+        }
+    }
+
+    @Test("shouldShowRawTypes defaults to false")
+    func defaultIsFalse() {
+        let options = ClassDumpVisitorOptions()
+        #expect(!options.shouldShowRawTypes)
+    }
+}
+
+// MARK: - Swift Closure to ObjC Block Conversion Tests
+
+@Suite("Swift Closure to ObjC Block Conversion")
+struct SwiftClosureConversionTests {
+    @Test("Swift closure with void return converts to ObjC block")
+    func voidReturnClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_handler",
+            typeEncoding: "@?",
+            typeString: "(String) -> Void",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("void (^)(NSString *)"))
+    }
+
+    @Test("Swift closure with return type converts to ObjC block")
+    func returnTypeClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_transform",
+            typeEncoding: "@?",
+            typeString: "(Int) -> String",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("NSString * (^)(NSInteger)"))
+    }
+
+    @Test("Swift closure with multiple parameters converts correctly")
+    func multipleParamsClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_callback",
+            typeEncoding: "@?",
+            typeString: "(String, Bool) -> Int",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("NSInteger (^)(NSString *, BOOL)"))
+    }
+
+    @Test("Swift closure with no parameters converts correctly")
+    func noParamsClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_action",
+            typeEncoding: "@?",
+            typeString: "() -> Void",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("void (^)(void)"))
+    }
+
+    @Test("Swift @escaping closure strips attribute")
+    func escapingClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_completion",
+            typeEncoding: "@?",
+            typeString: "@escaping (Data?) -> Void",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("void (^)(NSData *)"))
+    }
+
+    @Test("Swift @Sendable closure strips attribute")
+    func sendableClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .objc)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_task",
+            typeEncoding: "@?",
+            typeString: "@Sendable () -> String",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        #expect(visitor.resultString.contains("NSString * (^)(void)"))
+    }
+
+    @Test("Swift mode preserves closure syntax")
+    func swiftModePreservesClosure() {
+        let options = ClassDumpVisitorOptions(outputStyle: .swift)
+        let visitor = TextClassDumpVisitor(options: options)
+
+        let ivar = ObjCInstanceVariable(
+            name: "_handler",
+            typeEncoding: "@?",
+            typeString: "(String) -> Void",
+            offset: 8
+        )
+
+        visitor.appendIvar(ivar)
+
+        // Swift mode should preserve the original Swift syntax
+        #expect(visitor.resultString.contains("(String) -> Void"))
+    }
+}
+
 // MARK: - ClassDumpHeaderVisitor Tests
 
 @Suite("ClassDumpHeaderVisitor Tests")

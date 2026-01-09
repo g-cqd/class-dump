@@ -46,7 +46,15 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Processor Visits
 
-    open func willVisitProcessor(_ processor: ObjCProcessorInfo) {}
+    open func willVisitProcessor(_ processor: ObjCProcessorInfo) {
+        // Configure type formatter with registries for enhanced type resolution
+        if let structureRegistry = processor.structureRegistry {
+            typeFormatter.structureRegistry = structureRegistry
+        }
+        if let methodSignatureRegistry = processor.methodSignatureRegistry {
+            typeFormatter.methodSignatureRegistry = methodSignatureRegistry
+        }
+    }
 
     open func visitProcessor(_ processor: ObjCProcessorInfo) {}
 
@@ -89,6 +97,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     private func convertSwiftTypeToObjC(_ typeName: String) -> String {
         var result = typeName
 
+        // Handle Swift closure syntax: (Params) -> Return → Return (^)(Params)
+        // This handles both `(Type) -> Void` and `@escaping (Type) -> Void` patterns
+        if let converted = convertSwiftClosureToObjCBlock(result) {
+            return converted
+        }
+
         // Handle Swift optional suffix: Type? → Type *
         if result.hasSuffix("?") {
             result = String(result.dropLast())
@@ -127,6 +141,164 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
 
         return result
+    }
+
+    /// Convert a Swift closure type to ObjC block syntax.
+    ///
+    /// Examples:
+    /// - `(String) -> Void` → `void (^)(NSString *)`
+    /// - `@escaping (Int, Bool) -> String` → `NSString * (^)(NSInteger, BOOL)`
+    /// - `() -> Void` → `void (^)(void)`
+    private func convertSwiftClosureToObjCBlock(_ typeName: String) -> String? {
+        var input = typeName
+
+        // Strip @escaping, @Sendable, or other attributes
+        while input.hasPrefix("@") {
+            if let spaceIndex = input.firstIndex(of: " ") {
+                input = String(input[input.index(after: spaceIndex)...])
+            } else {
+                break
+            }
+        }
+
+        input = input.trimmingCharacters(in: .whitespaces)
+
+        // Look for " -> " arrow indicating a closure type
+        guard let arrowRange = input.range(of: " -> ") else {
+            return nil
+        }
+
+        // Extract parameters and return type
+        let paramsSection = String(input[..<arrowRange.lowerBound])
+        let returnSection = String(input[arrowRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+
+        // Parameters must be wrapped in parentheses
+        guard paramsSection.hasPrefix("(") && paramsSection.hasSuffix(")") else {
+            return nil
+        }
+
+        // Parse parameter types
+        let paramsInner = String(paramsSection.dropFirst().dropLast())
+        let paramTypes = parseClosureParameters(paramsInner)
+
+        // Convert return type to ObjC
+        let objcReturn = convertSwiftTypeComponentToObjC(returnSection)
+
+        // Convert parameter types to ObjC
+        let objcParams: String
+        if paramTypes.isEmpty {
+            objcParams = "void"
+        } else {
+            objcParams = paramTypes.map { convertSwiftTypeComponentToObjC($0) }.joined(separator: ", ")
+        }
+
+        return "\(objcReturn) (^)(\(objcParams))"
+    }
+
+    /// Parse closure parameter types, handling nested parentheses and generics.
+    private func parseClosureParameters(_ paramsString: String) -> [String] {
+        let trimmed = paramsString.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed == "()" {
+            return []
+        }
+
+        var params: [String] = []
+        var current = ""
+        var depth = 0
+        var genericDepth = 0
+
+        for char in trimmed {
+            switch char {
+            case "(":
+                depth += 1
+                current.append(char)
+            case ")":
+                depth -= 1
+                current.append(char)
+            case "<":
+                genericDepth += 1
+                current.append(char)
+            case ">":
+                genericDepth -= 1
+                current.append(char)
+            case ",":
+                if depth == 0 && genericDepth == 0 {
+                    params.append(current.trimmingCharacters(in: .whitespaces))
+                    current = ""
+                } else {
+                    current.append(char)
+                }
+            default:
+                current.append(char)
+            }
+        }
+
+        if !current.isEmpty {
+            params.append(current.trimmingCharacters(in: .whitespaces))
+        }
+
+        return params
+    }
+
+    /// Convert a single Swift type component to ObjC.
+    private func convertSwiftTypeComponentToObjC(_ swiftType: String) -> String {
+        let trimmed = swiftType.trimmingCharacters(in: .whitespaces)
+
+        // Handle Void
+        if trimmed == "Void" || trimmed == "()" {
+            return "void"
+        }
+
+        // Handle common Swift-to-ObjC type mappings
+        let typeMap: [String: String] = [
+            "String": "NSString *",
+            "Int": "NSInteger",
+            "UInt": "NSUInteger",
+            "Bool": "BOOL",
+            "Double": "double",
+            "Float": "float",
+            "Any": "id",
+            "AnyObject": "id",
+            "Data": "NSData *",
+            "Date": "NSDate *",
+            "URL": "NSURL *",
+            "Error": "NSError *",
+        ]
+
+        if let mapped = typeMap[trimmed] {
+            return mapped
+        }
+
+        // Handle optionals
+        if trimmed.hasSuffix("?") {
+            let base = String(trimmed.dropLast())
+            let converted = convertSwiftTypeComponentToObjC(base)
+            // If already a pointer, just return it; otherwise add pointer
+            if converted.hasSuffix("*") || converted == "void" || converted == "BOOL"
+                || converted == "NSInteger" || converted == "NSUInteger"
+                || converted == "double" || converted == "float"
+            {
+                return converted
+            }
+            return converted + " *"
+        }
+
+        // Handle arrays
+        if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") && !trimmed.contains(":") {
+            return "NSArray *"
+        }
+
+        // Handle dictionaries
+        if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") && trimmed.contains(":") {
+            return "NSDictionary *"
+        }
+
+        // For other types, assume they're objects that need a pointer
+        if let first = trimmed.first, first.isUppercase {
+            return "\(trimmed) *"
+        }
+
+        return trimmed
     }
 
     /// Check if a type name looks like a class/reference type.
@@ -369,6 +541,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if options.shouldShowMethodAddresses && method.address != 0 {
             append(String(format: " // IMP=0x%llx", method.address))
         }
+
+        // Show raw type encoding if enabled (for debugging)
+        if options.shouldShowRawTypes {
+            append(" // \(method.typeEncoding)")
+        }
     }
 
     /// Append a formatted method declaration (Swift style).
@@ -389,6 +566,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if options.shouldShowMethodAddresses && method.address != 0 {
             append(String(format: " // IMP=0x%llx", method.address))
         }
+
+        // Show raw type encoding if enabled (for debugging)
+        if options.shouldShowRawTypes {
+            append(" // \(method.typeEncoding)")
+        }
     }
 
     /// Append a formatted ivar declaration.
@@ -404,6 +586,10 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             // Show ivar offset if enabled
             if options.shouldShowIvarOffsets {
                 append(" // +\(ivar.offset)")
+            }
+            // Show raw type encoding if enabled (for debugging)
+            if options.shouldShowRawTypes && !ivar.typeEncoding.isEmpty {
+                append(" // \(ivar.typeEncoding)")
             }
             return
         }
@@ -422,6 +608,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         // Show ivar offset if enabled
         if options.shouldShowIvarOffsets {
             append(" // +\(ivar.offset)")
+        }
+
+        // Show raw type encoding if enabled (for debugging)
+        if options.shouldShowRawTypes && !ivar.typeEncoding.isEmpty {
+            append(" // \(ivar.typeEncoding)")
         }
     }
 
@@ -484,6 +675,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             } else {
                 append(" // @synthesize \(property.name)=\(backing);")
             }
+        }
+
+        // Show raw attribute string if enabled (for debugging)
+        if options.shouldShowRawTypes {
+            append(" // \(property.attributeString)")
         }
 
         appendNewline()

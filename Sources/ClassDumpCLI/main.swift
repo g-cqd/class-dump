@@ -36,6 +36,9 @@ struct ClassDumpCommand: AsyncParsableCommand {
     @Flag(name: .customShort("t"), help: "Suppress header in output, for testing")
     var suppressHeader: Bool = false
 
+    @Flag(name: .long, help: "Show raw type encodings in comments (useful for debugging)")
+    var showRawTypes: Bool = false
+
     // MARK: - Sorting Options
 
     @Flag(name: .customShort("s"), help: "Sort classes and categories by name")
@@ -196,6 +199,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
             shouldShowProtocolSection: !hide.contains("protocols") && !hide.contains("all"),
             shouldShowIvarOffsets: showIvarOffsets,
             shouldShowMethodAddresses: showImpAddr,
+            shouldShowRawTypes: showRawTypes,
             demangleStyle: resolvedDemangleStyle,
             methodStyle: resolvedMethodStyle,
             outputStyle: resolvedOutputStyle
@@ -210,7 +214,9 @@ struct ClassDumpCommand: AsyncParsableCommand {
         let processorInfo = ObjCProcessorInfo(
             machOFile: machOFileInfo,
             hasObjectiveCRuntimeInfo: !metadata.classes.isEmpty || !metadata.protocols.isEmpty
-                || !metadata.categories.isEmpty
+                || !metadata.categories.isEmpty,
+            structureRegistry: metadata.structureRegistry,
+            methodSignatureRegistry: metadata.methodSignatureRegistry
         )
 
         // Handle -f (find method)
@@ -231,6 +237,16 @@ struct ClassDumpCommand: AsyncParsableCommand {
             if !suppressHeader {
                 multiVisitor.headerString = generateHeaderString()
             }
+            // Generate structure definitions from registry for CDStructures.h
+            if visitorOptions.shouldShowStructureSection {
+                multiVisitor.structureDefinitions = metadata.structureRegistry.generateStructureDefinitions()
+            }
+
+            // Populate internal class/protocol names from metadata
+            // This allows proper @class/@protocol handling (local import vs forward declaration)
+            multiVisitor.internalClassNames = Set(metadata.classes.map { $0.name })
+            multiVisitor.internalProtocolNames = Set(metadata.protocols.map { $0.name })
+
             visitMetadata(metadata, processorInfo: processorInfo, with: multiVisitor)
             return
         }
@@ -242,6 +258,10 @@ struct ClassDumpCommand: AsyncParsableCommand {
         } else {
             let headerVisitor = ClassDumpHeaderVisitor(options: visitorOptions)
             headerVisitor.headerString = generateHeaderString()
+            // Generate structure definitions from registry
+            if visitorOptions.shouldShowStructureSection {
+                headerVisitor.structureDefinitions = metadata.structureRegistry.generateStructureDefinitions()
+            }
             visitor = headerVisitor
         }
 

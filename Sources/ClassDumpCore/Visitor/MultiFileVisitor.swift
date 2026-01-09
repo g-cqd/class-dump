@@ -20,6 +20,12 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
     /// Framework name mappings (protocol name -> framework name)
     public var frameworkNamesByProtocolName: [String: String] = [:]
 
+    /// Class names defined within this binary (for filtering forward declarations)
+    public var internalClassNames: Set<String> = []
+
+    /// Protocol names defined within this binary (for filtering forward declarations)
+    public var internalProtocolNames: Set<String> = []
+
     /// Location to insert reference imports
     private var referenceLocation: Int = 0
 
@@ -150,6 +156,7 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
     // MARK: - Reference Tracking
 
     private func addReferenceToClassName(_ name: String) {
+        guard !name.isEmpty else { return }
         referencedClassNames.insert(name)
     }
 
@@ -222,22 +229,44 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
             referenceString.append("\n")
         }
 
-        // Class forward declarations
+        // Separate internal and external class references
+        let internalClasses = referencedClassNames.intersection(internalClassNames).sorted()
+        let externalClasses = referencedClassNames.subtracting(internalClassNames).sorted()
+
+        // Internal classes get local imports
+        if !internalClasses.isEmpty {
+            for name in internalClasses {
+                referenceString.append("#import \"\(name).h\"\n")
+            }
+        }
+
+        // External classes get forward declarations
         var needsNewline = false
-        if !referencedClassNames.isEmpty {
-            let names = referencedClassNames.sorted().joined(separator: ", ")
+        if !externalClasses.isEmpty {
+            let names = externalClasses.joined(separator: ", ")
             referenceString.append("@class \(names);\n")
             needsNewline = true
         }
 
-        // Protocol forward declarations
-        if !weaklyReferencedProtocolNames.isEmpty {
-            let names = weaklyReferencedProtocolNames.sorted().joined(separator: ", ")
+        // Separate internal and external protocol references
+        let internalProtocols = weaklyReferencedProtocolNames.intersection(internalProtocolNames).sorted()
+        let externalProtocols = weaklyReferencedProtocolNames.subtracting(internalProtocolNames).sorted()
+
+        // Internal protocols get local imports
+        if !internalProtocols.isEmpty {
+            for name in internalProtocols {
+                referenceString.append("#import \"\(name)-Protocol.h\"\n")
+            }
+        }
+
+        // External protocols get forward declarations
+        if !externalProtocols.isEmpty {
+            let names = externalProtocols.joined(separator: ", ")
             referenceString.append("@protocol \(names);\n")
             needsNewline = true
         }
 
-        if needsNewline {
+        if needsNewline || !internalClasses.isEmpty || !internalProtocols.isEmpty {
             referenceString.append("\n")
         }
 

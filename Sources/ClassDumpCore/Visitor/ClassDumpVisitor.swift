@@ -185,6 +185,9 @@ public struct ClassDumpVisitorOptions: Sendable {
     /// Whether to show method implementation addresses.
     public var shouldShowMethodAddresses: Bool
 
+    /// Whether to show raw type encodings in comments (for debugging).
+    public var shouldShowRawTypes: Bool
+
     /// Style for demangling Swift names.
     public var demangleStyle: DemangleStyle
 
@@ -199,6 +202,7 @@ public struct ClassDumpVisitorOptions: Sendable {
         shouldShowProtocolSection: Bool = true,
         shouldShowIvarOffsets: Bool = false,
         shouldShowMethodAddresses: Bool = false,
+        shouldShowRawTypes: Bool = false,
         demangleStyle: DemangleStyle = .swift,
         methodStyle: MethodStyle = .objc,
         outputStyle: OutputStyle = .objc
@@ -207,6 +211,7 @@ public struct ClassDumpVisitorOptions: Sendable {
         self.shouldShowProtocolSection = shouldShowProtocolSection
         self.shouldShowIvarOffsets = shouldShowIvarOffsets
         self.shouldShowMethodAddresses = shouldShowMethodAddresses
+        self.shouldShowRawTypes = shouldShowRawTypes
         self.demangleStyle = demangleStyle
         self.methodStyle = methodStyle
         self.outputStyle = outputStyle
@@ -226,14 +231,24 @@ public struct ObjCProcessorInfo: Sendable {
     /// Garbage collection status (if any)
     public let garbageCollectionStatus: String?
 
+    /// Registry for structure/union type resolution
+    public let structureRegistry: StructureRegistry?
+
+    /// Registry for method signature cross-referencing (block resolution)
+    public let methodSignatureRegistry: MethodSignatureRegistry?
+
     public init(
         machOFile: VisitorMachOFileInfo,
         hasObjectiveCRuntimeInfo: Bool,
-        garbageCollectionStatus: String? = nil
+        garbageCollectionStatus: String? = nil,
+        structureRegistry: StructureRegistry? = nil,
+        methodSignatureRegistry: MethodSignatureRegistry? = nil
     ) {
         self.machOFile = machOFile
         self.hasObjectiveCRuntimeInfo = hasObjectiveCRuntimeInfo
         self.garbageCollectionStatus = garbageCollectionStatus
+        self.structureRegistry = structureRegistry
+        self.methodSignatureRegistry = methodSignatureRegistry
     }
 }
 

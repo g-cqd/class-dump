@@ -42,14 +42,29 @@ public struct ObjCTypeFormatter: Sendable {
     /// Formatting options
     public var options: ObjCTypeFormatterOptions
 
+    /// Optional registry for resolving forward-declared structures
+    public var structureRegistry: StructureRegistry?
+
+    /// Optional registry for looking up richer method signatures (especially for blocks)
+    public var methodSignatureRegistry: MethodSignatureRegistry?
+
     /// Callback for referenced class names
     public var onClassNameReferenced: (@Sendable (String) -> Void)?
 
     /// Callback for referenced protocol names
     public var onProtocolNamesReferenced: (@Sendable ([String]) -> Void)?
 
-    public init(options: ObjCTypeFormatterOptions = .init()) {
+    /// Callback for referenced structure names (name, isForwardDeclared)
+    public var onStructureReferenced: (@Sendable (String, Bool) -> Void)?
+
+    public init(
+        options: ObjCTypeFormatterOptions = .init(),
+        structureRegistry: StructureRegistry? = nil,
+        methodSignatureRegistry: MethodSignatureRegistry? = nil
+    ) {
         self.options = options
+        self.structureRegistry = structureRegistry
+        self.methodSignatureRegistry = methodSignatureRegistry
     }
 
     // MARK: - Demangling Helpers
@@ -139,7 +154,7 @@ public struct ObjCTypeFormatter: Sendable {
         }
 
         // First type is return type
-        let returnType = methodTypes[0].type
+        let returnType = enhanceBlockType(methodTypes[0].type, selector: name, argumentIndex: -1)
         let returnString = format(type: returnType, previousName: nil, level: 0)
 
         // Skip self and _cmd (indices 1 and 2)
@@ -163,7 +178,9 @@ public struct ObjCTypeFormatter: Sendable {
             result += String(part)
 
             if paramIndex < paramTypes.count {
-                let paramType = paramTypes[paramTypes.startIndex + paramIndex].type
+                var paramType = paramTypes[paramTypes.startIndex + paramIndex].type
+                // Try to enhance empty block types using the registry
+                paramType = enhanceBlockType(paramType, selector: name, argumentIndex: paramIndex)
                 let paramString = format(type: paramType, previousName: nil, level: 0)
                 result += ":(\(paramString))arg\(paramIndex + 1)"
                 paramIndex += 1
@@ -174,6 +191,39 @@ public struct ObjCTypeFormatter: Sendable {
         }
 
         return result
+    }
+
+    /// Enhance a block type by looking up a richer signature in the registry.
+    ///
+    /// If the type is a block without a signature (e.g., `@?` parsed as `.block(types: nil)`),
+    /// this tries to find a richer signature from protocol methods with the same selector.
+    ///
+    /// - Parameters:
+    ///   - type: The type to potentially enhance.
+    ///   - selector: The method selector name.
+    ///   - argumentIndex: The argument index (0-based), or -1 for return type.
+    /// - Returns: The original type or an enhanced block type with full signature.
+    private func enhanceBlockType(_ type: ObjCType, selector: String, argumentIndex: Int) -> ObjCType {
+        // Only enhance blocks without signatures
+        guard case .block(let existingTypes) = type else { return type }
+
+        // If already has a full signature, keep it
+        if let types = existingTypes, !types.isEmpty {
+            return type
+        }
+
+        // Try to look up a richer signature from the registry
+        guard let registry = methodSignatureRegistry else { return type }
+
+        // For return types (argumentIndex == -1), we'd need a different lookup
+        // For now, focus on parameter types
+        guard argumentIndex >= 0 else { return type }
+
+        if let richBlockTypes = registry.blockSignature(forSelector: selector, argumentIndex: argumentIndex) {
+            return .block(types: richBlockTypes)
+        }
+
+        return type
     }
 
     /// Format a method signature in Swift style.
@@ -195,7 +245,7 @@ public struct ObjCTypeFormatter: Sendable {
         }
 
         // First type is return type
-        let returnType = methodTypes[0].type
+        let returnType = enhanceBlockType(methodTypes[0].type, selector: name, argumentIndex: -1)
         var returnString = format(type: returnType, previousName: nil, level: 0)
 
         // Simplify pointer types for Swift display
@@ -224,10 +274,11 @@ public struct ObjCTypeFormatter: Sendable {
         for (i, part) in selectorParts.enumerated() {
             let label = String(part)
 
-            // Get parameter type
+            // Get parameter type (with block enhancement)
             var paramTypeStr: String
             if i < paramTypes.count {
-                let paramType = paramTypes[i].type
+                var paramType = paramTypes[i].type
+                paramType = enhanceBlockType(paramType, selector: name, argumentIndex: i)
                 paramTypeStr = format(type: paramType, previousName: nil, level: 0)
                 paramTypeStr = simplifyTypeForSwift(paramTypeStr)
             } else {
@@ -307,7 +358,9 @@ public struct ObjCTypeFormatter: Sendable {
 
         switch type {
         case .id(let className, let protocols):
-            onClassNameReferenced?(className ?? "")
+            if let className = className {
+                onClassNameReferenced?(className)
+            }
 
             if let className = className {
                 // Demangle Swift class names for display
@@ -422,8 +475,35 @@ public struct ObjCTypeFormatter: Sendable {
         level: Int
     ) -> String {
         var baseType: String
+        var resolvedMembers = members
 
         let nameStr = typeName?.description
+        let isForwardDeclared = members.isEmpty && nameStr != nil && nameStr != "?"
+
+        // Try to resolve forward-declared structures using the registry
+        if isForwardDeclared, let name = nameStr, let registry = structureRegistry {
+            let forwardType: ObjCType =
+                keyword == "struct"
+                ? .structure(name: ObjCTypeName(name: name), members: [])
+                : .union(name: ObjCTypeName(name: name), members: [])
+            let resolved = registry.resolve(forwardType)
+
+            // Extract resolved members if available
+            switch resolved {
+            case .structure(_, let newMembers), .union(_, let newMembers):
+                if !newMembers.isEmpty {
+                    resolvedMembers = newMembers
+                }
+            default:
+                break
+            }
+        }
+
+        // Report structure reference
+        if let name = nameStr, name != "?" {
+            onStructureReferenced?(name, resolvedMembers.isEmpty)
+        }
+
         if nameStr == nil || nameStr == "?" {
             baseType = keyword
         } else if let name = nameStr {
@@ -434,10 +514,11 @@ public struct ObjCTypeFormatter: Sendable {
 
         // Decide whether to expand
         let shouldExpandHere =
-            (level == 0 && options.shouldExpand && !members.isEmpty) || (options.shouldAutoExpand && !members.isEmpty)
+            (level == 0 && options.shouldExpand && !resolvedMembers.isEmpty)
+            || (options.shouldAutoExpand && !resolvedMembers.isEmpty)
 
         if shouldExpandHere {
-            let membersStr = formatMembers(members, level: level + 1)
+            let membersStr = formatMembers(resolvedMembers, level: level + 1)
             let indent = String(repeating: " ", count: (options.baseLevel + level) * options.spacesPerLevel)
             baseType += " {\n\(membersStr)\(indent)}"
         }

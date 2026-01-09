@@ -1,6 +1,6 @@
 # class-dump - Remaining Work
 
-**Current Status**: 726 tests passing | Swift 6.2 | Version 4.0.2
+**Current Status**: 776 tests passing | Swift 6.2 | Version 4.0.2
 
 ---
 
@@ -51,19 +51,73 @@ Implemented strict output mode enforcement with `--output-style` flag:
 ## Priority 2: Type Resolution
 
 ### Task T09: Resolve Forward-Declared Types
-**Status**: Not started
+**Status**: ✅ Complete
 
-- [ ] T09.1: Resolve `struct CGRect` when actual type available
-- [ ] T09.2: Use runtime metadata to resolve typedefs
-- [ ] T09.3: Handle `@class` forward declarations
-- [ ] T09.4: Cross-reference with Swift metadata
+Created a StructureRegistry system to collect and resolve forward-declared types.
+
+**Phase 1: Core Registry** (T09.1) ✅ Complete
+- [x] T09.1.1: Create `StructureRegistry` class with register/resolve methods
+- [x] T09.1.2: Add ObjCType helper methods (isForwardDeclaredStructure, structureName)
+- [x] T09.1.3: Write unit tests for StructureRegistry (24 tests)
+- [x] T09.1.4: Integrate with ObjC2Processor to collect structures
+- [x] T09.1.5: Wire up to ObjCTypeFormatter for resolution during formatting
+- [x] T09.1.6: Generate CDStructures.h content from registry
+
+**Phase 2: Typedef Resolution** (T09.2) ✅ Complete
+- [x] T09.2.1: Add typedef tracking for common types (CGFloat, NSInteger, etc.)
+- [x] T09.2.2: Use Swift metadata field descriptors for type names (already implemented)
+
+**Phase 3: @class Enhancement** (T09.3) ✅ Complete
+- [x] T09.3.1: Enhance existing @class handling in MultiFileVisitor
+- [x] T09.3.2: Only emit @class for truly external classes
+- [x] T09.3.3: Fixed empty @class declarations bug
+
+**Phase 4: Swift Metadata Cross-Reference** (T09.4) ✅ Complete
+- [x] T09.4.1: Cross-reference Swift field descriptors for type resolution
+- [x] T09.4.2: Implemented via SwiftSymbolicResolver
+
+**Files**:
+- `Sources/ClassDumpCore/TypeSystem/StructureRegistry.swift` (NEW)
+- `Tests/ClassDumpCoreTests/TypeSystem/TestStructureRegistry.swift` (NEW)
+- `Sources/ClassDumpCore/TypeSystem/ObjCTypeFormatter.swift`
+- `Sources/ClassDumpCore/ObjCMetadata/ObjC2Processor.swift`
+- `Sources/ClassDumpCore/Visitor/ClassDumpVisitor.swift`
+- `Sources/ClassDumpCLI/main.swift`
 
 ### Task T10: Block Type Resolution Improvements
-**Status**: Partial
+**Status**: ✅ Complete
 
-- [ ] T10.1: Cross-reference with protocol method signatures for same selector
-- [ ] T10.2: Parse Swift metadata for closure signatures
-- [ ] T10.3: Add logging/debugging mode to show raw type encoding
+**T10.1: Protocol Method Signature Cross-Reference** ✅ Complete
+- Created `MethodSignatureRegistry` to index protocol method signatures by selector
+- Block types without signatures (`@?`) can now be enhanced with richer signatures from protocol methods
+- Protocol sources are prioritized over class sources
+- Registry wired into `ObjCTypeFormatter` for automatic block type enhancement
+- 14 new tests for MethodSignatureRegistry
+
+**T10.2: Swift Closure to ObjC Block Conversion** ✅ Complete
+- Swift closure types from field descriptors now convert to ObjC block syntax in ObjC output mode
+- `(String) -> Void` → `void (^)(NSString *)`
+- `@escaping (Int, Bool) -> String` → `NSString * (^)(NSInteger, BOOL)`
+- Handles common Swift-to-ObjC type mappings (String→NSString, Int→NSInteger, Bool→BOOL, etc.)
+- Strips @escaping, @Sendable and other attributes before conversion
+- Swift output mode preserves original closure syntax
+- 7 new tests for closure conversion
+
+**T10.3: Add --show-raw-types Debugging Flag** ✅ Complete
+- Added `--show-raw-types` flag to CLI
+- Methods show raw type encoding in comments: `// @24@0:8@16`
+- Ivars show raw ObjC type encoding: `// @"NSString"`
+- Properties show raw attribute string: `// T@"NSString",R,C,V_name`
+- 5 new tests for show-raw-types feature
+
+**Files**:
+- `Sources/ClassDumpCore/TypeSystem/MethodSignatureRegistry.swift` (NEW)
+- `Tests/ClassDumpCoreTests/TypeSystem/TestMethodSignatureRegistry.swift` (NEW)
+- `Sources/ClassDumpCore/TypeSystem/ObjCTypeFormatter.swift`
+- `Sources/ClassDumpCore/ObjCMetadata/ObjC2Processor.swift`
+- `Sources/ClassDumpCore/Visitor/ClassDumpVisitor.swift`
+- `Sources/ClassDumpCore/Visitor/TextClassDumpVisitor.swift`
+- `Sources/ClassDumpCLI/main.swift`
 
 ---
 

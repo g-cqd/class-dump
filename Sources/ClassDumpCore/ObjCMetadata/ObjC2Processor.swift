@@ -14,17 +14,23 @@ public struct ObjCMetadata: Sendable {
     public let protocols: [ObjCProtocol]
     public let categories: [ObjCCategory]
     public let imageInfo: ObjC2ImageInfo?
+    public let structureRegistry: StructureRegistry
+    public let methodSignatureRegistry: MethodSignatureRegistry
 
     public init(
         classes: [ObjCClass] = [],
         protocols: [ObjCProtocol] = [],
         categories: [ObjCCategory] = [],
-        imageInfo: ObjC2ImageInfo? = nil
+        imageInfo: ObjC2ImageInfo? = nil,
+        structureRegistry: StructureRegistry? = nil,
+        methodSignatureRegistry: MethodSignatureRegistry? = nil
     ) {
         self.classes = classes
         self.protocols = protocols
         self.categories = categories
         self.imageInfo = imageInfo
+        self.structureRegistry = structureRegistry ?? StructureRegistry()
+        self.methodSignatureRegistry = methodSignatureRegistry ?? MethodSignatureRegistry()
     }
 
     /// Returns a sorted copy of this metadata.
@@ -33,7 +39,9 @@ public struct ObjCMetadata: Sendable {
             classes: classes.sorted(),
             protocols: protocols.sorted(),
             categories: categories.sorted(),
-            imageInfo: imageInfo
+            imageInfo: imageInfo,
+            structureRegistry: structureRegistry,
+            methodSignatureRegistry: methodSignatureRegistry
         )
     }
 }
@@ -220,12 +228,119 @@ public final class ObjC2Processor: @unchecked Sendable {
         // Load categories
         let categories = try loadCategories()
 
+        // Build structure registry from all type encodings
+        let structureRegistry = buildStructureRegistry(
+            classes: classes,
+            protocols: protocols,
+            categories: categories
+        )
+
+        // Build method signature registry from protocols (for block signature cross-referencing)
+        let methodSignatureRegistry = buildMethodSignatureRegistry(protocols: protocols)
+
         return ObjCMetadata(
             classes: classes,
             protocols: protocols,
             categories: categories,
-            imageInfo: imageInfo
+            imageInfo: imageInfo,
+            structureRegistry: structureRegistry,
+            methodSignatureRegistry: methodSignatureRegistry
         )
+    }
+
+    /// Build a structure registry from all type encodings in the metadata.
+    private func buildStructureRegistry(
+        classes: [ObjCClass],
+        protocols: [ObjCProtocol],
+        categories: [ObjCCategory]
+    ) -> StructureRegistry {
+        let registry = StructureRegistry()
+
+        // Register structures from classes
+        for objcClass in classes {
+            // From instance variables
+            for ivar in objcClass.instanceVariables {
+                if let parsedType = ivar.parsedType {
+                    registry.register(parsedType)
+                }
+            }
+
+            // From properties
+            for property in objcClass.properties {
+                if let parsedType = property.parsedType {
+                    registry.register(parsedType)
+                }
+            }
+
+            // From methods
+            for method in objcClass.classMethods {
+                registerMethodTypes(method, in: registry)
+            }
+            for method in objcClass.instanceMethods {
+                registerMethodTypes(method, in: registry)
+            }
+        }
+
+        // Register structures from protocols
+        for proto in protocols {
+            for property in proto.properties {
+                if let parsedType = property.parsedType {
+                    registry.register(parsedType)
+                }
+            }
+            for method in proto.classMethods {
+                registerMethodTypes(method, in: registry)
+            }
+            for method in proto.instanceMethods {
+                registerMethodTypes(method, in: registry)
+            }
+            for method in proto.optionalClassMethods {
+                registerMethodTypes(method, in: registry)
+            }
+            for method in proto.optionalInstanceMethods {
+                registerMethodTypes(method, in: registry)
+            }
+        }
+
+        // Register structures from categories
+        for category in categories {
+            for property in category.properties {
+                if let parsedType = property.parsedType {
+                    registry.register(parsedType)
+                }
+            }
+            for method in category.classMethods {
+                registerMethodTypes(method, in: registry)
+            }
+            for method in category.instanceMethods {
+                registerMethodTypes(method, in: registry)
+            }
+        }
+
+        return registry
+    }
+
+    /// Register structures from a method's type encoding.
+    private func registerMethodTypes(_ method: ObjCMethod, in registry: StructureRegistry) {
+        guard let types = try? ObjCType.parseMethodType(method.typeEncoding) else { return }
+        for methodType in types {
+            registry.register(methodType.type)
+        }
+    }
+
+    /// Build a method signature registry from protocols.
+    ///
+    /// Protocol methods often have richer type encodings (especially for blocks)
+    /// than the implementing class methods. This registry allows cross-referencing
+    /// to get better block signatures.
+    private func buildMethodSignatureRegistry(protocols: [ObjCProtocol]) -> MethodSignatureRegistry {
+        let registry = MethodSignatureRegistry()
+
+        for proto in protocols {
+            registry.registerProtocol(proto)
+        }
+
+        return registry
     }
 
     // MARK: - Section Loading
