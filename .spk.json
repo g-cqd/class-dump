@@ -2,7 +2,7 @@
   "version": "1.0",
   "swiftVersion": "6.2",
   "project": {
-    "version": "4.0.1"
+    "version": "4.0.2"
   },
   "platforms": {
     "macOS": "15.0"
@@ -44,7 +44,13 @@
           "syncTargets": [
             {
               "file": "Sources/ClassDumpCLI/main.swift",
-              "pattern": "version: \"(\\d+\\.\\d+\\.\\d+) \\(Swift\\)\""
+              "pattern": "version: \"(\\d+\\.\\d+\\.\\d+) \\(Swift\\)\"",
+              "comment": "CommandConfiguration version"
+            },
+            {
+              "file": "Sources/ClassDumpCLI/main.swift",
+              "pattern": "generateHeader\\(generatedBy: \"class-dump\", version: \"(\\d+\\.\\d+\\.\\d+) \\(Swift\\)\"\\)",
+              "comment": "Header output version"
             },
             {
               "file": "Sources/DeprotectCLI/main.swift",

@@ -119,9 +119,334 @@ public final class SwiftSymbolicResolver {
 
     /// Resolve a mangled type that contains embedded symbolic references.
     ///
-    /// This walks through the data, extracting regular text and resolving
-    /// symbolic references inline.
+    /// This intelligently parses container types (Array, Dictionary, Set) and resolves
+    /// symbolic references for each type argument, producing properly formatted output.
     private func resolveTypeWithEmbeddedRefs(mangledData: Data, sourceOffset: Int) -> String {
+        let bytes = Array(mangledData)
+
+        // Try to parse as a known container type with embedded refs
+        if let containerResult = parseContainerTypeWithRefs(bytes: bytes, sourceOffset: sourceOffset) {
+            return containerResult
+        }
+
+        // Fall back to simple concatenation approach
+        return resolveTypeWithEmbeddedRefsFallback(mangledData: mangledData, sourceOffset: sourceOffset)
+    }
+
+    /// Parse a container type (Array, Dictionary, Set, Optional) with embedded symbolic refs.
+    ///
+    /// Container types have the format:
+    /// - Array: `Say<element_type>G`
+    /// - Dictionary: `SDy<key_type><value_type>G`
+    /// - Set: `Shy<element_type>G`
+    /// - Optional: `<base_type>Sg`
+    private func parseContainerTypeWithRefs(bytes: [UInt8], sourceOffset: Int) -> String? {
+        guard bytes.count >= 3 else { return nil }
+
+        // Check for Array: Say...G
+        if bytes.count >= 4, bytes[0] == 0x53, bytes[1] == 0x61, bytes[2] == 0x79 {  // "Say"
+            var index = 3
+            if let (element, newIndex) = parseTypeArgWithRefs(
+                bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
+            {
+                index = newIndex
+                // Check for closing 'G'
+                if index < bytes.count && bytes[index] == 0x47 {  // 'G'
+                    var result = "[\(element)]"
+                    index += 1
+                    // Check for Optional suffix
+                    if index + 1 < bytes.count && bytes[index] == 0x53 && bytes[index + 1] == 0x67 {  // "Sg"
+                        result += "?"
+                    }
+                    return result
+                }
+            }
+        }
+
+        // Check for Dictionary: SDy...G
+        if bytes.count >= 4, bytes[0] == 0x53, bytes[1] == 0x44, bytes[2] == 0x79 {  // "SDy"
+            var index = 3
+            var typeArgs: [String] = []
+
+            // Parse key and value types
+            while typeArgs.count < 2 && index < bytes.count {
+                if let (arg, newIndex) = parseTypeArgWithRefs(
+                    bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
+                {
+                    typeArgs.append(arg)
+                    index = newIndex
+                } else {
+                    break
+                }
+            }
+
+            // Check for closing 'G'
+            if typeArgs.count == 2 && index < bytes.count && bytes[index] == 0x47 {  // 'G'
+                var result = "[\(typeArgs[0]): \(typeArgs[1])]"
+                index += 1
+                // Check for Optional suffix
+                if index + 1 < bytes.count && bytes[index] == 0x53 && bytes[index + 1] == 0x67 {  // "Sg"
+                    result += "?"
+                }
+                return result
+            }
+        }
+
+        // Check for Set: Shy...G
+        if bytes.count >= 4, bytes[0] == 0x53, bytes[1] == 0x68, bytes[2] == 0x79 {  // "Shy"
+            var index = 3
+            if let (element, newIndex) = parseTypeArgWithRefs(
+                bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
+            {
+                index = newIndex
+                // Check for closing 'G'
+                if index < bytes.count && bytes[index] == 0x47 {  // 'G'
+                    var result = "Set<\(element)>"
+                    index += 1
+                    // Check for Optional suffix
+                    if index + 1 < bytes.count && bytes[index] == 0x53 && bytes[index + 1] == 0x67 {  // "Sg"
+                        result += "?"
+                    }
+                    return result
+                }
+            }
+        }
+
+        // Check for direct symbolic reference at start (the most common case)
+        if bytes.count >= 5 && SwiftSymbolicReferenceKind.isSymbolicMarker(bytes[0]) {
+            let refData = Data(bytes)
+            var result = resolveSymbolicReference(
+                kind: SwiftSymbolicReferenceKind(marker: bytes[0]),
+                data: refData,
+                sourceOffset: sourceOffset
+            )
+
+            // Check for trailing Optional suffix
+            if bytes.count >= 7 && bytes[5] == 0x53 && bytes[6] == 0x67 {  // "Sg"
+                if !result.hasPrefix("/*") {
+                    result += "?"
+                }
+            }
+
+            if !result.isEmpty && !result.hasPrefix("/*") {
+                return result
+            }
+        }
+
+        return nil
+    }
+
+    /// Parse a single type argument which may be a symbolic reference or standard mangled type.
+    ///
+    /// - Returns: Tuple of (resolved type name, new index after parsing) or nil.
+    private func parseTypeArgWithRefs(bytes: [UInt8], startIndex: Int, sourceOffset: Int, depth: Int = 0) -> (
+        String, Int
+    )? {
+        guard startIndex < bytes.count else { return nil }
+        guard depth < 10 else { return nil }  // Prevent infinite recursion
+
+        let index = startIndex
+        let byte = bytes[index]
+
+        // Check for symbolic reference
+        if SwiftSymbolicReferenceKind.isSymbolicMarker(byte) && index + 5 <= bytes.count {
+            let refData = Data(bytes[index...])
+            let refOffset = sourceOffset + index
+
+            let resolved = resolveSymbolicReference(
+                kind: SwiftSymbolicReferenceKind(marker: byte),
+                data: refData,
+                sourceOffset: refOffset
+            )
+
+            if !resolved.isEmpty && !resolved.hasPrefix("/*") {
+                return (resolved, index + 5)
+            }
+            // If symbolic resolution failed, skip the 5 bytes anyway
+            return ("?", index + 5)
+        }
+
+        // Check for nested Array: Say...G
+        if index + 3 < bytes.count && byte == 0x53 && bytes[index + 1] == 0x61 && bytes[index + 2] == 0x79 {  // "Say"
+            var innerIndex = index + 3
+            if let (element, newIndex) = parseTypeArgWithRefs(
+                bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
+            {
+                innerIndex = newIndex
+                // Check for closing 'G'
+                if innerIndex < bytes.count && bytes[innerIndex] == 0x47 {  // 'G'
+                    var result = "[\(element)]"
+                    innerIndex += 1
+                    // Check for Optional suffix "Sg"
+                    if innerIndex + 1 < bytes.count && bytes[innerIndex] == 0x53 && bytes[innerIndex + 1] == 0x67 {
+                        result += "?"
+                        innerIndex += 2
+                    }
+                    return (result, innerIndex)
+                }
+            }
+        }
+
+        // Check for nested Dictionary: SDy...G
+        if index + 3 < bytes.count && byte == 0x53 && bytes[index + 1] == 0x44 && bytes[index + 2] == 0x79 {  // "SDy"
+            var innerIndex = index + 3
+            var typeArgs: [String] = []
+
+            // Parse key and value types
+            while typeArgs.count < 2 && innerIndex < bytes.count {
+                if let (arg, newIndex) = parseTypeArgWithRefs(
+                    bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
+                {
+                    typeArgs.append(arg)
+                    innerIndex = newIndex
+                } else {
+                    break
+                }
+            }
+
+            // Check for closing 'G'
+            if typeArgs.count == 2 && innerIndex < bytes.count && bytes[innerIndex] == 0x47 {  // 'G'
+                var result = "[\(typeArgs[0]): \(typeArgs[1])]"
+                innerIndex += 1
+                // Check for Optional suffix
+                if innerIndex + 1 < bytes.count && bytes[innerIndex] == 0x53 && bytes[innerIndex + 1] == 0x67 {  // "Sg"
+                    result += "?"
+                    innerIndex += 2
+                }
+                return (result, innerIndex)
+            }
+        }
+
+        // Check for nested Set: Shy...G
+        if index + 3 < bytes.count && byte == 0x53 && bytes[index + 1] == 0x68 && bytes[index + 2] == 0x79 {  // "Shy"
+            var innerIndex = index + 3
+            if let (element, newIndex) = parseTypeArgWithRefs(
+                bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
+            {
+                innerIndex = newIndex
+                // Check for closing 'G'
+                if innerIndex < bytes.count && bytes[innerIndex] == 0x47 {  // 'G'
+                    var result = "Set<\(element)>"
+                    innerIndex += 1
+                    // Check for Optional suffix "Sg"
+                    if innerIndex + 1 < bytes.count && bytes[innerIndex] == 0x53 && bytes[innerIndex + 1] == 0x67 {
+                        result += "?"
+                        innerIndex += 2
+                    }
+                    return (result, innerIndex)
+                }
+            }
+        }
+
+        // Check for two-character standard types (SS, Si, Sb, Sd, Sf, Su)
+        if index + 1 < bytes.count && byte == 0x53 {  // 'S' prefix
+            let secondByte = bytes[index + 1]
+            let twoChar = String(bytes: [byte, secondByte], encoding: .ascii) ?? ""
+
+            if let typeName = resolveStandardTypeShortcut(twoChar) {
+                return (typeName, index + 2)
+            }
+        }
+
+        // Check for single-character shortcuts (but not 'S' which needs 2 chars)
+        if let typeName = resolveSingleCharTypeShortcut(byte) {
+            return (typeName, index + 1)
+        }
+
+        // Check for empty tuple marker 'y' (used for Void in function types)
+        if byte == 0x79 {  // 'y'
+            return ("Void", index + 1)
+        }
+
+        // Check for length-prefixed type name (starts with digit)
+        if byte >= 0x30 && byte <= 0x39 {  // '0'-'9'
+            if let (typeName, newIndex) = parseLengthPrefixedType(bytes: bytes, startIndex: index) {
+                return (typeName, newIndex)
+            }
+        }
+
+        // Check for ObjC imported type (So prefix)
+        if byte == 0x53 && index + 2 < bytes.count && bytes[index + 1] == 0x6F {  // "So"
+            if let (typeName, newIndex) = parseLengthPrefixedType(bytes: bytes, startIndex: index + 2) {
+                return (typeName, newIndex)
+            }
+        }
+
+        return nil
+    }
+
+    /// Resolve a standard two-character type shortcut.
+    private func resolveStandardTypeShortcut(_ chars: String) -> String? {
+        switch chars {
+        case "SS": return "String"
+        case "Si": return "Int"
+        case "Su": return "UInt"
+        case "Sb": return "Bool"
+        case "Sd": return "Double"
+        case "Sf": return "Float"
+        case "Sg": return nil  // This is Optional suffix, not a type
+        default: return nil
+        }
+    }
+
+    /// Resolve a single-character type shortcut (lowercase letters mostly).
+    private func resolveSingleCharTypeShortcut(_ byte: UInt8) -> String? {
+        switch byte {
+        case 0x61: return "Array"  // 'a'
+        case 0x62: return "Bool"  // 'b'
+        case 0x44: return "Dictionary"  // 'D'
+        case 0x64: return "Double"  // 'd'
+        case 0x66: return "Float"  // 'f'
+        case 0x68: return "Set"  // 'h'
+        case 0x69: return "Int"  // 'i'
+        case 0x75: return "UInt"  // 'u'
+        default: return nil
+        }
+    }
+
+    /// Parse a length-prefixed type name from bytes.
+    private func parseLengthPrefixedType(bytes: [UInt8], startIndex: Int) -> (String, Int)? {
+        var index = startIndex
+        var lengthStr = ""
+
+        // Collect digits for length
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte >= 0x30 && byte <= 0x39 {  // '0'-'9'
+                lengthStr.append(Character(UnicodeScalar(byte)))
+                index += 1
+            } else {
+                break
+            }
+        }
+
+        guard let length = Int(lengthStr), length > 0, index + length <= bytes.count else {
+            return nil
+        }
+
+        // Extract the type name
+        let nameBytes = Array(bytes[index..<(index + length)])
+        guard let name = String(bytes: nameBytes, encoding: .utf8) else {
+            return nil
+        }
+
+        index += length
+
+        // Skip type suffix markers (C, V, O, P)
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x43 || byte == 0x56 || byte == 0x4F || byte == 0x50 {  // C, V, O, P
+                index += 1
+            } else {
+                break
+            }
+        }
+
+        return (name, index)
+    }
+
+    /// Fallback resolution that concatenates resolved refs (for complex cases).
+    private func resolveTypeWithEmbeddedRefsFallback(mangledData: Data, sourceOffset: Int) -> String {
         var result = ""
         let bytes = Array(mangledData)
         var i = 0
@@ -130,9 +455,8 @@ public final class SwiftSymbolicResolver {
             let byte = bytes[i]
 
             // Check for symbolic reference markers
-            if (byte == 0x01 || byte == 0x02) && i + 5 <= bytes.count {
+            if SwiftSymbolicReferenceKind.isSymbolicMarker(byte) && i + 5 <= bytes.count {
                 // Extract the symbolic reference (5 bytes: marker + 4-byte offset)
-                // We pass the rest of the buffer to allow resolving generic params that follow
                 let refData = Data(bytes[i..<bytes.count])
                 let refOffset = sourceOffset + i
 
@@ -142,11 +466,11 @@ public final class SwiftSymbolicResolver {
                     sourceOffset: refOffset
                 )
 
-                // If we got a useful resolution, use it; otherwise use placeholder
+                // If we got a useful resolution, use it
                 if !resolved.isEmpty && !resolved.hasPrefix("/*") {
                     result += resolved
                 } else {
-                    result += "?"  // Unknown embedded type
+                    result += "?"
                 }
 
                 // Skip the 5-byte symbolic reference
@@ -163,7 +487,7 @@ public final class SwiftSymbolicResolver {
             }
         }
 
-        // Now try to demangle the assembled string
+        // Try to demangle the assembled string
         return SwiftDemangler.demangle(result)
     }
 

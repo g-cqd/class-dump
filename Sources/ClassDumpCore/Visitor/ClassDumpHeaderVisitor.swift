@@ -153,6 +153,7 @@ extension ClassDumpHeaderVisitor {
         header += "\n"
         header += "//\n"
         header += "//  Copyright (C) 1997-2019 Steve Nygard.\n"
+        header += "//  Copyright (C) 2026 Guillaume Coquard.\n"
         header += "//\n\n"
         return header
     }

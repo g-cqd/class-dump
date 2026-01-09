@@ -69,7 +69,7 @@ public final class ObjCTypeParser: @unchecked Sendable {
 
     private func isTokenInSimpleTypeSet(_ token: ObjCTypeToken) -> Bool {
         guard case .char(let c) = token else { return false }
-        return "cislqCISLQfdDBv*#:%?".contains(c)
+        return "cislqCISLQfdDBv*#:%?tT".contains(c)
     }
 
     private func isTokenInModifierSet(_ token: ObjCTypeToken) -> Bool {

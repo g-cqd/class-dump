@@ -1,363 +1,235 @@
-# Swift 6.2 Migration - Remaining Work
+# class-dump - Remaining Work
 
-## Next Up
-
-### Phase 4.5 P2 - Code Quality (Medium Priority)
-- [x] Remove dead code: `SwiftSymbolicResolver.contextKindName(_:)` - DONE
-- [x] Document thread-safety requirements for processor classes - DONE
-  - Added ## Thread Safety docs to ObjC2Processor, SwiftSymbolicResolver, SwiftMetadataProcessor
-- [x] Consider extracting `ObjC2Processor.init` logic - REVIEWED
-  - Current structure acceptable: logic is self-contained, well-commented, inherently complex
-
-### Code Review Findings (2026-01-08)
-Issues identified during comprehensive code review:
-- ~~**Thread Safety**: All three processor classes have mutable caches without synchronization~~ - DOCUMENTED
-- **Error Handling**: Uses magic strings (`"/* unknown type */"`) instead of typed errors
-- **Magic Numbers**: Hardcoded struct offsets without named constants
-- ~~**Lazy Property Risk**: `symbolicResolver` lazy var in `ObjC2Processor` not thread-safe~~ - DOCUMENTED
+**Current Status**: 697 tests passing | Swift 6.2 | Version 4.0.2
 
 ---
 
-## Phase 4.7: Enhanced Swift & ObjC Demangling
+## Priority 1: Output Quality (HIGH PRIORITY)
 
-### Task 40: Demangle Swift Class Names (40.2-40.3 remaining)
-- [x] 40.2 Create `ObjCSwiftBridge` helper for consistent name translation - ALREADY EXISTS
-  - SwiftDemangler already provides centralized demangling via `demangleSwiftName()`
-  - `_TtC` → `Module.ClassName` via `demangleClassName()`
-  - `_TtP` → `Module.ProtocolName` via `demangleProtocolName()`
-  - Private types (`P33_...`) via `extractPrivateTypeName()`
-  - Framework mappings via `objcToSwiftTypes` dictionary
-- [x] 40.3 Add CLI option for demangling control - DONE
-  - Added `--demangle` / `--no-demangle` flag (default: demangle)
-  - Added `--demangle-style=swift` for `Module.Type` format
-  - Added `--demangle-style=objc` for `Type` only (drop module)
-  - Updated `ClassDumpVisitorOptions` with `demangleStyle` property
-  - Updated `ObjCTypeFormatterOptions` with `demangleStyle` property
-  - Both `TextClassDumpVisitor` and `ObjCTypeFormatter` now respect the setting
+### Task T07: Swift Standard Library Type Demangling
+**Status**: Not started
 
-### Task 41: Demangle Swift Protocol Names - DONE
-- [x] 41.1 Parse `_TtP` protocol name format - DONE
-  - Format: `_TtP<module_len><module><name_len><name>_`
-  - Implemented in `SwiftDemangler.demangleProtocolName()`
-  - Trailing underscore marks end of protocol name
-- [x] 41.2 Demangle protocol conformance lists - DONE
-  - `TextClassDumpVisitor` demangles protocols in:
-    - Class declarations (`@interface ... <Proto1, Proto2>`)
-    - Protocol declarations (`@protocol Proto <ParentProto>`)
-    - Category declarations
-  - Respects `demangleStyle` option (`.swift`, `.objc`, `.none`)
-- [x] 41.3 Add tests for protocol demangling - DONE
-  - Unit tests in `TestSwiftDemangler.swift` (ProtocolDemanglingTests suite)
-  - Integration tests in `TestVisitor.swift`:
-    - Swift style demangling in class declarations
-    - ObjC style demangling (strips module prefix)
-    - Multiple protocols
-    - Protocol parent protocols
-    - Category protocols
-    - Long protocol names (XCSourceControl example)
+The demangler doesn't handle Swift stdlib type prefixes, resulting in output like:
+- `SDyIDEFoundation.TestPlanSnapshotSourceStreamUpdateContext...` (Dictionary)
+- `SaySo14DVTCancellable_pG` (Array of protocol type)
+- `ScS12ContinuationVMny...` (Continuation)
 
-### Task 42: Swift Concurrency Type Demangling - DONE
-- [x] 42.1 Parse Task types (`ScT` patterns)
-  - `ScTyytNeverG` → `Task<Void, Never>`
-  - `ScTySSs5ErrorpG` → `Task<String, Error>`
-  - Handle generic success/failure type parameters via `parseTaskGenericArgs()`
-  - `parseGenericType()` handles: Void (yt), Never, Error, shortcuts (SS, Si, Sb, etc.)
-- [x] 42.2 Parse Continuation types (`ScC`, `ScU` patterns)
-  - `ScC` → `CheckedContinuation`
-  - `ScU` → `UnsafeContinuation`
-  - Added to `commonPatterns` dictionary
-- [x] 42.3 Parse Actor types and isolation
-  - `ScA` → `Actor`
-  - `ScM` → `MainActor`
-  - Added to `commonPatterns` dictionary
-- [x] 42.4 Parse AsyncStream/AsyncSequence types
-  - `ScS` → `AsyncStream`
-  - `ScF` → `AsyncThrowingStream`
-  - `Scg` → `TaskGroup`
-  - `ScG` → `ThrowingTaskGroup`
-  - `ScP` → `TaskPriority`
-  - Added to `commonPatterns` dictionary
-- Implementation in `SwiftDemangler.swift`:
-  - Added simple patterns to `commonPatterns` dictionary
-  - Added `parseTaskGenericArgs()` for Task<Success, Failure> parsing
-  - Added `parseGenericType()` for individual type argument parsing
-  - 9 new tests in `ConcurrencyTypeDemanglingTests` suite (353 total tests)
+- [ ] T07.1: Handle `SD` prefix (Dictionary<K,V>)
+- [ ] T07.2: Handle `Sa` prefix (Array<T>)
+- [ ] T07.3: Handle `Sc` prefix (Continuation)
+- [ ] T07.4: Handle `So` prefix (ObjC imported types)
+- [ ] T07.5: Handle `Ss` prefix (String, other stdlib types)
+- [ ] T07.6: Handle nested generic arguments recursively
+- [ ] T07.7: Add tests for complex nested stdlib types
 
-### Task 43: Enhanced Generic Type Demangling
-- [x] 43.1 Parse generic type parameters in full - DONE
-  - `_TtGC10ModuleName7GenericSS_` → `ModuleName.Generic<String>`
-  - Handle multiple type parameters (e.g., `PairMap<String, Int>`)
-  - Handle nested generics: `Array<Dictionary<String, Int>>`
-  - Fix `Dictionary<SS...>` → `[String: Int]` (Swift literal format)
-  - Added `demangleGenericType()` for `_TtGC`/`_TtGV`/`_TtGO` prefixes
-  - Added `parseGenericTypeArg()` for type argument parsing
-  - Updated dictionary demangling to parse both key and value types
-  - 14 new tests in `EnhancedGenericTypeDemanglingTests` suite (367 total tests)
-- [ ] 43.2 Implement generic constraint parsing
-  - Parse `where` clause equivalents in mangling
-  - Handle associated type constraints
-  - Handle protocol conformance constraints
-- [x] 43.3 Format generic types in property/ivar declarations - DONE
-  - Show `Array<String>` instead of mangled form via ObjCTypeFormatter
-  - Handle Optional (`?` suffix) - `_TtSSSg` → `String?`
-  - Handle Array shorthand - `_TtSaySSG` → `[String]`
-  - Handle Dictionary shorthand - `_TtSDySSSiG` → `[String: Int]`
-  - Added `_TtS` prefix handling for Swift stdlib types
-  - 14 new tests for property type formatting (381 total tests)
-- [x] 43.4 Handle deeply nested generic types - DONE
-  - Recursive parsing for arbitrary nesting depth
-  - Two-level: `[[String]]`, `[String: [Int]]`, `[Set<Int>]`
-  - Three-level: `[[[String]]]`, `[String: [String: Int]]`
-  - Optionals: `[String]?`, `[String?]`, `[String?]?`
-  - Set types: `Set<String>`, `Set<[Int]>`
-  - Mixed: `[String: Set<Int>]`, `[Set<[Int]>]`
-  - Generic classes with nested type args: `Container<[[String]]>`
-  - Safety: `maxGenericNestingDepth = 10` prevents stack overflow
-  - 24 new tests in `DeeplyNestedGenericTypeDemanglingTests` (405 total tests)
+### Task T08: Output Mode Consistency & Formatting
+**Status**: Not started
 
-### Task 44: Swift Type Descriptor Integration
-- [ ] 44.1 Use `__swift5_types` to resolve type metadata
-  - Link type descriptors to ObjC class metadata by address
-  - Extract full generic signature from descriptors
-  - Handle value types (struct/enum) as well as classes
-- [ ] 44.2 Parse nominal type descriptors for complete type info
-  - Access control (public/internal/private)
-  - Generic parameters with constraints
-  - Parent type for nested types
-- [ ] 44.3 Use `__swift5_fieldmd` for property type resolution
-  - Match field descriptors to class ivars by name
-  - Resolve field types using symbolic references
-  - Handle @objc properties specially
+The current output mixes ObjC and Swift syntax inappropriately. Need strict output mode enforcement:
 
-### Task 45: Function/Method Signature Demangling
-- [ ] 45.1 Parse Swift method signatures
-  - Format: `_$s...F...` for function symbols
-  - Extract parameter types and return type
-  - Handle throwing functions, async functions
-- [ ] 45.2 Demangle closure types
-  - `@convention(block)` closures
-  - Escaping vs non-escaping
-  - Sendable closures
-- [ ] 45.3 Format method signatures in output
-  - Show Swift-style: `func name(label: Type) -> ReturnType`
-  - Or ObjC-style with Swift types: `- (ReturnType)nameWithLabel:(Type)param`
+**ObjC Mode (default)** - All output must be valid ObjC syntax:
+- Missing pointer asterisks: `IDETestManager testManager` → `IDETestManager *testManager`
+- Swift optional syntax: `IDETestable?` → `IDETestable *`
+- Swift Dictionary syntax: `[String: Type]` → `NSDictionary *`
+- Swift Array syntax: `[Type]` → `NSArray *`
+- Missing ivar names in some cases
 
-### Task 46: ObjC Type Encoding Enhancements
-- [ ] 46.1 Complete ObjC type encoding coverage
-  - Audit all ObjC type encoding characters
-  - Handle complex struct encodings with nested types
-  - Handle union types
-  - Handle vector/SIMD types
-- [ ] 46.2 Resolve forward-declared types
-  - When type shows as `struct CGRect` but actual type available
-  - Use runtime metadata to resolve typedefs
-  - Handle `@class` forward declarations
-- [x] 46.3 Improve block type formatting (eliminate CDUnknownBlockType) - DONE
-  - [x] Parse block signature from type encoding (`@?<v@?@>` → `void (^)(id)`) - Already works
-  - [x] Extract return type and parameter types from block encoding - Already works
-  - [x] Show `void (^)(id, NSError *)` instead of `CDUnknownBlockType` - Works when signature present
-  - [x] Handle completion handlers: `(void (^)(BOOL success, NSError *error))` - Works
-  - [x] Handle blocks with block parameters (nested blocks) - Works
-  - [x] Fall back to `id /* block */` instead of `CDUnknownBlockType` - NEW
-  - [x] Block variable names now appear in proper position: `void (^handler)(void)`
-  - 12 new tests added (417 total tests)
-- [~] 46.4 Audit and fix CDUnknownBlockType occurrences - PARTIAL
-  - [x] Changed fallback from `CDUnknownBlockType` to `id /* block */`
-  - [ ] Cross-reference with protocol method signatures for same selector
-  - [ ] Parse Swift metadata for closure signatures
-  - [ ] Add logging/debugging mode to show raw type encoding
-  - [x] Created comprehensive test cases for block signatures
+**Swift Mode (future)** - All output must be valid Swift syntax:
+- Use Swift type names: `String`, `[Type]`, `[Key: Value]`
+- Use Swift optionals: `Type?`
+- No pointer asterisks
 
-### Task 47: System Library Integration
-- [ ] 47.1 Use `swift-demangle` when available
-  - Shell out to `/usr/bin/swift-demangle` for complex cases
-  - Cache results for repeated symbols
-  - Fall back to built-in demangler if unavailable
-- [ ] 47.2 Optionally link libswiftDemangle
-  - `dlopen` the Swift runtime library
-  - Use `swift_demangle` C API for full accuracy
-  - Handle symbol versioning across Swift versions
-- [ ] 47.3 Create demangling cache for performance
-  - LRU cache for demangled names
-  - Persist cache across runs (optional)
-  - Thread-safe implementation
+**Flags**: `--output-style=objc|swift` (default: objc)
 
-### Task 48: Output Format Options
-- [ ] 48.1 Add `--swift` output mode
-  - Output `.swiftinterface`-style declarations
-  - Format: `public class Name: SuperClass, Protocol { ... }`
-  - Include access control, attributes
-- [ ] 48.2 Add `--mixed` output mode
-  - Show both ObjC and Swift representations
-  - ObjC `@interface` followed by Swift `class` declaration
-  - Useful for bridging header generation
-- [ ] 48.3 Add `--json` structured output
-  - Machine-readable type information
-  - Include both mangled and demangled names
-  - Include source locations, offsets
-
-### Demangling Test Matrix
-Ensure comprehensive test coverage for:
-- [ ] Swift classes: `_TtC`, `_TtCC`, `_TtCCC` (nested)
-- [ ] Swift structs: `_TtV`, `_TtVV` (nested)
-- [ ] Swift enums: `_TtO`, `_TtOO` (nested)
-- [ ] Swift protocols: `_TtP..._`
-- [ ] Swift generics: `_TtGC...`, `_TtGV...`
-- [ ] Swift 5+ symbols: `_$s...`, `$s...`
-- [ ] Private types: `P33_<32-hex-chars>`
-- [ ] Module substitutions: `So` (ObjC), `s` (Swift), `SC` (Clang)
-- [ ] Word substitutions: `0A`, `0B`, etc.
-- [ ] Standard library types: All 21 single-char shortcuts
-- [ ] Builtin types: `B*` patterns
-- [ ] Function types: Parameter lists, return types, throws, async
-- [x] Concurrency types:
-  - [x] `ScT` Task types with generic parameters
-  - [x] `ScC`/`ScU` Continuation types (CheckedContinuation, UnsafeContinuation)
-  - [x] `ScA` Actor types
-  - [x] `ScM` MainActor
-  - [x] `ScP` TaskPriority
-  - [x] `Scg` TaskGroup
-  - [x] `ScG` ThrowingTaskGroup
-  - [x] `ScS`/`ScF` AsyncStream, AsyncThrowingStream patterns
-- [ ] Complex generics:
-  - [ ] `Dictionary<SS...>` → `Dictionary<String, ...>`
-  - [ ] Nested generics with multiple levels
-  - [ ] Optional generic parameters
+- [ ] T08.1: Add `--output-style` flag with `objc` and `swift` options
+- [ ] T08.2: Implement ObjC formatter that converts all Swift syntax to ObjC
+- [ ] T08.3: Add pointer asterisks for Swift class type ivars in ObjC mode
+- [ ] T08.4: Convert Swift optionals to ObjC pointers in ObjC mode
+- [ ] T08.5: Convert Swift Dictionary/Array syntax to ObjC types in ObjC mode
+- [ ] T08.6: Investigate and fix missing ivar names bug
+- [ ] T08.7: Add tests for output mode consistency
+- [ ] T08.8: Document the output mode flag in CLI help
 
 ---
 
-## Phase 1 & 2 Remaining Tasks
+## Priority 2: Type Resolution
 
-- [ ] 18 Concurrency + performance pass
-  - TaskGroup parsing
-  - Parallel file scanning
-  - Caching
-  - Memory mapping
-- [ ] 23 Add Swift name demangling support (swift_demangle API or custom demangler)
-- [ ] 24 Add Swift metadata parsing (Swift reflection metadata, type descriptors, witness tables)
-- [ ] 25 Investigate native Apple frameworks for lexer/parser (SwiftSyntax, swift-format infrastructure)
-- [ ] 26 Performance optimization pass
-  - Reference: g-cqd/SwiftStaticAnalysis patterns
-  - Memory-mapped Data with no intermediate copies
-  - Parallel segment/section processing with TaskGroup
-  - Lock-free concurrent caches
-  - SIMD-accelerated string scanning where applicable
-- [ ] 27 Create DocC generator from class-dump output
-  - Generate DocC-compatible documentation from dumped headers
-  - Support merging multiple framework dumps into unified documentation
-  - Symbol graph generation for integration with Xcode documentation
+### Task T09: Resolve Forward-Declared Types
+**Status**: Not started
+
+- [ ] T09.1: Resolve `struct CGRect` when actual type available
+- [ ] T09.2: Use runtime metadata to resolve typedefs
+- [ ] T09.3: Handle `@class` forward declarations
+- [ ] T09.4: Cross-reference with Swift metadata
+
+### Task T10: Block Type Resolution Improvements
+**Status**: Partial
+
+- [ ] T10.1: Cross-reference with protocol method signatures for same selector
+- [ ] T10.2: Parse Swift metadata for closure signatures
+- [ ] T10.3: Add logging/debugging mode to show raw type encoding
 
 ---
 
-## Phase 4: Swift Metadata Support (Incomplete)
+## Priority 3: Performance & Concurrency
 
-### Partial Items
-- [~] 33 Parse Swift protocol descriptors (partial)
-  - Parse `__swift5_protos` section for protocol names
-  - **TODO**: Full protocol requirements
-- [~] 34 Parse protocol conformances (partial)
-  - Parse `__swift5_proto` section for conformance records
-  - Type-to-protocol mapping extracted
-- [~] 36 Integrate Swift types with ObjC output (partial)
-  - Field descriptor lookup by class name
-  - **TODO**: Link field descriptors to ObjC classes via address matching
+### Task T11: Concurrency & Performance Pass
+**Status**: Not started
 
-### Not Started
-- [ ] 35 Generate Swift-style headers
-  - Format Swift types as `.swiftinterface`-like output
-  - Handle generics, property wrappers, result builders
+- [ ] T11.1: Implement TaskGroup parsing for parallel file scanning
+- [ ] T11.2: Memory-mapped file IO for large binaries
+- [ ] T11.3: Cache tables and strings to avoid repeated parsing
+- [ ] T11.4: Profile and benchmark against IDEFoundation.framework
 
 ---
 
-## Phase 5: dyld_shared_cache Integration
+## Priority 4: System Integration
 
-- [ ] 36 Shared Cache Foundation
-  - Implement `MemoryMappedReader` for large file access (3+ GB files)
-  - Parse `dyld_cache_header` (magic, mappings, images)
-  - Support split caches (.01, .02, etc.) for modern iOS
-  - Reference: ipsw's `dyld.Open()` in pkg/dyld
-- [ ] 37 Address Translation
-  - Implement `SharedCacheAddressTranslator` for VM-to-offset logic
-  - Parse `dyld_cache_slide_info` for pointer rebasing
-  - Handle multiple cache mappings with different permissions
-- [ ] 38 In-Cache Image Analysis
-  - List available images in the shared cache
-  - Extract Mach-O data for specific image (zero-copy view)
-  - Adapt `ObjC2Processor` to work with in-cache images
-  - Handle DSC-specific ObjC optimizations (shared selector table)
-- [ ] 39 ObjC Optimization Tables (Optional)
-  - Parse global class/selector/protocol tables for faster lookup
-  - Reference: ipsw's `f.GetAllObjCClasses()` etc.
+### Task T12: System swift-demangle Integration
+**Status**: Not started
 
----
+- [ ] T12.1: Shell out to `/usr/bin/swift-demangle` for complex cases
+- [ ] T12.2: Cache results for repeated symbols
+- [ ] T12.3: Fall back to built-in demangler if unavailable
 
-## Phase 6: Quality of Life Improvements
+### Task T13: Optional libswiftDemangle Linking
+**Status**: Not started
 
-- [ ] 40 JSON output option (`--json`)
-  - Structured output for tooling integration
-  - Include class hierarchy, methods, properties, protocols
-- [ ] 41 Inspection command (`class-dump info`)
-  - Display Mach-O header, load commands, sections
-  - Show architecture, platform, deployment target
-  - Useful for debugging parsing failures
-- [ ] 42 Address utilities
-  - Expose `a2o` / `o2a` conversion for debugging
-  - Resolve addresses to symbol names for `-A` output
-- [ ] 43 Lipo export functionality
-  - Extract single architecture to standalone file
-  - Useful for processing fat binaries
-- [ ] 44 Entitlements display
-  - Parse LC_CODE_SIGNATURE blob
-  - Extract and display XML entitlements
+- [ ] T13.1: `dlopen` the Swift runtime library
+- [ ] T13.2: Use `swift_demangle` C API for full accuracy
+- [ ] T13.3: Handle symbol versioning across Swift versions
+
+### Task T14: Demangling Cache
+**Status**: Not started
+
+- [ ] T14.1: LRU cache for demangled names
+- [ ] T14.2: Thread-safe implementation
+- [ ] T14.3: Optional persistence across runs
 
 ---
 
-## Phase 7: Advanced Capabilities
+## Priority 5: Output Format Options
 
-- [ ] 45 Full Swift type support (generics, protocols, extensions, property wrappers)
-- [ ] 46 Recursive framework dependency resolution with caching
-- [ ] 47 Watch mode for incremental re-dumping on file changes
-- [ ] 48 LSP integration for IDE support
-- [ ] 49 Dylib extraction from shared cache
-  - Reconstruct standalone Mach-O from cached image
-  - Handle LINKEDIT reconstruction
+### Task T15: Swift Output Mode
+**Status**: Not started
+
+- [ ] T15.1: Add `--swift` output mode
+- [ ] T15.2: Output `.swiftinterface`-style declarations
+- [ ] T15.3: Include access control, attributes
+- [ ] T15.4: Format: `public class Name: SuperClass, Protocol { ... }`
+
+### Task T16: Mixed Output Mode
+**Status**: Not started
+
+- [ ] T16.1: Add `--mixed` output mode
+- [ ] T16.2: Show both ObjC and Swift representations
+- [ ] T16.3: Useful for bridging header generation
+
+### Task T17: JSON Output Mode
+**Status**: Not started
+
+- [ ] T17.1: Add `--json` structured output
+- [ ] T17.2: Machine-readable type information
+- [ ] T17.3: Include both mangled and demangled names
+- [ ] T17.4: Include source locations, offsets
 
 ---
 
-## Performance Evaluation
+## Future: dyld_shared_cache Integration
 
-Use this command to benchmark the tool against a real-world, complex Swift framework:
+### Task T18: Shared Cache Foundation
+- [ ] T18.1: Implement `MemoryMappedReader` for large file access (3+ GB)
+- [ ] T18.2: Parse `dyld_cache_header` (magic, mappings, images)
+- [ ] T18.3: Support split caches (.01, .02, etc.)
+
+### Task T19: Address Translation
+- [ ] T19.1: Implement `SharedCacheAddressTranslator` for VM-to-offset
+- [ ] T19.2: Parse `dyld_cache_slide_info` for pointer rebasing
+- [ ] T19.3: Handle multiple cache mappings
+
+### Task T20: In-Cache Image Analysis
+- [ ] T20.1: List available images in shared cache
+- [ ] T20.2: Extract Mach-O data for specific image (zero-copy)
+- [ ] T20.3: Adapt `ObjC2Processor` for in-cache images
+- [ ] T20.4: Handle DSC-specific ObjC optimizations
+
+### Task T21: ObjC Optimization Tables
+- [ ] T21.1: Parse global class/selector/protocol tables
+- [ ] T21.2: Faster lookup via shared tables
+
+---
+
+## Future: Quality of Life
+
+### Task T22: Inspection Command
+- [ ] T22.1: Add `class-dump info` subcommand
+- [ ] T22.2: Display Mach-O header, load commands, sections
+- [ ] T22.3: Show architecture, platform, deployment target
+
+### Task T23: Address Utilities
+- [ ] T23.1: Expose `a2o` / `o2a` conversion for debugging
+- [ ] T23.2: Resolve addresses to symbol names for `-A` output
+
+### Task T24: Lipo Export
+- [ ] T24.1: Extract single architecture to standalone file
+
+### Task T25: Entitlements Display
+- [ ] T25.1: Parse LC_CODE_SIGNATURE blob
+- [ ] T25.2: Extract and display XML entitlements
+
+### Task T26: DocC Generator
+- [ ] T26.1: Generate DocC-compatible documentation from dumps
+- [ ] T26.2: Support merging multiple framework dumps
+- [ ] T26.3: Symbol graph generation for Xcode integration
+
+---
+
+## Future: Advanced Capabilities
+
+### Task T27: Full Swift Type Support
+- [ ] T27.1: Extensions
+- [ ] T27.2: Property wrappers
+- [ ] T27.3: Result builders
+
+### Task T28: Recursive Framework Resolution
+- [ ] T28.1: Dependency resolution with caching
+
+### Task T29: Watch Mode
+- [ ] T29.1: Incremental re-dumping on file changes
+
+### Task T30: LSP Integration
+- [ ] T30.1: IDE support for class-dump output
+
+### Task T31: Dylib Extraction
+- [ ] T31.1: Reconstruct standalone Mach-O from cached image
+- [ ] T31.2: Handle LINKEDIT reconstruction
+
+---
+
+## Benchmarking
+
+Use this command to benchmark against a real-world Swift framework:
 
 ```bash
-class-dump "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+time class-dump "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation" > /dev/null
 ```
 
-This binary is ideal for testing because it:
-- Contains extensive Swift metadata alongside ObjC classes
-- Uses chained fixups (iOS 14+ format)
-- Has complex generic types and protocol conformances
-- Is large enough to reveal performance issues
-
----
-
-## Concurrency and Performance Targets
-
-- Parallel parsing of independent Mach-O files (TaskGroup)
-- Concurrent processing of load commands/segments where safe
-- Memory-mapped file IO for large binaries (required for DSC support)
-- Avoid repeated parsing via caching of tables and strings
-- Replace NSMutableArray with Swift arrays and reserveCapacity
+This binary tests:
+- Extensive Swift metadata alongside ObjC classes
+- Chained fixups (iOS 14+ format)
+- Complex generic types and protocol conformances
+- Large enough to reveal performance issues
 
 ---
 
 ## Reference Documentation
 
-- **Feature Gap Analysis**: See `.plan/docs/FEATURE_GAP_ANALYSIS.md` for detailed comparison with ipsw/go-macho
-- **Cutting-Edge Research**: See `.plan/docs/CUTTING_EDGE_RESEARCH.md` for latest binary format knowledge (2024-2025)
+- **Feature Gap Analysis**: `.plan/docs/FEATURE_GAP_ANALYSIS.md`
+- **Cutting-Edge Research**: `.plan/docs/CUTTING_EDGE_RESEARCH.md`
 - **ipsw dyld commands**: https://github.com/blacktop/ipsw/tree/master/cmd/ipsw/cmd/dyld
 - **ipsw macho commands**: https://github.com/blacktop/ipsw/tree/master/cmd/ipsw/cmd/macho
-- **go-macho library**: https://github.com/blacktop/go-macho (reference implementation for Swift/DSC/fixups)
-- **MachOKit (Swift)**: https://github.com/p-x9/MachOKit (Swift-native Mach-O parser with DSC support)
-- **MachOSwiftSection**: https://github.com/MxIris-Reverse-Engineering/MachOSwiftSection (Swift metadata extraction)
+- **go-macho library**: https://github.com/blacktop/go-macho
+- **MachOKit (Swift)**: https://github.com/p-x9/MachOKit
+- **MachOSwiftSection**: https://github.com/MxIris-Reverse-Engineering/MachOSwiftSection
 - **Apple dyld source**: https://github.com/apple-oss-distributions/dyld
 - **Apple objc4 source**: https://github.com/apple-oss-distributions/objc4

@@ -73,7 +73,7 @@ public struct ObjCTypeFormatter: Sendable {
         format(type: type, previousName: name, level: 0)
     }
 
-    /// Format a method signature from a type string.
+    /// Format a method signature from a type string (ObjC style).
     public func formatMethodName(_ name: String, typeString: String) -> String? {
         guard let methodTypes = try? ObjCType.parseMethodType(typeString),
             !methodTypes.isEmpty
@@ -117,6 +117,125 @@ public struct ObjCTypeFormatter: Sendable {
         }
 
         return result
+    }
+
+    /// Format a method signature in Swift style.
+    ///
+    /// Converts ObjC selector format to Swift function syntax:
+    /// - `initWithFrame:backgroundColor:` → `func initWithFrame(_ arg1: CGRect, backgroundColor arg2: UIColor)`
+    /// - Unary methods like `count` → `func count() -> Int`
+    ///
+    /// - Parameters:
+    ///   - name: The ObjC selector name.
+    ///   - typeString: The encoded type string.
+    ///   - isClassMethod: Whether this is a class method (uses `static`/`class`).
+    /// - Returns: A Swift-style method declaration string, or nil if parsing fails.
+    public func formatSwiftMethodName(_ name: String, typeString: String, isClassMethod: Bool = false) -> String? {
+        guard let methodTypes = try? ObjCType.parseMethodType(typeString),
+            !methodTypes.isEmpty
+        else {
+            return nil
+        }
+
+        // First type is return type
+        let returnType = methodTypes[0].type
+        var returnString = format(type: returnType, previousName: nil, level: 0)
+
+        // Simplify pointer types for Swift display
+        returnString = simplifyTypeForSwift(returnString)
+
+        // Skip self and _cmd (indices 1 and 2)
+        let paramTypes = Array(methodTypes.dropFirst(3))
+
+        // Parse the selector into parts
+        let selectorParts = name.split(separator: ":")
+
+        // Build prefix
+        let prefix = isClassMethod ? "class func " : "func "
+
+        // Handle unary methods (no arguments)
+        if selectorParts.isEmpty || (!name.contains(":") && selectorParts.count == 1) {
+            let funcName = String(selectorParts.first ?? Substring(name))
+            if returnString == "void" {
+                return "\(prefix)\(funcName)()"
+            }
+            return "\(prefix)\(funcName)() -> \(returnString)"
+        }
+
+        // Build Swift-style parameter list
+        var params: [String] = []
+        for (i, part) in selectorParts.enumerated() {
+            let label = String(part)
+
+            // Get parameter type
+            var paramTypeStr: String
+            if i < paramTypes.count {
+                let paramType = paramTypes[i].type
+                paramTypeStr = format(type: paramType, previousName: nil, level: 0)
+                paramTypeStr = simplifyTypeForSwift(paramTypeStr)
+            } else {
+                paramTypeStr = "Any"
+            }
+
+            // Swift convention: first part often has no external label
+            if i == 0 {
+                // Use _ for first parameter external label (common Swift pattern)
+                params.append("_ \(label): \(paramTypeStr)")
+            } else {
+                // Subsequent parts: selector part is both external and internal label
+                params.append("\(label) arg\(i + 1): \(paramTypeStr)")
+            }
+        }
+
+        // Build final declaration
+        let funcName = String(selectorParts[0])
+        let paramsStr = params.joined(separator: ", ")
+
+        if returnString == "void" {
+            return "\(prefix)\(funcName)(\(paramsStr))"
+        }
+        return "\(prefix)\(funcName)(\(paramsStr)) -> \(returnString)"
+    }
+
+    /// Simplify ObjC type strings for Swift-style display.
+    private func simplifyTypeForSwift(_ typeStr: String) -> String {
+        var result = typeStr
+
+        // Remove pointer asterisks from object types (Swift doesn't show them)
+        if result.hasSuffix(" *") {
+            result = String(result.dropLast(2))
+        }
+        if result.hasSuffix("*") {
+            result = String(result.dropLast(1))
+        }
+
+        // Map common ObjC types to Swift equivalents
+        switch result {
+        case "id":
+            return "Any"
+        case "Class":
+            return "AnyClass"
+        case "_Bool":
+            return "Bool"
+        case "SEL":
+            return "Selector"
+        case "NSInteger":
+            return "Int"
+        case "NSUInteger":
+            return "UInt"
+        case "CGFloat":
+            return "CGFloat"
+        case "NSString":
+            return "String"
+        case "NSArray":
+            return "[Any]"
+        case "NSDictionary":
+            return "[AnyHashable: Any]"
+        case "NSSet":
+            return "Set<AnyHashable>"
+        default:
+            return result
+        }
     }
 
     // MARK: - Private Formatting
@@ -348,6 +467,8 @@ public struct ObjCTypeFormatter: Sendable {
         case .selector: return "SEL"
         case .unknown: return "void"
         case .atom: return "NXAtom"
+        case .int128: return "__int128"
+        case .unsignedInt128: return "unsigned __int128"
         case .const: return "const"
         case .in: return "in"
         case .inout: return "inout"

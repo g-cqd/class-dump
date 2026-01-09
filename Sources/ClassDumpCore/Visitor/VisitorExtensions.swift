@@ -4,8 +4,21 @@ import Foundation
 
 extension ObjCClass {
     /// Protocol names as strings (for visitor use)
+    /// Includes both ObjC adopted protocols and Swift conformances
     public var protocols: [String] {
-        adoptedProtocolNames
+        var all = adoptedProtocolNames
+        // Add Swift conformances (avoiding duplicates)
+        for conformance in swiftConformances {
+            if !all.contains(conformance) {
+                all.append(conformance)
+            }
+        }
+        return all
+    }
+
+    /// All protocol/conformance info for display
+    public var allConformances: [String] {
+        protocols
     }
 }
 

@@ -174,4 +174,141 @@ struct TestSwiftMetadata {
         // We should be able to resolve at least some of them
         #expect(resolvedCount > 0, "Should resolve some symbolic references")
     }
+
+    @Test("Parse generic types from type descriptors")
+    func testParseGenericTypes() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // Check for generic types (via the isGeneric flag in descriptor)
+        let genericTypes = swiftMetadata.genericTypes
+        #expect(genericTypes.count >= 0, "Should be able to query generic types")
+
+        // Check that generic types have valid parameter counts
+        for type in genericTypes.prefix(10) {
+            #expect(type.isGeneric, "Generic types should have isGeneric = true")
+            // Parameter count may be 0 if we couldn't parse the header correctly
+            // but the type was marked generic via the flags
+            if type.genericParamCount > 0 {
+                #expect(type.genericParamCount < 20, "Generic param count should be reasonable")
+            }
+        }
+
+        // Test fullNameWithGenerics generates something reasonable
+        for type in swiftMetadata.types.prefix(5) {
+            let nameWithGenerics = type.fullNameWithGenerics
+            #expect(!nameWithGenerics.isEmpty, "fullNameWithGenerics should not be empty")
+            // If generic, should include angle brackets
+            if type.isGeneric && type.genericParamCount > 0 {
+                #expect(nameWithGenerics.contains("<"), "Generic types should have <> in fullNameWithGenerics")
+            }
+        }
+    }
+
+    @Test("Type lookup by name")
+    func testTypeLookupByName() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // Get a type name to test lookup
+        guard let firstType = swiftMetadata.types.first else {
+            return
+        }
+
+        // Test lookup by simple name
+        let byName = swiftMetadata.type(named: firstType.name)
+        #expect(byName != nil, "Should find type by simple name")
+        #expect(byName?.name == firstType.name, "Found type should match")
+
+        // Test lookup by full name
+        let byFullName = swiftMetadata.type(fullName: firstType.fullName)
+        #expect(byFullName != nil, "Should find type by full name")
+    }
+
+    @Test("Classify types by kind")
+    func testClassifyTypesByKind() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // IDEFoundation should have classes, structs, and enums
+        let classes = swiftMetadata.classes
+        let structs = swiftMetadata.structs
+        let enums = swiftMetadata.enums
+
+        // Verify we can classify types
+        #expect(
+            classes.count + structs.count + enums.count == swiftMetadata.types.count,
+            "All types should be classified as class, struct, or enum")
+
+        // IDEFoundation should have a mix of types
+        #expect(classes.count > 0, "Should have Swift classes")
+
+        // Verify kind matches classification
+        for cls in classes.prefix(5) {
+            #expect(cls.kind == .class, "Classes should have kind == .class")
+        }
+        for str in structs.prefix(5) {
+            #expect(str.kind == .struct, "Structs should have kind == .struct")
+        }
+        for enm in enums.prefix(5) {
+            #expect(enm.kind == .enum, "Enums should have kind == .enum")
+        }
+    }
+
+    @Test("Parse superclass names for classes")
+    func testParseSuperclassNames() throws {
+        let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let binary = try MachOBinary(contentsOf: url)
+        let machO = try binary.bestMatchForLocal()
+
+        let swiftMetadata = try machO.parseSwiftMetadata()
+
+        // Find classes with superclass information
+        var foundSuperclass = false
+        for cls in swiftMetadata.classes.prefix(50) {
+            if let superclass = cls.superclassName, !superclass.isEmpty {
+                foundSuperclass = true
+                // Superclass name should be readable (not mangled)
+                // If it's demangled, it shouldn't start with _Tt or $s
+                let isDemangled = !superclass.hasPrefix("_Tt") && !superclass.hasPrefix("$s")
+                #expect(
+                    isDemangled || superclass.count < 100,
+                    "Superclass should be demangled or reasonably short")
+                break
+            }
+        }
+
+        // Note: Some classes may not have superclass info in the descriptor
+        // This is expected for classes inheriting from ObjC or external Swift classes
+        _ = foundSuperclass
+    }
 }

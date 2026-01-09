@@ -64,6 +64,9 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
     /// Whether this is a Swift class exposed to Objective-C
     public var isSwiftClass: Bool = false
 
+    /// Swift protocol conformances (for Swift classes)
+    public private(set) var swiftConformances: [String] = []
+
     /// Class data from the runtime (for ObjC 2.0)
     public var classDataAddress: UInt64 = 0
 
@@ -97,6 +100,16 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
         properties.append(property)
     }
 
+    public func addSwiftConformance(_ protocolName: String) {
+        if !swiftConformances.contains(protocolName) {
+            swiftConformances.append(protocolName)
+        }
+    }
+
+    public func setSwiftConformances(_ conformances: [String]) {
+        swiftConformances = conformances
+    }
+
     // MARK: - Queries
 
     /// Names of all adopted protocols
@@ -108,6 +121,17 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
     public var adoptedProtocolsString: String {
         guard !adoptedProtocols.isEmpty else { return "" }
         return "<\(adoptedProtocolNames.joined(separator: ", "))>"
+    }
+
+    /// Whether this class has Swift protocol conformances
+    public var hasSwiftConformances: Bool {
+        !swiftConformances.isEmpty
+    }
+
+    /// Formatted string of Swift conformances
+    public var swiftConformancesString: String {
+        guard !swiftConformances.isEmpty else { return "" }
+        return "<\(swiftConformances.joined(separator: ", "))>"
     }
 
     /// Whether this class has any methods
@@ -128,6 +152,7 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
         instanceMethods.sort()
         properties.sort()
         adoptedProtocols.sort { $0.name < $1.name }
+        swiftConformances.sort()
     }
 }
 

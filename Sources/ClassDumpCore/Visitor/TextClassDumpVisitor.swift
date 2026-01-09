@@ -207,8 +207,13 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     // MARK: - Method Visits
 
     open func visitClassMethod(_ method: ObjCMethod) {
-        append("+ ")
-        appendMethod(method)
+        switch options.methodStyle {
+        case .objc:
+            append("+ ")
+            appendMethod(method)
+        case .swift:
+            appendSwiftMethod(method, isClassMethod: true)
+        }
         appendNewline()
     }
 
@@ -218,8 +223,13 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             return
         }
         // Regular instance method
-        append("- ")
-        appendMethod(method)
+        switch options.methodStyle {
+        case .objc:
+            append("- ")
+            appendMethod(method)
+        case .swift:
+            appendSwiftMethod(method, isClassMethod: false)
+        }
         appendNewline()
     }
 
@@ -251,7 +261,7 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Formatting Helpers
 
-    /// Append a formatted method declaration.
+    /// Append a formatted method declaration (ObjC style).
     open func appendMethod(_ method: ObjCMethod) {
         if let formatted = typeFormatter.formatMethodName(method.name, typeString: method.typeEncoding) {
             append(formatted)
@@ -259,6 +269,26 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         } else {
             // Fallback if formatting fails
             append("(\(method.typeEncoding))\(method.name);")
+        }
+
+        // Show implementation address if enabled
+        if options.shouldShowMethodAddresses && method.address != 0 {
+            append(String(format: " // IMP=0x%llx", method.address))
+        }
+    }
+
+    /// Append a formatted method declaration (Swift style).
+    open func appendSwiftMethod(_ method: ObjCMethod, isClassMethod: Bool) {
+        if let formatted = typeFormatter.formatSwiftMethodName(
+            method.name,
+            typeString: method.typeEncoding,
+            isClassMethod: isClassMethod
+        ) {
+            append(formatted)
+        } else {
+            // Fallback if formatting fails - show basic Swift syntax
+            let prefix = isClassMethod ? "class func " : "func "
+            append("\(prefix)\(method.name.replacingOccurrences(of: ":", with: "_"))(_ ...)")
         }
 
         // Show implementation address if enabled

@@ -7,7 +7,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "class-dump",
         abstract: "Generates Objective-C header files from Mach-O binaries.",
-        version: "4.0.1 (Swift)"
+        version: "4.0.2 (Swift)"
     )
 
     @Argument(help: "The Mach-O file to process")
@@ -92,6 +92,11 @@ struct ClassDumpCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Demangling style: swift (Module.Type) or objc (Type only)")
     var demangleStyle: String?
 
+    // MARK: - Method Style Options
+
+    @Option(name: .long, help: "Method declaration style: objc (default) or swift")
+    var methodStyle: String?
+
     mutating func run() async throws {
         // Load the Mach-O file
         let url = URL(fileURLWithPath: file)
@@ -148,13 +153,29 @@ struct ClassDumpCommand: AsyncParsableCommand {
             resolvedDemangleStyle = .swift
         }
 
+        // Determine method style
+        let resolvedMethodStyle: MethodStyle
+        if let style = methodStyle?.lowercased() {
+            switch style {
+            case "swift":
+                resolvedMethodStyle = .swift
+            case "objc":
+                resolvedMethodStyle = .objc
+            default:
+                resolvedMethodStyle = .objc
+            }
+        } else {
+            resolvedMethodStyle = .objc
+        }
+
         // Build visitor options
         let visitorOptions = ClassDumpVisitorOptions(
             shouldShowStructureSection: !hide.contains("structures") && !hide.contains("all"),
             shouldShowProtocolSection: !hide.contains("protocols") && !hide.contains("all"),
             shouldShowIvarOffsets: showIvarOffsets,
             shouldShowMethodAddresses: showImpAddr,
-            demangleStyle: resolvedDemangleStyle
+            demangleStyle: resolvedDemangleStyle,
+            methodStyle: resolvedMethodStyle
         )
 
         // Build processor info
@@ -238,7 +259,7 @@ struct ClassDumpCommand: AsyncParsableCommand {
     }
 
     private func generateHeaderString() -> String {
-        ClassDumpHeaderVisitor.generateHeader(generatedBy: "class-dump", version: "4.0.0 (Swift)")
+        ClassDumpHeaderVisitor.generateHeader(generatedBy: "class-dump", version: "4.0.2 (Swift)")
     }
 
     private func shouldShow(name: String) -> Bool {

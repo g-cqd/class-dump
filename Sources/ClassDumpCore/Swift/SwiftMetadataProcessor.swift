@@ -488,47 +488,160 @@ public final class SwiftMetadataProcessor {
     }
 
     private func parseTypeDescriptor(at fileOffset: Int) -> SwiftType? {
-        guard fileOffset + 16 <= data.count else { return nil }
+        guard fileOffset + 20 <= data.count else { return nil }
 
         // struct TargetContextDescriptor {
-        //   uint32_t Flags;
-        //   int32_t Parent;  // relative pointer
+        //   uint32_t Flags;            // +0
+        //   int32_t Parent;            // +4 (relative pointer)
         // }
         // struct TargetTypeContextDescriptor : TargetContextDescriptor {
-        //   int32_t Name;          // relative pointer
-        //   int32_t AccessFunction; // relative pointer
-        //   int32_t Fields;        // relative pointer to FieldDescriptor
+        //   int32_t Name;              // +8 (relative pointer)
+        //   int32_t AccessFunction;    // +12 (relative pointer)
+        //   int32_t Fields;            // +16 (relative pointer to FieldDescriptor)
+        // }
+        // struct TargetClassDescriptor : TargetTypeContextDescriptor {
+        //   int32_t Superclass;        // +20 (relative pointer to superclass name or descriptor)
+        //   uint32_t MetadataNegSize;  // +24
+        //   uint32_t MetadataPosSize;  // +28
+        //   uint32_t NumImmediateMembers; // +32
+        //   uint32_t NumFields;        // +36
+        //   uint32_t FieldOffsetVectorOffset; // +40
+        //   // If generic (flags & 0x80): GenericContextDescriptorHeader at +44
         // }
 
-        let flags: UInt32
-        if byteOrder == .little {
-            flags = data.withUnsafeBytes { ptr in
-                ptr.loadUnaligned(fromByteOffset: fileOffset, as: UInt32.self).littleEndian
-            }
-        } else {
-            flags = data.withUnsafeBytes { ptr in
-                ptr.loadUnaligned(fromByteOffset: fileOffset, as: UInt32.self).bigEndian
-            }
-        }
-
-        let kindRaw = UInt8(flags & 0x1F)
+        let rawFlags = readUInt32(at: fileOffset)
+        let typeFlags = TypeContextDescriptorFlags(rawValue: rawFlags)
+        let kindRaw = UInt8(rawFlags & 0x1F)
         guard let kind = SwiftContextDescriptorKind(rawValue: kindRaw), kind.isType else {
             return nil
         }
+
+        // Check if type is generic (bit 7 of flags)
+        let isGeneric = typeFlags.isGeneric
 
         // Read name
         let nameOffset = fileOffset + 8
         let name = readRelativeString(at: nameOffset) ?? ""
 
-        // Read parent (for module/namespace)
+        // Read parent (for module/namespace) and determine parent kind
         let parentOffset = fileOffset + 4
         var parentName: String?
+        var parentKind: SwiftContextDescriptorKind?
         if let parentDescOffset = readRelativePointer(at: parentOffset),
             parentDescOffset > 0, Int(parentDescOffset) + 8 < data.count
         {
-            // Try to read parent's name
+            // Read parent's flags to determine its kind
+            let parentFlags = readUInt32(at: Int(parentDescOffset))
+            let parentKindRaw = UInt8(parentFlags & 0x1F)
+            parentKind = SwiftContextDescriptorKind(rawValue: parentKindRaw)
+
+            // Read parent's name (at +8 in the parent descriptor)
             let parentNameOffset = Int(parentDescOffset) + 8
             parentName = readRelativeString(at: parentNameOffset)
+        }
+
+        // Parse class-specific fields
+        var superclassName: String?
+        var genericParamCount = 0
+        var genericParameters: [String] = []
+        var genericRequirements: [SwiftGenericRequirement] = []
+        let objcClassAddress: UInt64? = nil
+
+        if kind == .class {
+            // Read superclass (at +20 for classes)
+            if fileOffset + 24 <= data.count {
+                superclassName = readRelativeString(at: fileOffset + 20)
+                // Demangle superclass name if it's mangled
+                if let sc = superclassName, sc.hasPrefix("_Tt") || sc.hasPrefix("$s") {
+                    superclassName = SwiftDemangler.demangleSwiftName(sc)
+                }
+            }
+
+            // Try to find ObjC metadata address
+            // For classes with vtable, the metadata accessor is at a known offset
+            // This is complex and varies by class layout, so we'll use a heuristic
+            if typeFlags.hasVTable && fileOffset + 48 <= data.count {
+                // The vtable offset is at +44 for classes with generic header, or +44 without
+                // We'll try to find the metadata accessor or class object
+                // Note: Full implementation would require more complex analysis
+            }
+
+            // Parse generic context header if present
+            // Note: The exact offset depends on presence of resilient superclass, etc.
+            let genericHeaderOffset: Int
+            if typeFlags.hasResilientSuperclass {
+                // With resilient superclass, layout is shifted
+                genericHeaderOffset = fileOffset + 48
+            } else {
+                // Standard layout: GenericContextDescriptorHeader is at +44 for classes
+                genericHeaderOffset = fileOffset + 44
+            }
+
+            if isGeneric && genericHeaderOffset + 8 <= data.count {
+                // struct GenericContextDescriptorHeader {
+                //   uint16_t NumParams;
+                //   uint16_t NumRequirements;
+                //   uint16_t NumKeyArguments;
+                //   uint16_t NumExtraArguments;
+                // }
+                let rawParamCount = Int(readUInt16(at: genericHeaderOffset))
+                let numRequirements = Int(readUInt16(at: genericHeaderOffset + 2))
+
+                // Sanity check: param count should be reasonable (1-16)
+                if rawParamCount > 0 && rawParamCount <= 16 {
+                    genericParamCount = rawParamCount
+                    genericParameters = generateGenericParamNames(count: genericParamCount)
+
+                    // Parse generic requirements if present
+                    if numRequirements > 0 && numRequirements <= 32 {
+                        let requirementsOffset = genericHeaderOffset + 8
+                        genericRequirements = parseGenericRequirements(
+                            at: requirementsOffset,
+                            count: numRequirements,
+                            paramNames: genericParameters
+                        )
+                    }
+                } else if isGeneric {
+                    // If marked generic but we couldn't parse count, assume at least 1 param
+                    genericParamCount = 1
+                    genericParameters = ["T"]
+                }
+            } else if isGeneric {
+                // Type is generic but we don't have enough data - assume 1 param
+                genericParamCount = 1
+                genericParameters = ["T"]
+            }
+        } else if kind == .struct || kind == .enum {
+            // Struct/Enum have similar layout but without superclass
+            // GenericContextDescriptorHeader is at +20 for non-class types
+            let genericHeaderOffset = fileOffset + 20
+
+            if isGeneric && genericHeaderOffset + 8 <= data.count {
+                let rawParamCount = Int(readUInt16(at: genericHeaderOffset))
+                let numRequirements = Int(readUInt16(at: genericHeaderOffset + 2))
+
+                // Sanity check: param count should be reasonable (1-16)
+                if rawParamCount > 0 && rawParamCount <= 16 {
+                    genericParamCount = rawParamCount
+                    genericParameters = generateGenericParamNames(count: genericParamCount)
+
+                    // Parse generic requirements if present
+                    if numRequirements > 0 && numRequirements <= 32 {
+                        let requirementsOffset = genericHeaderOffset + 8
+                        genericRequirements = parseGenericRequirements(
+                            at: requirementsOffset,
+                            count: numRequirements,
+                            paramNames: genericParameters
+                        )
+                    }
+                } else if isGeneric {
+                    genericParamCount = 1
+                    genericParameters = ["T"]
+                }
+            } else if isGeneric {
+                genericParamCount = 1
+                genericParameters = ["T"]
+            }
         }
 
         // Try to get fields from field descriptor
@@ -545,10 +658,107 @@ public final class SwiftMetadataProcessor {
             name: name,
             mangledName: "",
             parentName: parentName,
-            superclassName: nil,
+            parentKind: parentKind,
+            superclassName: superclassName,
             fields: fields,
-            genericParameters: []
+            genericParameters: genericParameters,
+            genericParamCount: genericParamCount,
+            genericRequirements: genericRequirements,
+            flags: typeFlags,
+            objcClassAddress: objcClassAddress
         )
+    }
+
+    /// Generate generic parameter names for a given count.
+    private func generateGenericParamNames(count: Int) -> [String] {
+        if count == 1 {
+            return ["T"]
+        } else if count <= 4 {
+            return Array(["T", "U", "V", "W"].prefix(count))
+        } else {
+            return (0..<count).map { "T\($0)" }
+        }
+    }
+
+    /// Parse generic requirements from a requirements array.
+    private func parseGenericRequirements(
+        at offset: Int,
+        count: Int,
+        paramNames: [String]
+    ) -> [SwiftGenericRequirement] {
+        var requirements: [SwiftGenericRequirement] = []
+        var currentOffset = offset
+
+        // struct GenericRequirementDescriptor {
+        //   uint32_t Flags;           // +0: bits 0-3 = kind, bits 4-7 = extra info
+        //   int32_t Param;            // +4: relative pointer to param mangled name
+        //   int32_t Type/Protocol;    // +8: relative pointer to type/protocol
+        // }
+
+        for _ in 0..<count {
+            guard currentOffset + 12 <= data.count else { break }
+
+            let flags = readUInt32(at: currentOffset)
+            let kindRaw = UInt8(flags & 0x0F)
+
+            guard let kind = GenericRequirementKind(rawValue: kindRaw) else {
+                currentOffset += 12
+                continue
+            }
+
+            // Read parameter name
+            var paramName = ""
+            if readRelativePointer(at: currentOffset + 4) != nil {
+                // The param is typically an index into the generic params
+                // Try to read it as a string first
+                if let name = readRelativeString(at: currentOffset + 4) {
+                    paramName = SwiftDemangler.demangle(name)
+                }
+            }
+
+            // If we couldn't get the param name, use a placeholder based on index
+            if paramName.isEmpty {
+                let paramIndex = Int((flags >> 16) & 0xFF)
+                if paramIndex < paramNames.count {
+                    paramName = paramNames[paramIndex]
+                } else {
+                    paramName = "T\(paramIndex)"
+                }
+            }
+
+            // Read constraint type or protocol
+            var constraint = ""
+            if let constraintName = readRelativeString(at: currentOffset + 8) {
+                constraint = SwiftDemangler.demangle(constraintName)
+            }
+
+            // Handle special cases
+            if kind == .layout && constraint.isEmpty {
+                // Layout constraints are typically AnyObject
+                constraint = "AnyObject"
+            }
+
+            requirements.append(
+                SwiftGenericRequirement(
+                    kind: kind,
+                    param: paramName,
+                    constraint: constraint,
+                    flags: flags
+                ))
+
+            currentOffset += 12
+        }
+
+        return requirements
+    }
+
+    private func readUInt16(at offset: Int) -> UInt16 {
+        guard offset + 2 <= data.count else { return 0 }
+        return data.withUnsafeBytes { ptr in
+            byteOrder == .little
+                ? ptr.loadUnaligned(fromByteOffset: offset, as: UInt16.self).littleEndian
+                : ptr.loadUnaligned(fromByteOffset: offset, as: UInt16.self).bigEndian
+        }
     }
 
     // MARK: - Protocol Parsing
@@ -588,59 +798,139 @@ public final class SwiftMetadataProcessor {
     private func parseProtocolDescriptor(at fileOffset: Int) -> SwiftProtocol? {
         guard fileOffset + 28 <= data.count else { return nil }
 
+        // Protocol descriptor layout:
+        // struct TargetProtocolDescriptor {
+        //   uint32_t Flags;                    // +0
+        //   int32_t Parent;                    // +4 relative pointer to module/context
+        //   int32_t Name;                      // +8 relative pointer to name string
+        //   int32_t NumRequirementsInSignature; // +12 (generic requirements count)
+        //   int32_t NumRequirements;           // +16 (witness table requirements)
+        //   int32_t Requirements;              // +20 relative pointer to requirements array
+        //   int32_t AssociatedTypeNames;       // +24 relative pointer to space-separated names
+        // }
+        //
+        // Note: Layout may vary slightly based on flags. We handle the most common case.
+
+        // Read protocol name
         let name = readRelativeString(at: fileOffset + 8) ?? ""
 
-        let associatedTypeNamesStr = readRelativeString(at: fileOffset + 12) ?? ""
-        var associatedTypeNames =
-            associatedTypeNamesStr.isEmpty
-            ? []
-            : associatedTypeNamesStr.split(separator: " ").map(String.init)
+        // Read parent module name
+        var parentName: String?
+        if let parentDescOffset = readRelativePointer(at: fileOffset + 4),
+            parentDescOffset > 0, Int(parentDescOffset) + 8 < data.count
+        {
+            // Parent is typically a module descriptor, which has name at offset +8
+            parentName = readRelativeString(at: Int(parentDescOffset) + 8)
+        }
 
-        let numRequirements = Int(readUInt32(at: fileOffset + 20))
+        // Read associated type names (space-separated)
+        // Try offset +24 first (standard), then +12 (older format)
+        var associatedTypeNamesStr = readRelativeString(at: fileOffset + 24) ?? ""
+        if associatedTypeNamesStr.isEmpty {
+            associatedTypeNamesStr = readRelativeString(at: fileOffset + 12) ?? ""
+        }
+        let associatedTypeNamesList =
+            associatedTypeNamesStr.isEmpty
+            ? [String]()
+            : associatedTypeNamesStr.split(separator: " ").map(String.init)
+        let associatedTypeNames = associatedTypeNamesList
+
+        // Read number of requirements
+        // Try offset +16 first (standard), then +20 (older format)
+        var numRequirements = Int(readUInt32(at: fileOffset + 16))
+        var requirementsPointerOffset = fileOffset + 20
+
+        // Validate: if numRequirements seems too large, try alternate layout
+        if numRequirements > 1000 {
+            numRequirements = Int(readUInt32(at: fileOffset + 20))
+            requirementsPointerOffset = fileOffset + 24
+        }
 
         var requirements: [SwiftProtocolRequirement] = []
+        var inheritedProtocols: [String] = []
         requirements.reserveCapacity(max(0, numRequirements))
 
         if numRequirements > 0,
-            let requirementsStart = readRelativePointer(at: fileOffset + 24)
+            let requirementsStart = readRelativePointer(at: requirementsPointerOffset)
         {
+            // Create a mutable copy for consuming associated types
+            var remainingAssociatedTypes = associatedTypeNamesList
+
             var currentOffset = Int(requirementsStart)
             for _ in 0..<numRequirements {
                 guard currentOffset + 8 <= data.count else { break }
 
-                let flags = readUInt32(at: currentOffset)
-                let kindValue = flags & 0x0F
+                // Requirement layout:
+                // struct ProtocolRequirement {
+                //   uint32_t Flags;              // +0: low 4 bits = kind, bit 4 = isInstance, bit 5 = isAsync
+                //   int32_t DefaultImpl;         // +4: relative pointer to default impl (0 if none)
+                // }
 
-                let kind: SwiftProtocolRequirement.Kind?
-                switch kindValue {
-                case 0: kind = .baseProtocol
-                case 1: kind = .method
-                case 2: kind = .initializer
-                case 3: kind = .getter
-                case 4: kind = .setter
-                case 5: kind = .readCoroutine
-                case 6: kind = .modifyCoroutine
-                case 7: kind = .associatedTypeAccessFunction
-                case 8: kind = .associatedConformanceAccessFunction
-                default: kind = nil
+                let flags = readUInt32(at: currentOffset)
+                let kindValue = UInt8(flags & 0x0F)
+                let isInstance = (flags & 0x10) != 0
+                let isAsync = (flags & 0x20) != 0
+
+                // Check for default implementation
+                var hasDefaultImpl = false
+                if let defaultImplOffset = readRelativePointer(at: currentOffset + 4),
+                    defaultImplOffset != 0
+                {
+                    hasDefaultImpl = true
                 }
+
+                let kind = SwiftProtocolRequirement.Kind(rawValue: kindValue)
 
                 if let kind {
                     var requirementName = ""
-                    if kind == .baseProtocol {
+
+                    switch kind {
+                    case .baseProtocol:
+                        // The DefaultImpl pointer actually points to the protocol descriptor
                         if let protoDescOffset = readRelativePointer(at: currentOffset + 4),
+                            protoDescOffset > 0, Int(protoDescOffset) + 12 < data.count,
                             let protoName = readRelativeString(at: Int(protoDescOffset) + 8),
                             !protoName.isEmpty
                         {
                             requirementName = protoName
+                            inheritedProtocols.append(protoName)
                         }
-                    } else if kind == .associatedTypeAccessFunction {
-                        if !associatedTypeNames.isEmpty {
-                            requirementName = associatedTypeNames.removeFirst()
+                        // Don't count this as having a "default impl" since it's actually a protocol reference
+                        hasDefaultImpl = false
+
+                    case .associatedTypeAccessFunction:
+                        // Consume the next associated type name
+                        if !remainingAssociatedTypes.isEmpty {
+                            requirementName = remainingAssociatedTypes.removeFirst()
                         }
+
+                    case .associatedConformanceAccessFunction:
+                        // Associated conformances don't have explicit names in the descriptor
+                        break
+
+                    case .method, .initializer:
+                        // Method/initializer names are not stored directly in the descriptor
+                        // They would need to be resolved from symbol table or witness tables
+                        break
+
+                    case .getter, .setter:
+                        // Property names are not stored directly in the descriptor
+                        // The getter and setter share the same property, so we could track pairs
+                        break
+
+                    case .readCoroutine, .modifyCoroutine:
+                        // Coroutine accessors for properties
+                        break
                     }
 
-                    requirements.append(SwiftProtocolRequirement(kind: kind, name: requirementName))
+                    requirements.append(
+                        SwiftProtocolRequirement(
+                            kind: kind,
+                            name: requirementName,
+                            isInstance: isInstance,
+                            isAsync: isAsync,
+                            hasDefaultImplementation: hasDefaultImpl
+                        ))
                 }
 
                 currentOffset += 8
@@ -651,6 +941,9 @@ public final class SwiftMetadataProcessor {
             address: UInt64(fileOffset),
             name: name,
             mangledName: "",
+            parentName: parentName,
+            associatedTypeNames: associatedTypeNames,
+            inheritedProtocols: inheritedProtocols,
             requirements: requirements
         )
     }
@@ -675,33 +968,81 @@ public final class SwiftMetadataProcessor {
             let entryOffset = Int(section.offset) + offset
 
             // struct TargetProtocolConformanceDescriptor {
-            //   int32_t Protocol;     // relative pointer to protocol descriptor
-            //   int32_t TypeRef;      // type reference
-            //   int32_t WitnessTablePattern;
-            //   uint32_t Flags;
+            //   int32_t Protocol;            // +0: relative pointer to protocol descriptor
+            //   int32_t TypeRef;             // +4: type reference (kind depends on flags)
+            //   int32_t WitnessTablePattern; // +8: witness table pattern
+            //   uint32_t Flags;              // +12: conformance flags
             // }
 
             let protocolOffset = entryOffset
             let typeRefOffset = entryOffset + 4
 
-            // Read protocol name (via protocol descriptor)
+            // Read flags
+            let rawFlags = sectionData.withUnsafeBytes { bytes in
+                bytes.load(fromByteOffset: offset + 12, as: UInt32.self)
+            }
+            let flags = ConformanceFlags(rawValue: rawFlags)
+
+            // Read protocol descriptor address and name
             var protocolName = ""
+            var protocolAddress: UInt64 = 0
             if let protoDescOffset = readRelativePointer(at: protocolOffset),
                 protoDescOffset > 0
             {
+                protocolAddress = UInt64(protoDescOffset)
+                // Protocol name is at offset +8 in the protocol descriptor
                 let protoNameOffset = Int(protoDescOffset) + 8
                 protocolName = readRelativeString(at: protoNameOffset) ?? ""
             }
 
-            // Read type name
-            let typeName = readRelativeString(at: typeRefOffset) ?? ""
+            // Read type name based on type reference kind
+            var typeName = ""
+            var mangledTypeName = ""
+            var typeAddress: UInt64 = 0
+
+            switch flags.typeReferenceKind {
+            case .directTypeDescriptor, .indirectTypeDescriptor:
+                // For type descriptors, read the mangled name
+                if let typeDescOffset = readRelativePointer(at: typeRefOffset),
+                    typeDescOffset > 0
+                {
+                    typeAddress = UInt64(typeDescOffset)
+                    // Type name is at offset +8 in the type descriptor
+                    let typeNameOffset = Int(typeDescOffset) + 8
+                    if let name = readRelativeString(at: typeNameOffset) {
+                        typeName = name
+                    }
+                    // Try to read mangled name at offset +16
+                    let mangledOffset = Int(typeDescOffset) + 16
+                    if let mangled = readRelativeString(at: mangledOffset) {
+                        mangledTypeName = mangled
+                    }
+                }
+
+            case .directObjCClass, .indirectObjCClass:
+                // For ObjC classes, try to read the class name
+                if let typeRefValue = readRelativePointer(at: typeRefOffset) {
+                    typeAddress = UInt64(typeRefValue)
+                    // Try to demangle if it's a Swift-exposed ObjC name
+                    typeName = readRelativeString(at: typeRefOffset) ?? ""
+                }
+            }
+
+            // If we still don't have a type name, try reading directly
+            if typeName.isEmpty {
+                typeName = readRelativeString(at: typeRefOffset) ?? ""
+            }
 
             if !protocolName.isEmpty || !typeName.isEmpty {
                 conformances.append(
                     SwiftConformance(
-                        typeAddress: UInt64(entryOffset),
+                        address: UInt64(entryOffset),
+                        typeAddress: typeAddress,
                         typeName: typeName,
-                        protocolName: protocolName
+                        mangledTypeName: mangledTypeName,
+                        protocolName: protocolName,
+                        protocolAddress: protocolAddress,
+                        flags: flags
                     ))
             }
 

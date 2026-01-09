@@ -149,6 +149,15 @@ public enum DemangleStyle: String, Sendable, CaseIterable {
     case none
 }
 
+/// Style for formatting method declarations.
+public enum MethodStyle: String, Sendable, CaseIterable {
+    /// ObjC style: `- (ReturnType)methodName:(ParamType)param;`
+    case objc
+
+    /// Swift style: `func methodName(param: ParamType) -> ReturnType`
+    case swift
+}
+
 /// Configuration options for class dump visitors.
 public struct ClassDumpVisitorOptions: Sendable {
     /// Whether to show the structure section.
@@ -166,18 +175,23 @@ public struct ClassDumpVisitorOptions: Sendable {
     /// Style for demangling Swift names.
     public var demangleStyle: DemangleStyle
 
+    /// Style for formatting method declarations.
+    public var methodStyle: MethodStyle
+
     public init(
         shouldShowStructureSection: Bool = true,
         shouldShowProtocolSection: Bool = true,
         shouldShowIvarOffsets: Bool = false,
         shouldShowMethodAddresses: Bool = false,
-        demangleStyle: DemangleStyle = .swift
+        demangleStyle: DemangleStyle = .swift,
+        methodStyle: MethodStyle = .objc
     ) {
         self.shouldShowStructureSection = shouldShowStructureSection
         self.shouldShowProtocolSection = shouldShowProtocolSection
         self.shouldShowIvarOffsets = shouldShowIvarOffsets
         self.shouldShowMethodAddresses = shouldShowMethodAddresses
         self.demangleStyle = demangleStyle
+        self.methodStyle = methodStyle
     }
 }
 

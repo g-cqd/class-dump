@@ -47,7 +47,7 @@ struct DeprotectCommand {
                 Darwin.exit(0)
 
             case "--version":
-                print("deprotect 4.0.1 (Swift)")
+                print("deprotect 4.0.2 (Swift)")
                 Darwin.exit(0)
 
             default:
@@ -102,7 +102,7 @@ struct DeprotectCommand {
     static func printUsage() {
         fputs(
             """
-            deprotect 4.0.0 (Swift)
+            deprotect 4.0.2 (Swift)
             Usage: deprotect [options] <input file> <output file>
 
               where options are:

@@ -52,7 +52,7 @@ struct FormatTypeCommand {
                 Darwin.exit(0)
 
             case "--version":
-                print("formatType 4.0.1 (Swift)")
+                print("formatType 4.0.2 (Swift)")
                 Darwin.exit(0)
 
             default:
@@ -97,7 +97,7 @@ struct FormatTypeCommand {
     static func printUsage() {
         fputs(
             """
-            formatType 4.0.0 (Swift)
+            formatType 4.0.2 (Swift)
             Usage: formatType [options] <input file>...
 
               where options are:

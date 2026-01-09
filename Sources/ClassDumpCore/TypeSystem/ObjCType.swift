@@ -47,6 +47,10 @@ public indirect enum ObjCType: Sendable, Equatable {
     case unknown
     /// NXAtom (%)
     case atom
+    /// Signed 128-bit integer __int128 (t)
+    case int128
+    /// Unsigned 128-bit integer unsigned __int128 (T)
+    case unsignedInt128
 
     // MARK: - Complex Types
 
@@ -113,6 +117,8 @@ public indirect enum ObjCType: Sendable, Equatable {
         case ":": return .selector
         case "?": return .unknown
         case "%": return .atom
+        case "t": return .int128
+        case "T": return .unsignedInt128
         default: return nil
         }
     }
@@ -202,6 +208,8 @@ public indirect enum ObjCType: Sendable, Equatable {
         case .selector: return ":"
         case .unknown: return "?"
         case .atom: return "%"
+        case .int128: return "t"
+        case .unsignedInt128: return "T"
 
         case .id(let className, _):
             if showObjectTypes, let name = className {

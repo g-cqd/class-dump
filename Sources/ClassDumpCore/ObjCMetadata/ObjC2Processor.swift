@@ -843,6 +843,17 @@ public final class ObjC2Processor: @unchecked Sendable {
             }
         }
 
+        // Link Swift protocol conformances if this is a Swift class
+        if aClass.isSwiftClass, let swift = swiftMetadata {
+            // Try to find conformances by class name
+            let conformances = swift.conformances(forType: name)
+            for conformance in conformances {
+                if !conformance.protocolName.isEmpty {
+                    aClass.addSwiftConformance(conformance.protocolName)
+                }
+            }
+        }
+
         // Load properties
         for property in try loadProperties(at: classData.baseProperties) {
             aClass.addProperty(property)
