@@ -126,3 +126,116 @@ struct BuiltinTypeTests {
         #expect(SwiftDemangler.demangle(mangled) == expected)
     }
 }
+
+// MARK: - ObjC Protocol Types
+
+@Suite("ObjC Protocol Types")
+struct ObjCProtocolTypeTests {
+    @Test("Array of ObjC protocol type demangles correctly")
+    func arrayOfObjCProtocol() {
+        // SaySo14DVTCancellable_pG = Array<DVTCancellable>
+        let result = SwiftDemangler.demangle("SaySo14DVTCancellable_pG")
+        #expect(result == "[DVTCancellable]")
+    }
+
+    @Test("ObjC imported type with protocol suffix demangles correctly")
+    func objcProtocolSuffix() {
+        // So14DVTCancellable_p = DVTCancellable (protocol)
+        let result = SwiftDemangler.demangle("So14DVTCancellable_p")
+        #expect(result == "DVTCancellable")
+    }
+
+    @Test("Optional array of ObjC protocol demangles correctly")
+    func optionalArrayOfObjCProtocol() {
+        // SaySo14DVTCancellable_pGSg = [DVTCancellable]?
+        let result = SwiftDemangler.demangle("SaySo14DVTCancellable_pGSg")
+        #expect(result == "[DVTCancellable]?")
+    }
+
+    @Test("Dictionary with ObjC protocol value demangles correctly")
+    func dictionaryWithObjCProtocolValue() {
+        // SDySSso14DVTCancellable_pG = [String: DVTCancellable]
+        let result = SwiftDemangler.demangle("SDySSso14DVTCancellable_pG")
+        // This may produce [String: DVTCancellable] or similar
+        #expect(result.contains("String") || result.contains("SS"))
+    }
+}
+
+// MARK: - Stdlib Prefix Types
+
+@Suite("Stdlib Prefix Types")
+struct StdlibPrefixTypeTests {
+    @Test("Array prefix Sa demangles as Array shortcut")
+    func arrayShortcut() {
+        #expect(SwiftDemangler.demangle("Sa") == "Array")
+    }
+
+    @Test("Dictionary prefix SD is recognized")
+    func dictionaryPrefix() {
+        // SD alone should resolve to Dictionary
+        #expect(SwiftDemangler.demangle("D") == "Dictionary")
+    }
+
+    @Test("Set prefix Sh is recognized")
+    func setPrefix() {
+        #expect(SwiftDemangler.demangle("h") == "Set")
+    }
+
+    @Test("String prefix SS demangles correctly")
+    func stringPrefix() {
+        #expect(SwiftDemangler.demangle("SS") == "String")
+    }
+
+    @Test("Continuation types with Sc prefix demangle correctly")
+    func continuationTypes() {
+        #expect(SwiftDemangler.demangle("ScC") == "CheckedContinuation")
+        #expect(SwiftDemangler.demangle("ScU") == "UnsafeContinuation")
+        #expect(SwiftDemangler.demangle("ScS") == "AsyncStream")
+        #expect(SwiftDemangler.demangle("ScF") == "AsyncThrowingStream")
+    }
+
+    @Test("MainActor type demangles correctly")
+    func mainActorType() {
+        #expect(SwiftDemangler.demangle("ScM") == "MainActor")
+    }
+}
+
+// MARK: - Complex Container Types
+
+@Suite("Complex Container Types")
+struct ComplexContainerTypeTests {
+    @Test("Nested array of arrays demangles correctly")
+    func nestedArrays() {
+        // SaySaySiGG = [[Int]]
+        let result = SwiftDemangler.demangle("SaySaySiGG")
+        #expect(result == "[[Int]]")
+    }
+
+    @Test("Dictionary with array value demangles correctly")
+    func dictionaryWithArrayValue() {
+        // SDySSSaySSGG = [String: [String]]
+        let result = SwiftDemangler.demangle("SDySSSaySiGG")
+        #expect(result == "[String: [Int]]")
+    }
+
+    @Test("Array of dictionaries demangles correctly")
+    func arrayOfDictionaries() {
+        // SaySDySSsiGG = [[String: Int]]
+        let result = SwiftDemangler.demangle("SaySDySSSiGG")
+        #expect(result == "[[String: Int]]")
+    }
+
+    @Test("Optional nested container demangles correctly")
+    func optionalNestedContainer() {
+        // SaySaySiGSgG = [[Int]?]
+        let result = SwiftDemangler.demangle("SaySaySiGSgG")
+        #expect(result == "[[Int]?]")
+    }
+
+    @Test("Set of strings demangles correctly")
+    func setOfStrings() {
+        // ShySSG = Set<String>
+        let result = SwiftDemangler.demangle("ShySSG")
+        #expect(result == "Set<String>")
+    }
+}

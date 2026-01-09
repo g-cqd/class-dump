@@ -1075,12 +1075,15 @@ public enum SwiftDemangler: Sendable {
 
     /// Common mangled type patterns.
     private static let commonPatterns: [String: String] = [
+        "Sa": "Array",
         "Sb": "Bool",
-        "Si": "Int",
-        "Su": "UInt",
-        "Sf": "Float",
+        "SD": "Dictionary",
         "Sd": "Double",
+        "Sf": "Float",
+        "Sh": "Set",
+        "Si": "Int",
         "SS": "String",
+        "Su": "UInt",
         "SZ": "UInt8",
         "Ss": "Int8",
         "s5Int8V": "Int8",
@@ -1323,7 +1326,41 @@ public enum SwiftDemangler: Sendable {
             }
         }
 
-        // Check for two-character patterns first (SS, Si, Sb, etc.)
+        // Check for ObjC imported type (So prefix) - MUST be before single-char shortcuts
+        // to prevent 'S' from matching as String
+        if input.hasPrefix("So") {
+            var rest = input.dropFirst(2)
+            if let (typeName, remaining) = parseLengthPrefixed(rest) {
+                let mapped = objcToSwiftTypes[typeName] ?? typeName
+                // Skip type suffix
+                rest = remaining
+                // Skip type kind suffixes: C=class, V=struct, O=enum, P=protocol metatype
+                while let c = rest.first, "CVOPy".contains(c) {
+                    rest = rest.dropFirst()
+                }
+                // Handle _p protocol existential suffix
+                if rest.hasPrefix("_p") {
+                    rest = rest.dropFirst(2)
+                }
+                // Check for Optional suffix
+                if rest.hasPrefix("Sg") {
+                    return ("\(mapped)?", rest.dropFirst(2))
+                }
+                return (mapped, rest)
+            }
+        }
+
+        // Check for stdlib type shortcuts that start with 'S' (before single-char 'S' = String)
+        // Sa = Array, SD = Dictionary (note: SDy is handled above), Sc = concurrency types
+        if input.hasPrefix("Sa") {
+            let remaining = input.dropFirst(2)
+            if remaining.hasPrefix("Sg") {
+                return ("Array?", remaining.dropFirst(2))
+            }
+            return ("Array", remaining)
+        }
+
+        // Check for two-character patterns (SS, Si, Sb, Sd, Sf, Su, Sc*, etc.)
         if input.count >= 2 {
             let twoChars = String(input.prefix(2))
             if let result = commonPatterns[twoChars] {
@@ -1336,32 +1373,14 @@ public enum SwiftDemangler: Sendable {
             }
         }
 
-        // Check for single-character shortcuts
-        if let first = input.first, let shortcut = typeShortcuts[first] {
+        // Check for single-character shortcuts (but NOT 'S' which needs special handling above)
+        if let first = input.first, first != "S", let shortcut = typeShortcuts[first] {
             // Check for Optional suffix
             let remaining = input.dropFirst()
             if remaining.hasPrefix("Sg") {
                 return ("\(shortcut)?", remaining.dropFirst(2))
             }
             return (shortcut, remaining)
-        }
-
-        // Check for ObjC imported type (So prefix)
-        if input.hasPrefix("So") {
-            var rest = input.dropFirst(2)
-            if let (typeName, remaining) = parseLengthPrefixed(rest) {
-                let mapped = objcToSwiftTypes[typeName] ?? typeName
-                // Skip type suffix
-                rest = remaining
-                while let c = rest.first, "CVOPy".contains(c) {
-                    rest = rest.dropFirst()
-                }
-                // Check for Optional suffix
-                if rest.hasPrefix("Sg") {
-                    return ("\(mapped)?", rest.dropFirst(2))
-                }
-                return (mapped, rest)
-            }
         }
 
         // Check for length-prefixed module.type

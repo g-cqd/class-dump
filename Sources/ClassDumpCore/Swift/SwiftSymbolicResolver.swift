@@ -367,8 +367,15 @@ public final class SwiftSymbolicResolver {
 
         // Check for ObjC imported type (So prefix)
         if byte == 0x53 && index + 2 < bytes.count && bytes[index + 1] == 0x6F {  // "So"
-            if let (typeName, newIndex) = parseLengthPrefixedType(bytes: bytes, startIndex: index + 2) {
-                return (typeName, newIndex)
+            if let (typeName, parsedIndex) = parseLengthPrefixedType(bytes: bytes, startIndex: index + 2) {
+                var adjustedIndex = parsedIndex
+                // Handle _p protocol existential suffix
+                if adjustedIndex + 1 < bytes.count && bytes[adjustedIndex] == 0x5F
+                    && bytes[adjustedIndex + 1] == 0x70
+                {  // "_p"
+                    adjustedIndex += 2
+                }
+                return (typeName, adjustedIndex)
             }
         }
 
