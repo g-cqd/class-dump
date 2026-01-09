@@ -158,6 +158,19 @@ public enum MethodStyle: String, Sendable, CaseIterable {
     case swift
 }
 
+/// Output style for type formatting.
+///
+/// Controls how types are rendered in the output:
+/// - `objc`: All types use Objective-C syntax (pointers, NS* types)
+/// - `swift`: Types use Swift syntax (optionals, generics)
+public enum OutputStyle: String, Sendable, CaseIterable {
+    /// ObjC output style: `NSArray *`, `NSDictionary *`, `Type *`
+    case objc
+
+    /// Swift output style: `[Type]`, `[Key: Value]`, `Type?`
+    case swift
+}
+
 /// Configuration options for class dump visitors.
 public struct ClassDumpVisitorOptions: Sendable {
     /// Whether to show the structure section.
@@ -178,13 +191,17 @@ public struct ClassDumpVisitorOptions: Sendable {
     /// Style for formatting method declarations.
     public var methodStyle: MethodStyle
 
+    /// Output style for type formatting.
+    public var outputStyle: OutputStyle
+
     public init(
         shouldShowStructureSection: Bool = true,
         shouldShowProtocolSection: Bool = true,
         shouldShowIvarOffsets: Bool = false,
         shouldShowMethodAddresses: Bool = false,
         demangleStyle: DemangleStyle = .swift,
-        methodStyle: MethodStyle = .objc
+        methodStyle: MethodStyle = .objc,
+        outputStyle: OutputStyle = .objc
     ) {
         self.shouldShowStructureSection = shouldShowStructureSection
         self.shouldShowProtocolSection = shouldShowProtocolSection
@@ -192,6 +209,7 @@ public struct ClassDumpVisitorOptions: Sendable {
         self.shouldShowMethodAddresses = shouldShowMethodAddresses
         self.demangleStyle = demangleStyle
         self.methodStyle = methodStyle
+        self.outputStyle = outputStyle
     }
 }
 

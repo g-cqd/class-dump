@@ -97,6 +97,13 @@ struct ClassDumpCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Method declaration style: objc (default) or swift")
     var methodStyle: String?
 
+    // MARK: - Output Style Options
+
+    @Option(
+        name: .long,
+        help: "Output type style: objc (default) converts Swift types to ObjC, swift preserves Swift syntax")
+    var outputStyle: String?
+
     mutating func run() async throws {
         // Load the Mach-O file
         let url = URL(fileURLWithPath: file)
@@ -168,6 +175,21 @@ struct ClassDumpCommand: AsyncParsableCommand {
             resolvedMethodStyle = .objc
         }
 
+        // Determine output style
+        let resolvedOutputStyle: OutputStyle
+        if let style = outputStyle?.lowercased() {
+            switch style {
+            case "swift":
+                resolvedOutputStyle = .swift
+            case "objc":
+                resolvedOutputStyle = .objc
+            default:
+                resolvedOutputStyle = .objc
+            }
+        } else {
+            resolvedOutputStyle = .objc
+        }
+
         // Build visitor options
         let visitorOptions = ClassDumpVisitorOptions(
             shouldShowStructureSection: !hide.contains("structures") && !hide.contains("all"),
@@ -175,7 +197,8 @@ struct ClassDumpCommand: AsyncParsableCommand {
             shouldShowIvarOffsets: showIvarOffsets,
             shouldShowMethodAddresses: showImpAddr,
             demangleStyle: resolvedDemangleStyle,
-            methodStyle: resolvedMethodStyle
+            methodStyle: resolvedMethodStyle,
+            outputStyle: resolvedOutputStyle
         )
 
         // Build processor info

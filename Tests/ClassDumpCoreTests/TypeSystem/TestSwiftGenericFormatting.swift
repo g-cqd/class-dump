@@ -95,7 +95,8 @@ struct SwiftGenericTypeFormattingTests {
     func formatOptionalString() {
         // SSSg = Optional<String>: SS=String, Sg=Optional suffix
         let type = ObjCType.id(className: "_TtSSSg", protocols: [])
-        let options = ObjCTypeFormatterOptions(demangleStyle: .swift)
+        // Use outputStyle: .swift to get Swift syntax
+        let options = ObjCTypeFormatterOptions(demangleStyle: .swift, outputStyle: .swift)
         let result = type.formatted(options: options)
         // Should show "String?" instead of "Optional<String>"
         #expect(result.contains("String?"))
@@ -105,7 +106,8 @@ struct SwiftGenericTypeFormattingTests {
     func formatOptionalInt() {
         // SiSg = Optional<Int>
         let type = ObjCType.id(className: "_TtSiSg", protocols: [])
-        let options = ObjCTypeFormatterOptions(demangleStyle: .swift)
+        // Use outputStyle: .swift to get Swift syntax
+        let options = ObjCTypeFormatterOptions(demangleStyle: .swift, outputStyle: .swift)
         let result = type.formatted(options: options)
         #expect(result.contains("Int?"))
     }
@@ -114,7 +116,8 @@ struct SwiftGenericTypeFormattingTests {
     func formatArrayOfString() {
         // SaySS_G = Array<String>
         let type = ObjCType.id(className: "_TtSaySSG", protocols: [])
-        let options = ObjCTypeFormatterOptions(demangleStyle: .swift)
+        // Use outputStyle: .swift to get Swift syntax
+        let options = ObjCTypeFormatterOptions(demangleStyle: .swift, outputStyle: .swift)
         let result = type.formatted(options: options)
         // Should show "[String]"
         #expect(result.contains("[String]"))
@@ -124,7 +127,8 @@ struct SwiftGenericTypeFormattingTests {
     func formatDictionaryStringToInt() {
         // SDySSSiG = Dictionary<String, Int>
         let type = ObjCType.id(className: "_TtSDySSSiG", protocols: [])
-        let options = ObjCTypeFormatterOptions(demangleStyle: .swift)
+        // Use outputStyle: .swift to get Swift syntax
+        let options = ObjCTypeFormatterOptions(demangleStyle: .swift, outputStyle: .swift)
         let result = type.formatted(options: options)
         // Should show "[String: Int]"
         #expect(result.contains("[String: Int]"))

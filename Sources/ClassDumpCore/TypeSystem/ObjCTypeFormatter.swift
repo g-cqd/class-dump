@@ -17,18 +17,23 @@ public struct ObjCTypeFormatterOptions: Sendable {
     /// Style for demangling Swift names in type references
     public var demangleStyle: DemangleStyle = .swift
 
+    /// Output style for type formatting (objc or swift)
+    public var outputStyle: OutputStyle = .objc
+
     public init(
         baseLevel: Int = 0,
         spacesPerLevel: Int = 4,
         shouldExpand: Bool = false,
         shouldAutoExpand: Bool = false,
-        demangleStyle: DemangleStyle = .swift
+        demangleStyle: DemangleStyle = .swift,
+        outputStyle: OutputStyle = .objc
     ) {
         self.baseLevel = baseLevel
         self.spacesPerLevel = spacesPerLevel
         self.shouldExpand = shouldExpand
         self.shouldAutoExpand = shouldAutoExpand
         self.demangleStyle = demangleStyle
+        self.outputStyle = outputStyle
     }
 }
 
@@ -51,19 +56,71 @@ public struct ObjCTypeFormatter: Sendable {
 
     /// Demangle a Swift name according to the configured style.
     private func demangleName(_ name: String) -> String {
+        var result: String
         switch options.demangleStyle {
         case .none:
-            return name
+            result = name
         case .swift:
-            return SwiftDemangler.demangleSwiftName(name)
+            result = SwiftDemangler.demangleSwiftName(name)
         case .objc:
             let demangled = SwiftDemangler.demangleSwiftName(name)
             // Strip module prefix for ObjC style
             if let lastDot = demangled.lastIndex(of: ".") {
-                return String(demangled[demangled.index(after: lastDot)...])
+                result = String(demangled[demangled.index(after: lastDot)...])
+            } else {
+                result = demangled
             }
-            return demangled
         }
+
+        // Convert Swift syntax to ObjC if in ObjC output mode
+        if options.outputStyle == .objc {
+            result = convertSwiftSyntaxToObjC(result)
+        }
+
+        return result
+    }
+
+    /// Convert Swift-style type syntax to Objective-C syntax.
+    ///
+    /// This handles:
+    /// - `[Type]` → `NSArray`
+    /// - `[Key: Value]` → `NSDictionary`
+    /// - `Set<Type>` → `NSSet`
+    /// - `Type?` → `Type` (optionality represented by pointer)
+    private func convertSwiftSyntaxToObjC(_ typeName: String) -> String {
+        var result = typeName
+
+        // Handle Swift optional suffix: Type? → Type
+        if result.hasSuffix("?") {
+            result = String(result.dropLast())
+        }
+
+        // Handle Swift Array syntax: [Type] → NSArray
+        if result.hasPrefix("[") && result.hasSuffix("]") && !result.contains(":") {
+            return "NSArray"
+        }
+
+        // Handle Swift Dictionary syntax: [Key: Value] → NSDictionary
+        if result.hasPrefix("[") && result.hasSuffix("]") && result.contains(":") {
+            return "NSDictionary"
+        }
+
+        // Handle Swift Set syntax: Set<Type> → NSSet
+        if result.hasPrefix("Set<") && result.hasSuffix(">") {
+            return "NSSet"
+        }
+
+        // Handle Swift Array syntax with generic: Array<Type> → NSArray
+        if result.hasPrefix("Array<") && result.hasSuffix(">") {
+            return "NSArray"
+        }
+
+        // Handle Swift Dictionary syntax with generic: Dictionary<K, V> → NSDictionary
+        if result.hasPrefix("Dictionary<") && result.hasSuffix(">") {
+            return "NSDictionary"
+        }
+
+        return result
     }
 
     // MARK: - Public API

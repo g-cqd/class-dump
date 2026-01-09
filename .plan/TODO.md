@@ -1,54 +1,50 @@
 # class-dump - Remaining Work
 
-**Current Status**: 697 tests passing | Swift 6.2 | Version 4.0.2
+**Current Status**: 726 tests passing | Swift 6.2 | Version 4.0.2
 
 ---
 
 ## Priority 1: Output Quality (HIGH PRIORITY)
 
 ### Task T07: Swift Standard Library Type Demangling
-**Status**: Not started
+**Status**: ✅ Complete (commit 330d1c9)
 
-The demangler doesn't handle Swift stdlib type prefixes, resulting in output like:
-- `SDyIDEFoundation.TestPlanSnapshotSourceStreamUpdateContext...` (Dictionary)
-- `SaySo14DVTCancellable_pG` (Array of protocol type)
-- `ScS12ContinuationVMny...` (Continuation)
-
-- [ ] T07.1: Handle `SD` prefix (Dictionary<K,V>)
-- [ ] T07.2: Handle `Sa` prefix (Array<T>)
-- [ ] T07.3: Handle `Sc` prefix (Continuation)
-- [ ] T07.4: Handle `So` prefix (ObjC imported types)
-- [ ] T07.5: Handle `Ss` prefix (String, other stdlib types)
-- [ ] T07.6: Handle nested generic arguments recursively
-- [ ] T07.7: Add tests for complex nested stdlib types
+Enhanced Swift stdlib type demangling to handle:
+- `SD` prefix (Dictionary<K,V>)
+- `Sa` prefix (Array<T>)
+- `Sc` prefix (Continuation types)
+- `So` prefix (ObjC imported types with `_p` protocol suffix)
+- `Ss` prefix (String, other stdlib types)
+- Nested generic arguments recursively
+- 15 new tests for complex nested stdlib types
 
 ### Task T08: Output Mode Consistency & Formatting
-**Status**: Not started
+**Status**: ✅ Complete
 
-The current output mixes ObjC and Swift syntax inappropriately. Need strict output mode enforcement:
+Implemented strict output mode enforcement with `--output-style` flag:
 
-**ObjC Mode (default)** - All output must be valid ObjC syntax:
-- Missing pointer asterisks: `IDETestManager testManager` → `IDETestManager *testManager`
-- Swift optional syntax: `IDETestable?` → `IDETestable *`
+**ObjC Mode (default)** - All output is valid ObjC syntax:
+- Pointer asterisks: `IDETestManager *testManager`
+- Swift optionals converted: `IDETestable?` → `IDETestable *`
 - Swift Dictionary syntax: `[String: Type]` → `NSDictionary *`
 - Swift Array syntax: `[Type]` → `NSArray *`
-- Missing ivar names in some cases
+- Class types get pointers: `Module.ClassName *`
 
-**Swift Mode (future)** - All output must be valid Swift syntax:
+**Swift Mode** - All output preserves Swift syntax:
 - Use Swift type names: `String`, `[Type]`, `[Key: Value]`
 - Use Swift optionals: `Type?`
 - No pointer asterisks
 
 **Flags**: `--output-style=objc|swift` (default: objc)
 
-- [ ] T08.1: Add `--output-style` flag with `objc` and `swift` options
-- [ ] T08.2: Implement ObjC formatter that converts all Swift syntax to ObjC
-- [ ] T08.3: Add pointer asterisks for Swift class type ivars in ObjC mode
-- [ ] T08.4: Convert Swift optionals to ObjC pointers in ObjC mode
-- [ ] T08.5: Convert Swift Dictionary/Array syntax to ObjC types in ObjC mode
-- [ ] T08.6: Investigate and fix missing ivar names bug
-- [ ] T08.7: Add tests for output mode consistency
-- [ ] T08.8: Document the output mode flag in CLI help
+- [x] T08.1: Add `--output-style` flag with `objc` and `swift` options
+- [x] T08.2: Implement ObjC formatter that converts all Swift syntax to ObjC
+- [x] T08.3: Add pointer asterisks for Swift class type ivars in ObjC mode
+- [x] T08.4: Convert Swift optionals to ObjC pointers in ObjC mode
+- [x] T08.5: Convert Swift Dictionary/Array syntax to ObjC types in ObjC mode
+- [x] T08.6: Investigated missing ivar names - handled by skipping invalid ivars
+- [x] T08.7: Add tests for output mode consistency (14 new tests)
+- [x] T08.8: Document the output mode flag in CLI help
 
 ---
 

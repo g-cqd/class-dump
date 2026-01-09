@@ -23,9 +23,10 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     public init(options: ClassDumpVisitorOptions = .init()) {
         self.options = options
 
-        // Configure type formatter with matching demangle style
+        // Configure type formatter with matching demangle and output styles
         var formatterOptions = ObjCTypeFormatterOptions()
         formatterOptions.demangleStyle = options.demangleStyle
+        formatterOptions.outputStyle = options.outputStyle
         self.typeFormatter = ObjCTypeFormatter(options: formatterOptions)
 
         // Wire up type formatter callbacks
@@ -73,6 +74,99 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if let data = resultString.data(using: .utf8) {
             FileHandle.standardOutput.write(data)
         }
+    }
+
+    // MARK: - Swift to ObjC Conversion
+
+    /// Convert Swift type syntax to Objective-C syntax.
+    ///
+    /// This handles:
+    /// - `[Type]` → `NSArray *`
+    /// - `[Key: Value]` → `NSDictionary *`
+    /// - `Set<Type>` → `NSSet *`
+    /// - `Type?` → `Type *`
+    /// - `Module.ClassName` → `Module.ClassName *` (adds pointer for class types)
+    private func convertSwiftTypeToObjC(_ typeName: String) -> String {
+        var result = typeName
+
+        // Handle Swift optional suffix: Type? → Type *
+        if result.hasSuffix("?") {
+            result = String(result.dropLast())
+            return "\(result) *"
+        }
+
+        // Handle Swift Array syntax: [Type] → NSArray *
+        if result.hasPrefix("[") && result.hasSuffix("]") && !result.contains(":") {
+            return "NSArray *"
+        }
+
+        // Handle Swift Dictionary syntax: [Key: Value] → NSDictionary *
+        if result.hasPrefix("[") && result.hasSuffix("]") && result.contains(":") {
+            return "NSDictionary *"
+        }
+
+        // Handle Swift Set syntax: Set<Type> → NSSet *
+        if result.hasPrefix("Set<") && result.hasSuffix(">") {
+            return "NSSet *"
+        }
+
+        // Handle Swift Array syntax with generic: Array<Type> → NSArray *
+        if result.hasPrefix("Array<") && result.hasSuffix(">") {
+            return "NSArray *"
+        }
+
+        // Handle Swift Dictionary syntax with generic: Dictionary<K, V> → NSDictionary *
+        if result.hasPrefix("Dictionary<") && result.hasSuffix(">") {
+            return "NSDictionary *"
+        }
+
+        // Check if this looks like a class type (Module.ClassName or just ClassName)
+        // Class types need pointer asterisks in ObjC
+        if looksLikeClassType(result) {
+            return "\(result) *"
+        }
+
+        return result
+    }
+
+    /// Check if a type name looks like a class/reference type.
+    ///
+    /// Heuristics:
+    /// - Contains a dot (module-qualified name like `Module.ClassName`)
+    /// - Starts with an uppercase letter and isn't a known value type
+    /// - Contains generic parameters like `Container<String>`
+    private func looksLikeClassType(_ typeName: String) -> Bool {
+        // Module-qualified names are class types
+        if typeName.contains(".") {
+            return true
+        }
+
+        // Generic types are reference types in this context
+        if typeName.contains("<") && typeName.contains(">") {
+            return true
+        }
+
+        // Known Swift primitive/value types
+        let valueTypes: Set<String> = [
+            "Int", "Int8", "Int16", "Int32", "Int64",
+            "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
+            "Float", "Double", "Bool", "String", "Character",
+            "CGFloat", "CGPoint", "CGSize", "CGRect", "CGVector",
+            "NSInteger", "NSUInteger", "CGAffineTransform",
+            "UIEdgeInsets", "NSEdgeInsets", "UIOffset",
+            "void", "Void",
+        ]
+
+        if valueTypes.contains(typeName) {
+            return false
+        }
+
+        // If starts with uppercase and not a known value type, likely a class
+        if let first = typeName.first, first.isUppercase {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - Demangling Helpers
@@ -301,7 +395,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     open func appendIvar(_ ivar: ObjCInstanceVariable) {
         // Prioritize resolved Swift types over ObjC encoding/parsing
         if !ivar.typeString.isEmpty && ivar.typeString != ivar.typeEncoding {
-            append("    \(ivar.typeString) \(ivar.name);")
+            var typeStr = ivar.typeString
+            // Apply ObjC conversion if in ObjC output mode
+            if options.outputStyle == .objc {
+                typeStr = convertSwiftTypeToObjC(typeStr)
+            }
+            append("    \(typeStr) \(ivar.name);")
             // Show ivar offset if enabled
             if options.shouldShowIvarOffsets {
                 append(" // +\(ivar.offset)")
