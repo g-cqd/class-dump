@@ -368,21 +368,69 @@ methods using direct selectors (bit 30 set) cannot be resolved without the
 skipped to avoid garbled output. Properties, instance variables, and protocols
 are still parsed correctly.
 
-### Task T23: Inspection Command
-- [ ] T23.1: Add `class-dump info` subcommand
-- [ ] T23.2: Display Mach-O header, load commands, sections
-- [ ] T23.3: Show architecture, platform, deployment target
+### Task T23: Inspection Command ✅ Complete
+**Status**: Complete (2026-01-10)
 
-### Task T24: Address Utilities
-- [ ] T24.1: Expose `a2o` / `o2a` conversion for debugging
-- [ ] T24.2: Resolve addresses to symbol names for `-A` output
+- [x] T23.1: **`class-dump info` subcommand** added
+  - Location: `Sources/ClassDumpCLI/main.swift:588-947`
+  - Shows file format, architectures, CPU type, file type, flags
+  - Platform information (platform, min OS, SDK)
+  - Runtime detection (ObjC, Swift)
+- [x] T23.2: **Display Mach-O header, load commands, sections**
+  - `--load-commands` flag shows all load commands
+  - `--sections` flag shows all sections with address/size/offset
+  - `--segments` flag shows segment details
+- [x] T23.3: **Show architecture, platform, deployment target**
+  - `--libraries` flag shows linked dylibs
+  - `--encryption` flag shows encryption info
+  - `--all` flag shows all available information
+  - `--format json` for machine-readable output
 
-### Task T25: Lipo Export
-- [ ] T25.1: Extract single architecture to standalone file
+### Task T24: Address Utilities ✅ Complete
+**Status**: Complete (2026-01-10)
 
-### Task T26: Entitlements Display
-- [ ] T26.1: Parse LC_CODE_SIGNATURE blob
-- [ ] T26.2: Extract and display XML entitlements
+- [x] T24.1: **`class-dump address` subcommand** added
+  - Location: `Sources/ClassDumpCLI/main.swift:1241-1380`
+  - `--a2o <address>` converts virtual address to file offset
+  - `--o2a <offset>` converts file offset to virtual address
+  - `--show-sections` lists all sections with VM address/file offset/size
+- [x] T24.2: **Section context provided**
+  - Address translations include section name where applicable
+  - Uses `AddressTranslator` for efficient segment-based lookup
+
+### Task T25: Lipo Export ✅ Complete
+**Status**: Complete (2026-01-10)
+
+- [x] T25.1: **`class-dump lipo` subcommand** added
+  - Location: `Sources/ClassDumpCLI/main.swift:1382-1569`
+  - List architectures with `-l` / `--list` (default behavior)
+  - Detailed info with `--detailed` (CPU type, offset, size)
+  - Extract architecture with `-e` / `--extract <arch>`
+  - Custom output path with `-o` / `--output <path>`
+  - Verification with `--verify` flag validates extracted Mach-O
+- [x] T25.2: **Error handling**
+  - Invalid architecture names
+  - Architecture not found with list of available ones
+  - Invalid slice bounds
+  - Verification failures
+
+### Task T26: Entitlements Display ✅ Complete
+**Status**: Complete (2026-01-10)
+
+- [x] T26.1: **`class-dump entitlements` subcommand** added
+  - Location: `Sources/ClassDumpCLI/main.swift:1552-1721`
+  - Location: `Sources/ClassDumpCore/MachO/CodeSignature.swift` (new)
+  - Parses SuperBlob structure from LC_CODE_SIGNATURE
+  - Extracts XML entitlements from CSSLOT_ENTITLEMENTS blob
+- [x] T26.2: **Multiple output formats**
+  - Default: Pretty-printed XML with indentation
+  - `--raw`: Raw XML without formatting
+  - `--json`: Converts plist to JSON format
+  - `-o/--output`: Write to file
+- [x] T26.3: **Code signature inspection**
+  - `--show-blobs`: Lists all code signature blobs
+  - Shows slot type, magic, offset, and size for each blob
+  - Recognizes codeDirectory, requirements, entitlements, entitlementsDER, cmsSignature
 
 ### Task T27: DocC Generator
 - [ ] T27.1: Generate DocC-compatible documentation from dumps

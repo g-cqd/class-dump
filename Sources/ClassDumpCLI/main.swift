@@ -8,7 +8,10 @@ struct ClassDumpCommand: AsyncParsableCommand {
         commandName: "class-dump",
         abstract: "Generates Objective-C header files from Mach-O binaries.",
         version: "4.0.3 (Swift)",
-        subcommands: [DumpCommand.self, InfoCommand.self, DSCCommand.self, AddressCommand.self],
+        subcommands: [
+            DumpCommand.self, InfoCommand.self, DSCCommand.self, AddressCommand.self,
+            LipoCommand.self, EntitlementsCommand.self,
+        ],
         defaultSubcommand: DumpCommand.self
     )
 }
@@ -1376,6 +1379,383 @@ struct AddressCommand: AsyncParsableCommand {
             return String(format: "%.1f KB", Double(size) / 1024)
         }
         return "\(size) B"
+    }
+}
+
+// MARK: - Lipo Command (T25)
+
+struct LipoCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "lipo",
+        abstract: "Extract architecture slices from universal binaries"
+    )
+
+    @Argument(help: "The universal binary file")
+    var file: String
+
+    @Flag(name: [.customShort("l"), .customLong("list")], help: "List architectures in the binary")
+    var list: Bool = false
+
+    @Flag(name: .long, help: "Show detailed information about each slice")
+    var detailed: Bool = false
+
+    @Option(
+        name: [.customShort("e"), .customLong("extract")],
+        help: "Extract specified architecture (e.g., arm64, x86_64)"
+    )
+    var extract: String?
+
+    @Option(name: [.customShort("o"), .customLong("output")], help: "Output file path for extracted slice")
+    var output: String?
+
+    @Flag(name: .long, help: "Verify the extracted file is a valid Mach-O")
+    var verify: Bool = false
+
+    mutating func run() async throws {
+        let url = URL(fileURLWithPath: file)
+        guard FileManager.default.fileExists(atPath: file) else {
+            throw ClassDumpError.fileNotFound(file)
+        }
+
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        let binary = try MachOBinary(data: data, filename: file)
+
+        // Handle list mode
+        if list || (extract == nil) {
+            printArchitectures(binary: binary, detailed: detailed)
+            return
+        }
+
+        // Handle extract mode
+        if let archName = extract {
+            try extractArchitecture(archName: archName, from: binary, data: data)
+        }
+    }
+
+    private func printArchitectures(binary: MachOBinary, detailed: Bool) {
+        switch binary {
+            case .thin(let machOFile):
+                print("Single architecture binary: \(machOFile.arch.name)")
+                if detailed {
+                    printArchDetails(arch: machOFile.arch, offset: 0, size: UInt64(machOFile.data.count))
+                }
+
+            case .fat(let fatFile, _):
+                print("Universal binary with \(fatFile.arches.count) architecture(s):")
+                print()
+                if detailed {
+                    for fatArch in fatFile.arches {
+                        printArchDetails(arch: fatArch.arch, offset: fatArch.offset, size: fatArch.size)
+                        print()
+                    }
+                }
+                else {
+                    for fatArch in fatFile.arches {
+                        print("  \(fatArch.archName)")
+                    }
+                }
+        }
+    }
+
+    private func printArchDetails(arch: Arch, offset: UInt64, size: UInt64) {
+        print("Architecture: \(arch.name)")
+        print("  CPU Type:    \(cpuTypeName(arch.cputype))")
+        print("  CPU Subtype: 0x\(String(arch.maskedCPUSubtype, radix: 16))")
+        print("  Offset:      0x\(String(offset, radix: 16)) (\(offset))")
+        print("  Size:        \(formatSize(size))")
+        print("  64-bit:      \(arch.uses64BitABI)")
+    }
+
+    private func extractArchitecture(archName: String, from binary: MachOBinary, data: Data) throws {
+        guard let targetArch = Arch(name: archName) else {
+            throw LipoError.invalidArchitecture(archName)
+        }
+
+        let sliceData: Data
+
+        switch binary {
+            case .thin(let machOFile):
+                // Single architecture binary
+                guard machOFile.arch.matches(targetArch) else {
+                    throw LipoError.architectureNotFound(
+                        archName,
+                        available: [machOFile.arch.name]
+                    )
+                }
+                sliceData = machOFile.data
+
+            case .fat(let fatFile, _):
+                // Universal binary
+                guard let fatArch = fatFile.arch(matching: targetArch) else {
+                    throw LipoError.architectureNotFound(archName, available: fatFile.archNames)
+                }
+                let start = Int(fatArch.offset)
+                let end = start + Int(fatArch.size)
+                guard end <= data.count else {
+                    throw LipoError.invalidSlice(offset: fatArch.offset, size: fatArch.size)
+                }
+                sliceData = Data(data[start..<end])
+        }
+
+        // Determine output path
+        let outputPath: String
+        if let providedOutput = output {
+            outputPath = providedOutput
+        }
+        else {
+            // Generate default output name
+            let baseName = (file as NSString).deletingPathExtension
+            let ext = (file as NSString).pathExtension
+            if ext.isEmpty {
+                outputPath = "\(baseName)_\(archName)"
+            }
+            else {
+                outputPath = "\(baseName)_\(archName).\(ext)"
+            }
+        }
+
+        // Verify the extracted data is valid Mach-O if requested
+        if verify {
+            do {
+                _ = try MachOFile(data: sliceData)
+                print("✓ Verified: extracted data is a valid Mach-O file")
+            }
+            catch {
+                throw LipoError.verificationFailed(error)
+            }
+        }
+
+        // Write to file
+        try sliceData.write(to: URL(fileURLWithPath: outputPath))
+
+        print("Extracted \(archName) slice to: \(outputPath)")
+        print("  Size: \(formatSize(UInt64(sliceData.count)))")
+    }
+
+    private func cpuTypeName(_ type: cpu_type_t) -> String {
+        switch type {
+            case 7: return "x86"
+            case CPU_TYPE_X86_64: return "x86_64"
+            case 12: return "ARM"
+            case CPU_TYPE_ARM64: return "ARM64"
+            default: return "Unknown (\(type))"
+        }
+    }
+
+    private func formatSize(_ size: UInt64) -> String {
+        if size >= 1024 * 1024 * 1024 {
+            return String(format: "%.2f GB", Double(size) / (1024 * 1024 * 1024))
+        }
+        else if size >= 1024 * 1024 {
+            return String(format: "%.2f MB", Double(size) / (1024 * 1024))
+        }
+        else if size >= 1024 {
+            return String(format: "%.2f KB", Double(size) / 1024)
+        }
+        return "\(size) bytes"
+    }
+}
+
+// MARK: - Entitlements Command (T26)
+
+struct EntitlementsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "entitlements",
+        abstract: "Extract and display entitlements from a signed Mach-O binary"
+    )
+
+    @Argument(help: "The Mach-O file to inspect")
+    var file: String
+
+    @Option(name: .long, help: "Select a specific architecture from a universal binary")
+    var arch: String?
+
+    @Flag(name: .long, help: "Output raw XML without formatting")
+    var raw: Bool = false
+
+    @Flag(name: .long, help: "Output as JSON (converts plist to JSON)")
+    var json: Bool = false
+
+    @Option(name: [.customShort("o"), .customLong("output")], help: "Write entitlements to file")
+    var output: String?
+
+    @Flag(name: .long, help: "Show all code signature blobs")
+    var showBlobs: Bool = false
+
+    mutating func run() async throws {
+        let url = URL(fileURLWithPath: file)
+        guard FileManager.default.fileExists(atPath: file) else {
+            throw ClassDumpError.fileNotFound(file)
+        }
+
+        let binary = try MachOBinary(contentsOf: url)
+
+        // Select architecture
+        let machOFile: MachOFile
+        if let archName = arch {
+            guard let requestedArch = Arch(name: archName) else {
+                throw ClassDumpError.invalidArch(archName)
+            }
+            machOFile = try binary.machOFile(for: requestedArch)
+        }
+        else {
+            machOFile = try binary.bestMatchForLocal()
+        }
+
+        // Show blobs if requested
+        if showBlobs {
+            try showCodeSignatureBlobs(machOFile: machOFile)
+            return
+        }
+
+        // Extract entitlements
+        guard let entitlements = try CodeSignature.extractEntitlements(from: machOFile) else {
+            print("No entitlements found in \(file)")
+            return
+        }
+
+        // Handle output format
+        let outputString: String
+
+        if json {
+            // Convert XML plist to JSON
+            guard let plistData = entitlements.data(using: .utf8) else {
+                print(entitlements)
+                return
+            }
+
+            do {
+                let plist = try PropertyListSerialization.propertyList(
+                    from: plistData,
+                    options: [],
+                    format: nil
+                )
+                let jsonData = try JSONSerialization.data(
+                    withJSONObject: plist,
+                    options: [.prettyPrinted, .sortedKeys]
+                )
+                outputString = String(data: jsonData, encoding: .utf8) ?? entitlements
+            }
+            catch {
+                // Fall back to raw XML if conversion fails
+                outputString = entitlements
+            }
+        }
+        else if raw {
+            outputString = entitlements
+        }
+        else {
+            // Pretty-print XML
+            outputString = prettyPrintXML(entitlements)
+        }
+
+        // Handle output destination
+        if let outputPath = output {
+            try outputString.write(toFile: outputPath, atomically: true, encoding: .utf8)
+            print("Entitlements written to: \(outputPath)")
+        }
+        else {
+            print(outputString)
+        }
+    }
+
+    private func showCodeSignatureBlobs(machOFile: MachOFile) throws {
+        // Find LC_CODE_SIGNATURE load command
+        guard
+            let codeSignatureCmd = machOFile.loadCommands
+                .compactMap({ cmd -> LinkeditDataCommand? in
+                    if case .linkeditData(let linkedit) = cmd,
+                        linkedit.cmd == UInt32(LC_CODE_SIGNATURE)
+                    {
+                        return linkedit
+                    }
+                    return nil
+                })
+                .first
+        else {
+            print("No code signature found in binary")
+            return
+        }
+
+        // Extract code signature data
+        let start = Int(codeSignatureCmd.dataoff)
+        let end = start + Int(codeSignatureCmd.datasize)
+        guard end <= machOFile.data.count else {
+            throw CodeSignatureError.invalidRange
+        }
+
+        let signatureData = machOFile.data.subdata(in: start..<end)
+        let signature = try CodeSignature(data: signatureData)
+
+        print("Code Signature Blobs")
+        print("=".repeated(60))
+        print("Total blobs: \(signature.blobs.count)")
+        print()
+
+        for blob in signature.blobs {
+            let slotName = blob.slot.map { "\($0)" } ?? "Unknown(\(blob.type))"
+            let magicName = blob.magic.map { "\($0)" } ?? "Unknown"
+
+            print("Slot: \(slotName)")
+            print("  Magic: \(magicName)")
+            print("  Offset: 0x\(String(blob.offset, radix: 16))")
+            print("  Size: \(blob.data.count) bytes")
+            print()
+        }
+    }
+
+    private func prettyPrintXML(_ xml: String) -> String {
+        // Simple XML indentation
+        var result = ""
+        var indent = 0
+        let lines = xml.components(separatedBy: "\n")
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+
+            // Decrease indent for closing tags
+            if trimmed.hasPrefix("</") || trimmed.hasPrefix("</") {
+                indent = max(0, indent - 1)
+            }
+
+            // Add indentation
+            result += String(repeating: "  ", count: indent)
+            result += trimmed
+            result += "\n"
+
+            // Increase indent for opening tags (not self-closing)
+            if trimmed.hasPrefix("<") && !trimmed.hasPrefix("</") && !trimmed.hasPrefix("<?")
+                && !trimmed.contains("/>") && !trimmed.contains("</")
+            {
+                indent += 1
+            }
+        }
+
+        return result.trimmingCharacters(in: .newlines)
+    }
+}
+
+// MARK: - Lipo Errors
+
+enum LipoError: Error, CustomStringConvertible {
+    case invalidArchitecture(String)
+    case architectureNotFound(String, available: [String])
+    case invalidSlice(offset: UInt64, size: UInt64)
+    case verificationFailed(Error)
+
+    var description: String {
+        switch self {
+            case .invalidArchitecture(let name):
+                return
+                    "Invalid architecture name: \(name). Valid names: arm64, arm64e, x86_64, x86_64h, i386, armv7, armv7s, armv7k, arm64_32"
+            case .architectureNotFound(let name, let available):
+                return "Architecture '\(name)' not found. Available: \(available.joined(separator: ", "))"
+            case .invalidSlice(let offset, let size):
+                return "Invalid slice: offset=0x\(String(offset, radix: 16)), size=\(size)"
+            case .verificationFailed(let error):
+                return "Verification failed: \(error)"
+        }
     }
 }
 
