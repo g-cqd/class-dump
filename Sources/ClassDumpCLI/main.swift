@@ -133,7 +133,7 @@ struct DumpCommand: AsyncParsableCommand {
     @Option(
         name: .long,
         help:
-            "Output format: objc (default), swift (.swiftinterface-style), json (machine-readable), mixed (both ObjC and Swift)"
+            "Output format: objc (default), swift (.swiftinterface-style), json (machine-readable), mixed (both ObjC and Swift), docc (Symbol Graph for DocC)"
     )
     var format: String?
 
@@ -340,6 +340,14 @@ struct DumpCommand: AsyncParsableCommand {
                 mixedVisitor.headerString = generateHeaderString()
             }
             visitMetadata(metadata, processorInfo: processorInfo, with: mixedVisitor)
+            // Output is written in didEndVisiting()
+            return
+        }
+
+        // DocC Symbol Graph format output
+        if formatLower == "docc" || formatLower == "symbolgraph" {
+            let symbolGraphVisitor = SymbolGraphVisitor(options: visitorOptions)
+            visitMetadata(metadata, processorInfo: processorInfo, with: symbolGraphVisitor)
             // Output is written in didEndVisiting()
             return
         }

@@ -1,6 +1,6 @@
 # class-dump - Remaining Work
 
-**Current Status**: 973 tests passing | Swift 6.2 | Version 4.0.3
+**Current Status**: 1002 tests passing | Swift 6.2 | Version 4.0.3
 
 ---
 
@@ -428,10 +428,33 @@ layouts vary across macOS/iOS versions. See T22 below.
   - Shows slot type, magic, offset, and size for each blob
   - Recognizes codeDirectory, requirements, entitlements, entitlementsDER, cmsSignature
 
-### Task T27: DocC Generator
-- [ ] T27.1: Generate DocC-compatible documentation from dumps
-- [ ] T27.2: Support merging multiple framework dumps
-- [ ] T27.3: Symbol graph generation for Xcode integration
+### Task T27: DocC Generator ✅ Complete
+**Status**: Complete (2026-01-10)
+
+- [x] T27.1: **Generate DocC-compatible Symbol Graph output**
+  - Location: `Sources/ClassDumpCore/Visitor/SymbolGraphVisitor.swift`
+  - Generates Symbol Graph JSON conforming to Apple's format (v0.6.0)
+  - Maps ObjC protocols, classes, methods, properties, ivars to symbols
+  - Generates relationships (memberOf, conformsTo, inheritsFrom, requirementOf)
+  - Declaration fragments for syntax highlighting
+  - Function signatures for methods
+- [x] T27.2: **Support merging multiple framework dumps**
+  - `SymbolGraph.merge()` combines multiple graphs into one
+  - Deduplicates symbols by precise identifier
+  - Tracks bystander modules for cross-module references
+  - `SymbolGraph.merging(with:)` for pairwise merging
+- [x] T27.3: **Symbol graph utilities for Xcode integration**
+  - `jsonData()` / `jsonString()` for encoding
+  - `from(jsonData:)` / `from(url:)` for decoding
+  - `write(to:)` for file output
+  - `recommendedFilename()` following Apple's naming convention
+- [x] T27.4: **CLI integration** - `--format docc` option
+  - Also supports `--format symbolgraph` as alias
+  - Outputs to stdout like other formats
+- [x] T27.5: **29 new tests** for SymbolGraphVisitor
+  - Protocol, class, method, property, ivar formatting
+  - Relationships, declaration fragments, demangling
+  - Merging, round-trip JSON, filename conventions
 
 ---
 
