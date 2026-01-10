@@ -373,6 +373,8 @@ extension DyldSharedCache {
         case notAvailable
         case tableNotAvailable(String)
         case addressTranslationFailed
+        case libobjcNotFound
+        case objcOptRoSectionNotFound
 
         /// A human-readable description of the error.
         public var description: String {
@@ -383,7 +385,144 @@ extension DyldSharedCache {
                     return "ObjC \(name) table not available (version too old?)"
                 case .addressTranslationFailed:
                     return "Failed to translate address for ObjC optimization"
+                case .libobjcNotFound:
+                    return "Could not find libobjc.A.dylib in cache"
+                case .objcOptRoSectionNotFound:
+                    return "Could not find __objc_opt_ro section in libobjc"
             }
         }
+    }
+
+    // MARK: - Modern Cache Support (macOS 14+ / iOS 17+)
+
+    /// Result containing ObjC optimization header and its virtual address.
+    public struct ObjCOptHeaderResult: Sendable {
+        /// The parsed optimization header.
+        public let header: DyldCacheObjCOptHeader
+        /// The virtual address where the header is located in the cache.
+        public let vmAddress: UInt64
+    }
+
+    /// Find the ObjC optimization header from libobjc.A.dylib's __objc_opt_ro section.
+    ///
+    /// On modern caches (macOS 14+/iOS 17+), the ObjC optimization header is embedded
+    /// in libobjc.A.dylib's `__TEXT.__objc_opt_ro` section rather than at a cache-wide
+    /// offset. This method locates and parses that embedded header.
+    ///
+    /// - Returns: The optimization header and its VM address.
+    /// - Throws: If libobjc cannot be found or the section doesn't exist.
+    public func objcOptimizationHeaderFromLibobjc() throws -> ObjCOptHeaderResult {
+        // Find libobjc.A.dylib
+        guard let libobjc = images.first(where: { $0.path.hasSuffix("libobjc.A.dylib") }) else {
+            throw ObjCOptError.libobjcNotFound
+        }
+
+        // Get file offset of libobjc's Mach-O header
+        guard let headerOffset = translator.fileOffsetInt(for: libobjc.address) else {
+            throw ObjCOptError.addressTranslationFailed
+        }
+
+        // Parse Mach-O header to find __TEXT.__objc_opt_ro section
+        let headerData = try file.data(at: headerOffset, count: 32)
+        var cursor = try DataCursor(data: headerData)
+
+        let magic = try cursor.readLittleInt32()
+        guard magic == 0xFEED_FACF else {
+            throw ObjCOptError.objcOptRoSectionNotFound  // Only 64-bit supported
+        }
+
+        _ = try cursor.readLittleInt32()  // cputype
+        _ = try cursor.readLittleInt32()  // cpusubtype
+        _ = try cursor.readLittleInt32()  // filetype
+        let ncmds = try cursor.readLittleInt32()
+        let sizeofcmds = try cursor.readLittleInt32()
+
+        // Parse load commands to find __TEXT segment and __objc_opt_ro section
+        let loadCommandsData = try file.data(at: headerOffset + 32, count: Int(sizeofcmds))
+        var cmdCursor = try DataCursor(data: loadCommandsData)
+
+        for _ in 0..<ncmds {
+            let cmdStart = cmdCursor.offset
+            let cmd = try cmdCursor.readLittleInt32()
+            let cmdsize = try cmdCursor.readLittleInt32()
+
+            // LC_SEGMENT_64 = 0x19
+            if cmd == 0x19 {
+                // Read segment name (16 bytes)
+                let segnameData = try cmdCursor.readBytes(length: 16)
+                let segname = String(bytes: segnameData.filter { $0 != 0 }, encoding: .utf8) ?? ""
+
+                if segname == "__TEXT" {
+                    // Skip to nsects at offset 64 in segment command
+                    try cmdCursor.reset(to: cmdStart + 64)
+                    let nsects = try cmdCursor.readLittleInt32()
+                    _ = try cmdCursor.readLittleInt32()  // flags
+
+                    // Parse sections (each is 80 bytes for 64-bit)
+                    for _ in 0..<nsects {
+                        let sectStart = cmdCursor.offset
+                        let sectnameData = try cmdCursor.readBytes(length: 16)
+                        let sectname = String(bytes: sectnameData.filter { $0 != 0 }, encoding: .utf8) ?? ""
+
+                        if sectname == "__objc_opt_ro" {
+                            // Skip segname (16 bytes)
+                            _ = try cmdCursor.readBytes(length: 16)
+                            let sectAddr = try cmdCursor.readLittleInt64()
+                            let sectVMAddr = UInt64(sectAddr)
+
+                            // Translate section address to file offset
+                            guard let sectFileOffset = translator.fileOffsetInt(for: sectVMAddr) else {
+                                throw ObjCOptError.addressTranslationFailed
+                            }
+
+                            // Read ObjC optimization header from this section
+                            let header = try DyldCacheObjCOptHeader(from: file, at: sectFileOffset)
+                            return ObjCOptHeaderResult(header: header, vmAddress: sectVMAddr)
+                        }
+
+                        // Move to next section
+                        try cmdCursor.reset(to: sectStart + 80)
+                    }
+                }
+            }
+
+            // Move to next load command
+            try cmdCursor.reset(to: cmdStart + Int(cmdsize))
+        }
+
+        throw ObjCOptError.objcOptRoSectionNotFound
+    }
+
+    /// Get the ObjC optimization header, trying cache-wide first, then libobjc fallback.
+    ///
+    /// This method provides compatibility across cache versions:
+    /// - Older caches (macOS 13-/iOS 16-): Use cache header's `objcOptOffset`
+    /// - Modern caches (macOS 14+/iOS 17+): Use libobjc's `__objc_opt_ro` section
+    ///
+    /// - Returns: The optimization header and its VM address.
+    /// - Throws: If neither method succeeds.
+    public func objcOptimizationHeaderWithFallback() throws -> ObjCOptHeaderResult {
+        // Try cache-wide optimization first (older caches)
+        if hasObjCOptimization {
+            let optHeader = try objcOptimizationHeader()
+
+            // Calculate VM address from file offset
+            // header.objcOptOffset is a file offset, we need to find which mapping it's in
+            let fileOffset = header.objcOptOffset
+            var vmAddress: UInt64 = 0
+
+            for mapping in mappings {
+                let mappingEnd = mapping.fileOffset + mapping.size
+                if fileOffset >= mapping.fileOffset && fileOffset < mappingEnd {
+                    vmAddress = mapping.address + (fileOffset - mapping.fileOffset)
+                    break
+                }
+            }
+
+            return ObjCOptHeaderResult(header: optHeader, vmAddress: vmAddress)
+        }
+
+        // Fall back to libobjc-embedded optimization (modern caches)
+        return try objcOptimizationHeaderFromLibobjc()
     }
 }

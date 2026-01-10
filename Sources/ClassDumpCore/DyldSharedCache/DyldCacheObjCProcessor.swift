@@ -90,32 +90,27 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
     /// Load the relative method selector base address from the cache's ObjC optimization header.
     ///
     /// The `relativeMethodSelectorBaseAddressOffset` field in the ObjC optimization header
-    /// is a file offset that, when added to the cache's base virtual address, gives the
-    /// virtual address of the selector strings base.
+    /// is an offset relative to the header's own address. When added to the header's VM address,
+    /// it gives the virtual address of the selector strings base.
     ///
     /// For small methods with direct selectors (iOS 16+), the method's `nameOffset` is
     /// relative to this base address.
+    ///
+    /// On modern caches (macOS 14+/iOS 17+), the ObjC optimization header is embedded in
+    /// libobjc.A.dylib's `__TEXT.__objc_opt_ro` section rather than at the cache header's
+    /// `objcOptOffset`. This method handles both cases.
     private static func loadRelativeMethodSelectorBase(from cache: DyldSharedCache) -> UInt64? {
-        guard cache.hasObjCOptimization else { return nil }
-
         do {
-            let optHeader = try cache.objcOptimizationHeader()
-            let offset = optHeader.relativeMethodSelectorBaseAddressOffset
+            // Use the fallback method that works for both old and new cache formats
+            let result = try cache.objcOptimizationHeaderWithFallback()
+            let offset = result.header.relativeMethodSelectorBaseAddressOffset
             guard offset != 0 else { return nil }
 
-            // The relativeMethodSelectorBaseAddressOffset is a file offset in the cache.
-            // We need to convert it to a virtual address.
-            // According to Apple's dyld source, it's computed as:
-            //   (uint64_t)cacheHeader + relativeMethodSelectorBaseAddressOffset
-            // where cacheHeader is the in-memory base of the cache.
-
-            // Get the base virtual address from the first mapping
-            guard let firstMapping = cache.mappings.first else { return nil }
-
-            // The offset is relative to the cache file start.
-            // First mapping starts at file offset 0 with address `firstMapping.address`.
-            // So the virtual address is: firstMapping.address + offset
-            let selectorBaseAddress = UInt64(Int64(firstMapping.address) + offset)
+            // The relativeMethodSelectorBaseAddressOffset is relative to the ObjC opt header.
+            // According to Apple's dyld source:
+            //   relativeMethodListsBaseAddress() { return (uintptr_t)this + offset; }
+            // where "this" is the ObjC opt header address.
+            let selectorBaseAddress = UInt64(Int64(result.vmAddress) + offset)
 
             // Validate that this address is within a valid mapping
             if cache.translator.fileOffsetInt(for: selectorBaseAddress) != nil {
