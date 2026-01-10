@@ -1,6 +1,6 @@
 # class-dump - Remaining Work
 
-**Current Status**: 1002 tests passing | Swift 6.2 | Version 4.0.3
+**Current Status**: 1028 tests passing | Swift 6.2 | Version 4.0.3
 
 ---
 
@@ -460,10 +460,37 @@ layouts vary across macOS/iOS versions. See T22 below.
 
 ## Future: Advanced Capabilities
 
-### Task T28: Full Swift Type Support
-- [ ] T28.1: Extensions
-- [ ] T28.2: Property wrappers
-- [ ] T28.3: Result builders
+### Task T28: Full Swift Type Support ✅ Complete
+**Status**: Complete (2026-01-10)
+
+- [x] T28.1: **Swift Extensions Parsing**
+  - Location: `Sources/ClassDumpCore/Swift/SwiftMetadata.swift`
+  - Added `SwiftExtension` struct for extension metadata
+  - Parses extensions from `__swift5_types` section (kind = 1)
+  - Tracks extended type, module, generic parameters, where clauses
+  - Added extension lookup methods to `SwiftMetadata`
+
+- [x] T28.2: **Property Wrappers Detection**
+  - Location: `Sources/ClassDumpCore/Swift/SwiftMetadata.swift`
+  - Added `SwiftPropertyWrapper` enum with common wrappers (@State, @Binding, @Published, etc.)
+  - Added `SwiftPropertyWrapperInfo` for wrapper details
+  - `SwiftField.propertyWrapper` computed property for detection
+  - Detects SwiftUI, Combine, and SwiftData wrappers
+
+- [x] T28.3: **Result Builders Detection**
+  - Location: `Sources/ClassDumpCore/Swift/SwiftMetadata.swift`
+  - Added `SwiftResultBuilder` enum (@ViewBuilder, @SceneBuilder, etc.)
+  - Added `SwiftResultBuilderInfo` for builder details
+  - `SwiftTypeDetection` utility enum for detection helpers
+
+- [x] T28.4: **Additional Swift Type Detection Utilities**
+  - `SwiftTypeDetection.looksLikeAsyncFunction()` for async detection
+  - `SwiftTypeDetection.looksLikeSendableClosure()` for @Sendable detection
+  - `SwiftTypeDetection.looksLikeActor()` for actor/isolation detection
+  - `SwiftTypeDetection.looksLikeOpaqueType()` for "some" return types
+
+### New Files Created
+- `Tests/ClassDumpCoreTests/Swift/TestSwiftTypeSupport.swift` - 26 new tests
 
 ### Task T29: Recursive Framework Resolution
 - [ ] T29.1: Dependency resolution with caching

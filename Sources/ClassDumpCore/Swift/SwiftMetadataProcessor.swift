@@ -79,8 +79,8 @@ public final class SwiftMetadataProcessor {
             fieldDescriptorsByType[fd.mangledTypeName] = fd
         }
 
-        // Parse types
-        let types = try parseTypes()
+        // Parse types and extensions together (they're in the same section)
+        let (types, extensions) = try parseTypesAndExtensions()
 
         // Parse protocols
         let protocols = try parseProtocols()
@@ -92,7 +92,8 @@ public final class SwiftMetadataProcessor {
             types: types,
             protocols: protocols,
             conformances: conformances,
-            fieldDescriptors: fieldDescriptors
+            fieldDescriptors: fieldDescriptors,
+            extensions: extensions
         )
     }
 
@@ -460,20 +461,21 @@ public final class SwiftMetadataProcessor {
 
     // MARK: - Type Descriptor Parsing
 
-    private func parseTypes() throws -> [SwiftType] {
+    private func parseTypesAndExtensions() throws -> ([SwiftType], [SwiftExtension]) {
         guard
             let section = findSection(segment: "__TEXT", section: "__swift5_types")
                 ?? findSection(segment: "__DATA_CONST", section: "__swift5_types")
         else {
-            return []
+            return ([], [])
         }
 
-        guard let sectionData = readSectionData(section) else { return [] }
+        guard let sectionData = readSectionData(section) else { return ([], []) }
 
         var types: [SwiftType] = []
+        var extensions: [SwiftExtension] = []
 
         // __swift5_types contains an array of 32-bit relative offsets
-        // pointing to type context descriptors
+        // pointing to type context descriptors (including extensions)
         var offset = 0
         while offset + 4 <= sectionData.count {
             let entryOffset = Int(section.offset) + offset
@@ -484,15 +486,33 @@ public final class SwiftMetadataProcessor {
                 continue
             }
 
-            // Parse the type context descriptor
-            if let type = parseTypeDescriptor(at: Int(descriptorOffset)) {
-                types.append(type)
+            // Check the kind first to determine if it's a type or extension
+            let fileOffset = Int(descriptorOffset)
+            guard fileOffset + 8 <= data.count else {
+                offset += 4
+                continue
+            }
+
+            let rawFlags = readUInt32(at: fileOffset)
+            let kindRaw = UInt8(rawFlags & 0x1F)
+
+            if kindRaw == SwiftContextDescriptorKind.extension.rawValue {
+                // Parse as extension
+                if let ext = parseExtensionDescriptor(at: fileOffset) {
+                    extensions.append(ext)
+                }
+            }
+            else if let kind = SwiftContextDescriptorKind(rawValue: kindRaw), kind.isType {
+                // Parse as type
+                if let type = parseTypeDescriptor(at: fileOffset) {
+                    types.append(type)
+                }
             }
 
             offset += 4
         }
 
-        return types
+        return (types, extensions)
     }
 
     private func parseTypeDescriptor(at fileOffset: Int) -> SwiftType? {
@@ -680,6 +700,117 @@ public final class SwiftMetadataProcessor {
             genericRequirements: genericRequirements,
             flags: typeFlags,
             objcClassAddress: objcClassAddress
+        )
+    }
+
+    // MARK: - Extension Descriptor Parsing
+
+    private func parseExtensionDescriptor(at fileOffset: Int) -> SwiftExtension? {
+        guard fileOffset + 12 <= data.count else { return nil }
+
+        // Extension descriptor layout:
+        // struct TargetExtensionContextDescriptor : TargetContextDescriptor {
+        //   uint32_t Flags;              // +0
+        //   int32_t Parent;              // +4 (relative pointer to module/context)
+        //   int32_t ExtendedContext;     // +8 (relative pointer to extended type name)
+        // }
+        //
+        // If generic (flags & 0x80): GenericContextDescriptorHeader follows at +12
+
+        let rawFlags = readUInt32(at: fileOffset)
+        let typeFlags = TypeContextDescriptorFlags(rawValue: rawFlags)
+        let isGeneric = typeFlags.isGeneric
+
+        // Read parent (module name)
+        var moduleName: String?
+        if let parentDescOffset = readRelativePointer(at: fileOffset + 4),
+            parentDescOffset > 0, Int(parentDescOffset) + 8 < data.count
+        {
+            // Parent is typically a module descriptor, which has name at offset +8
+            moduleName = readRelativeString(at: Int(parentDescOffset) + 8)
+        }
+
+        // Read extended type name (mangled)
+        var extendedTypeName = ""
+        var mangledExtendedTypeName = ""
+        if let extendedTypeOffset = readRelativePointer(at: fileOffset + 8) {
+            // This is typically a mangled type name string
+            if let mangled = readRelativeString(at: fileOffset + 8) {
+                mangledExtendedTypeName = mangled
+                // Demangle to get human-readable name
+                extendedTypeName = SwiftDemangler.demangleSwiftName(mangled)
+                if extendedTypeName.isEmpty || extendedTypeName == mangled {
+                    // Fall back to simple cleaning if demangling fails
+                    extendedTypeName =
+                        mangled
+                        .replacingOccurrences(of: "$s", with: "")
+                        .replacingOccurrences(of: "_Tt", with: "")
+                }
+            }
+            else {
+                // Try to read as direct type descriptor reference
+                let typeDescOffset = Int(extendedTypeOffset)
+                if typeDescOffset + 12 < data.count {
+                    // Check if it points to a type descriptor
+                    let descFlags = readUInt32(at: typeDescOffset)
+                    let descKind = UInt8(descFlags & 0x1F)
+                    if let kind = SwiftContextDescriptorKind(rawValue: descKind), kind.isType {
+                        // Read name from type descriptor at +8
+                        if let name = readRelativeString(at: typeDescOffset + 8) {
+                            extendedTypeName = name
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse generic parameters if present
+        var genericParamCount = 0
+        var genericParameters: [String] = []
+        var genericRequirements: [SwiftGenericRequirement] = []
+
+        if isGeneric {
+            let genericHeaderOffset = fileOffset + 12
+
+            if genericHeaderOffset + 8 <= data.count {
+                let rawParamCount = Int(readUInt16(at: genericHeaderOffset))
+                let numRequirements = Int(readUInt16(at: genericHeaderOffset + 2))
+
+                // Sanity check: param count should be reasonable
+                if rawParamCount > 0 && rawParamCount <= 16 {
+                    genericParamCount = rawParamCount
+                    genericParameters = generateGenericParamNames(count: genericParamCount)
+
+                    // Parse generic requirements if present
+                    if numRequirements > 0 && numRequirements <= 32 {
+                        let requirementsOffset = genericHeaderOffset + 8
+                        genericRequirements = parseGenericRequirements(
+                            at: requirementsOffset,
+                            count: numRequirements,
+                            paramNames: genericParameters
+                        )
+                    }
+                }
+            }
+        }
+
+        // Try to find conformances added by this extension
+        // Extensions that add conformances are tracked in __swift5_proto section
+        // but we'd need to cross-reference by address
+        let addedConformances: [String] = []
+
+        guard !extendedTypeName.isEmpty else { return nil }
+
+        return SwiftExtension(
+            address: UInt64(fileOffset),
+            extendedTypeName: extendedTypeName,
+            mangledExtendedTypeName: mangledExtendedTypeName,
+            moduleName: moduleName,
+            addedConformances: addedConformances,
+            genericParameters: genericParameters,
+            genericParamCount: genericParamCount,
+            genericRequirements: genericRequirements,
+            flags: typeFlags
         )
     }
 

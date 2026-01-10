@@ -19,6 +19,9 @@ public struct SwiftMetadata: Sendable {
     /// Field descriptors (for resolving ivar types).
     public let fieldDescriptors: [SwiftFieldDescriptor]
 
+    /// Swift extensions found in the binary.
+    public let extensions: [SwiftExtension]
+
     /// Lookup table for types by simple name.
     private let typesByName: [String: SwiftType]
 
@@ -34,17 +37,22 @@ public struct SwiftMetadata: Sendable {
     /// Lookup table for conformances by protocol name.
     private let conformancesByProtocolName: [String: [SwiftConformance]]
 
+    /// Lookup table for extensions by extended type name.
+    private let extensionsByTypeName: [String: [SwiftExtension]]
+
     /// Initialize metadata results.
     public init(
         types: [SwiftType] = [],
         protocols: [SwiftProtocol] = [],
         conformances: [SwiftConformance] = [],
-        fieldDescriptors: [SwiftFieldDescriptor] = []
+        fieldDescriptors: [SwiftFieldDescriptor] = [],
+        extensions: [SwiftExtension] = []
     ) {
         self.types = types
         self.protocols = protocols
         self.conformances = conformances
         self.fieldDescriptors = fieldDescriptors
+        self.extensions = extensions
 
         // Build type lookup tables
         var byName: [String: SwiftType] = [:]
@@ -74,6 +82,16 @@ public struct SwiftMetadata: Sendable {
         }
         self.conformancesByTypeName = confByType
         self.conformancesByProtocolName = confByProtocol
+
+        // Build extension lookup table
+        var extByType: [String: [SwiftExtension]] = [:]
+        for ext in extensions {
+            let typeName = ext.extendedTypeName
+            if !typeName.isEmpty {
+                extByType[typeName, default: []].append(ext)
+            }
+        }
+        self.extensionsByTypeName = extByType
     }
 
     /// Look up a Swift type by simple name.
@@ -167,6 +185,28 @@ public struct SwiftMetadata: Sendable {
     /// Get all conditional conformances.
     public var conditionalConformances: [SwiftConformance] {
         conformances.filter(\.isConditional)
+    }
+
+    // MARK: - Extension Lookup
+
+    /// Get all extensions for a given type name.
+    public func extensions(forType typeName: String) -> [SwiftExtension] {
+        extensionsByTypeName[typeName] ?? []
+    }
+
+    /// Get all extensions that add protocol conformances.
+    public var extensionsWithConformances: [SwiftExtension] {
+        extensions.filter(\.addsConformances)
+    }
+
+    /// Get all generic extensions (with where clauses).
+    public var genericExtensions: [SwiftExtension] {
+        extensions.filter(\.isGeneric)
+    }
+
+    /// Get all extensions with generic constraints.
+    public var extensionsWithConstraints: [SwiftExtension] {
+        extensions.filter(\.hasGenericConstraints)
     }
 }
 
@@ -488,6 +528,47 @@ public struct SwiftField: Sendable {
         self.typeName = typeName
         self.isVar = isVar
         self.isIndirect = isIndirect
+    }
+
+    // MARK: - Property Wrapper Detection
+
+    /// Detect if this field uses a property wrapper.
+    ///
+    /// Returns the detected wrapper info if the field's type matches a known wrapper pattern.
+    public var propertyWrapper: SwiftPropertyWrapperInfo? {
+        guard !typeName.isEmpty else { return nil }
+
+        // Check for known property wrapper patterns
+        if let wrapper = SwiftPropertyWrapper.detect(from: typeName) {
+            let wrappedType = extractWrappedType(from: typeName)
+            return SwiftPropertyWrapperInfo(
+                wrapper: wrapper,
+                wrapperTypeName: typeName,
+                wrappedValueType: wrappedType
+            )
+        }
+
+        return nil
+    }
+
+    /// Whether this field uses a property wrapper.
+    public var hasPropertyWrapper: Bool {
+        propertyWrapper != nil
+    }
+
+    /// Extract the wrapped type from a wrapper type name like "State<Int>" -> "Int".
+    private func extractWrappedType(from wrapperTypeName: String) -> String? {
+        // Look for generic parameter: WrapperName<WrappedType>
+        guard let startIndex = wrapperTypeName.firstIndex(of: "<"),
+            let endIndex = wrapperTypeName.lastIndex(of: ">")
+        else {
+            return nil
+        }
+
+        let afterStart = wrapperTypeName.index(after: startIndex)
+        guard afterStart < endIndex else { return nil }
+
+        return String(wrapperTypeName[afterStart..<endIndex])
     }
 }
 
@@ -865,5 +946,354 @@ public struct SwiftFieldRecord: Sendable {
         self.mangledTypeName = mangledTypeName
         self.mangledTypeData = mangledTypeData
         self.mangledTypeNameOffset = mangledTypeNameOffset
+    }
+}
+
+// MARK: - Swift Extensions
+
+/// A Swift extension on a type.
+///
+/// Extensions in Swift can add protocol conformances, methods, and computed properties
+/// to existing types. This structure captures extension metadata from `__swift5_types`.
+public struct SwiftExtension: Sendable {
+    /// File offset of the extension descriptor.
+    public let address: UInt64
+
+    /// The name of the extended type.
+    public let extendedTypeName: String
+
+    /// Mangled name of the extended type.
+    public let mangledExtendedTypeName: String
+
+    /// Module containing the extension.
+    public let moduleName: String?
+
+    /// Protocol conformances added by this extension.
+    public let addedConformances: [String]
+
+    /// Generic parameters (if extension is generic).
+    public let genericParameters: [String]
+
+    /// Number of generic parameters.
+    public let genericParamCount: Int
+
+    /// Generic requirements (where clauses).
+    public let genericRequirements: [SwiftGenericRequirement]
+
+    /// Type context descriptor flags.
+    public let flags: TypeContextDescriptorFlags
+
+    /// Whether this extension is generic.
+    public var isGeneric: Bool { genericParamCount > 0 }
+
+    /// Whether this extension adds protocol conformances.
+    public var addsConformances: Bool { !addedConformances.isEmpty }
+
+    /// Whether this extension has generic constraints (where clauses).
+    public var hasGenericConstraints: Bool { !genericRequirements.isEmpty }
+
+    /// Format generic constraints as a where clause string.
+    public var whereClause: String {
+        guard !genericRequirements.isEmpty else { return "" }
+        return "where " + genericRequirements.map(\.description).joined(separator: ", ")
+    }
+
+    /// Initialize a Swift extension.
+    public init(
+        address: UInt64,
+        extendedTypeName: String,
+        mangledExtendedTypeName: String = "",
+        moduleName: String? = nil,
+        addedConformances: [String] = [],
+        genericParameters: [String] = [],
+        genericParamCount: Int = 0,
+        genericRequirements: [SwiftGenericRequirement] = [],
+        flags: TypeContextDescriptorFlags = TypeContextDescriptorFlags(rawValue: 0)
+    ) {
+        self.address = address
+        self.extendedTypeName = extendedTypeName
+        self.mangledExtendedTypeName = mangledExtendedTypeName
+        self.moduleName = moduleName
+        self.addedConformances = addedConformances
+        self.genericParameters = genericParameters
+        self.genericParamCount = genericParamCount
+        self.genericRequirements = genericRequirements
+        self.flags = flags
+    }
+}
+
+// MARK: - Property Wrappers
+
+/// Known Swift property wrapper types.
+public enum SwiftPropertyWrapper: String, Sendable, CaseIterable {
+    // SwiftUI wrappers
+    case state = "State"
+    case binding = "Binding"
+    case observedObject = "ObservedObject"
+    case stateObject = "StateObject"
+    case environmentObject = "EnvironmentObject"
+    case environment = "Environment"
+    case focusState = "FocusState"
+    case gestureState = "GestureState"
+    case scaledMetric = "ScaledMetric"
+    case appStorage = "AppStorage"
+    case sceneStorage = "SceneStorage"
+    case fetchRequest = "FetchRequest"
+    case sectionedFetchRequest = "SectionedFetchRequest"
+    case query = "Query"  // SwiftData
+    case bindable = "Bindable"  // iOS 17+
+
+    // Combine wrappers
+    case published = "Published"
+
+    // Custom or unknown wrapper
+    case custom = "_custom"
+
+    /// The projected value prefix ($ prefix) type, if any.
+    public var projectedValueType: String? {
+        switch self {
+            case .state, .binding: return "Binding"
+            case .observedObject: return "ObservedObject.Wrapper"
+            case .stateObject: return "ObservedObject.Wrapper"
+            case .environmentObject: return "EnvironmentObject.Wrapper"
+            case .focusState: return "FocusState.Binding"
+            case .gestureState: return "GestureState.Binding"
+            case .published: return "Published.Publisher"
+            case .environment, .scaledMetric, .appStorage, .sceneStorage,
+                .fetchRequest, .sectionedFetchRequest, .query, .bindable, .custom:
+                return nil
+        }
+    }
+
+    /// Whether this wrapper requires a view context (SwiftUI wrappers).
+    public var requiresViewContext: Bool {
+        switch self {
+            case .state, .binding, .observedObject, .stateObject, .environmentObject,
+                .environment, .focusState, .gestureState, .scaledMetric,
+                .appStorage, .sceneStorage, .fetchRequest, .sectionedFetchRequest,
+                .query, .bindable:
+                return true
+            case .published, .custom:
+                return false
+        }
+    }
+
+    /// Detect property wrapper from a type name.
+    public static func detect(from typeName: String) -> SwiftPropertyWrapper? {
+        // Direct match by wrapper name
+        for wrapper in SwiftPropertyWrapper.allCases {
+            if wrapper == .custom { continue }
+            if typeName == wrapper.rawValue || typeName.hasPrefix("\(wrapper.rawValue)<") {
+                return wrapper
+            }
+            // Check for module-qualified names like SwiftUI.State
+            if typeName.hasSuffix(".\(wrapper.rawValue)")
+                || typeName.contains(".\(wrapper.rawValue)<")
+            {
+                return wrapper
+            }
+        }
+        return nil
+    }
+}
+
+/// Information about a property wrapper applied to a field.
+public struct SwiftPropertyWrapperInfo: Sendable {
+    /// The detected property wrapper.
+    public let wrapper: SwiftPropertyWrapper
+
+    /// The wrapper type name as it appears in the mangled type.
+    public let wrapperTypeName: String
+
+    /// The wrapped value type (inner type).
+    public let wrappedValueType: String?
+
+    /// Initialize property wrapper info.
+    public init(
+        wrapper: SwiftPropertyWrapper,
+        wrapperTypeName: String,
+        wrappedValueType: String? = nil
+    ) {
+        self.wrapper = wrapper
+        self.wrapperTypeName = wrapperTypeName
+        self.wrappedValueType = wrappedValueType
+    }
+}
+
+// MARK: - Result Builders
+
+/// Known Swift result builder types.
+public enum SwiftResultBuilder: String, Sendable, CaseIterable {
+    // SwiftUI builders
+    case viewBuilder = "ViewBuilder"
+    case sceneBuilder = "SceneBuilder"
+    case commandsBuilder = "CommandsBuilder"
+    case toolbarContentBuilder = "ToolbarContentBuilder"
+    case tableColumnBuilder = "TableColumnBuilder"
+    case tableRowBuilder = "TableRowBuilder"
+    case accessibilityRotorContentBuilder = "AccessibilityRotorContentBuilder"
+
+    // Other common builders
+    case stringInterpolation = "StringInterpolation"
+    case regexComponentBuilder = "RegexComponentBuilder"
+
+    // Custom or unknown builder
+    case custom = "_custom"
+
+    /// Detect result builder from an attribute name.
+    public static func detect(from attributeName: String) -> SwiftResultBuilder? {
+        // Direct match by builder name
+        for builder in SwiftResultBuilder.allCases {
+            if builder == .custom { continue }
+            if attributeName == builder.rawValue {
+                return builder
+            }
+            // Check for module-qualified names like SwiftUI.ViewBuilder
+            if attributeName.hasSuffix(".\(builder.rawValue)") {
+                return builder
+            }
+        }
+        return nil
+    }
+}
+
+/// Information about a result builder attribute on a method or parameter.
+public struct SwiftResultBuilderInfo: Sendable {
+    /// The detected result builder.
+    public let builder: SwiftResultBuilder
+
+    /// The builder type name as it appears in the attribute.
+    public let builderTypeName: String
+
+    /// Initialize result builder info.
+    public init(
+        builder: SwiftResultBuilder,
+        builderTypeName: String
+    ) {
+        self.builder = builder
+        self.builderTypeName = builderTypeName
+    }
+}
+
+// MARK: - Swift Type Detection Utilities
+
+/// Utilities for detecting Swift-specific features from type names and mangled symbols.
+public enum SwiftTypeDetection {
+    /// Detect a property wrapper from a type name.
+    ///
+    /// - Parameter typeName: The type name (e.g., "State<Int>", "SwiftUI.Binding<String>").
+    /// - Returns: Property wrapper info if detected, nil otherwise.
+    public static func detectPropertyWrapper(from typeName: String) -> SwiftPropertyWrapperInfo? {
+        guard let wrapper = SwiftPropertyWrapper.detect(from: typeName) else {
+            return nil
+        }
+        let wrappedType = extractGenericParameter(from: typeName)
+        return SwiftPropertyWrapperInfo(
+            wrapper: wrapper,
+            wrapperTypeName: typeName,
+            wrappedValueType: wrappedType
+        )
+    }
+
+    /// Detect a result builder from a type or attribute name.
+    ///
+    /// - Parameter attributeName: The attribute name (e.g., "ViewBuilder", "SwiftUI.SceneBuilder").
+    /// - Returns: Result builder info if detected, nil otherwise.
+    public static func detectResultBuilder(from attributeName: String) -> SwiftResultBuilderInfo? {
+        guard let builder = SwiftResultBuilder.detect(from: attributeName) else {
+            return nil
+        }
+        return SwiftResultBuilderInfo(builder: builder, builderTypeName: attributeName)
+    }
+
+    /// Check if a type name looks like a closure type with a result builder.
+    ///
+    /// Result builder closures often have patterns like `@ViewBuilder () -> some View`.
+    ///
+    /// - Parameter typeName: The full type signature.
+    /// - Returns: Tuple of (builder info, closure type) if detected.
+    public static func detectResultBuilderClosure(
+        from typeName: String
+    ) -> (builder: SwiftResultBuilderInfo, closureType: String)? {
+        // Look for @Builder pattern followed by closure
+        for builder in SwiftResultBuilder.allCases {
+            if builder == .custom { continue }
+            let pattern = "@\(builder.rawValue)"
+            if typeName.contains(pattern) {
+                // Extract the closure part after the builder
+                if let range = typeName.range(of: pattern) {
+                    let closurePart = typeName[range.upperBound...].trimmingCharacters(in: .whitespaces)
+                    return (
+                        SwiftResultBuilderInfo(builder: builder, builderTypeName: builder.rawValue),
+                        closurePart
+                    )
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Extract the generic parameter from a generic type like "State<Int>" -> "Int".
+    ///
+    /// - Parameter typeName: The generic type name.
+    /// - Returns: The inner type, or nil if not found.
+    public static func extractGenericParameter(from typeName: String) -> String? {
+        guard let startIndex = typeName.firstIndex(of: "<"),
+            let endIndex = typeName.lastIndex(of: ">")
+        else {
+            return nil
+        }
+
+        let afterStart = typeName.index(after: startIndex)
+        guard afterStart < endIndex else { return nil }
+
+        return String(typeName[afterStart..<endIndex])
+    }
+
+    /// Check if a type looks like a Swift async type.
+    ///
+    /// Async functions have specific mangling patterns.
+    ///
+    /// - Parameter mangledName: The mangled function name.
+    /// - Returns: true if the function appears to be async.
+    public static func looksLikeAsyncFunction(_ mangledName: String) -> Bool {
+        // Swift async functions have specific mangling patterns
+        // The convention attribute in mangling includes 'a' for async
+        // Pattern: $sSOME_NAME followed by convention markers
+        // In practice, async functions have 'Ta' (thin async) or similar markers
+        if mangledName.contains("Ta") || mangledName.contains("YaK") {
+            return true
+        }
+        // Also check for async thunk markers
+        if mangledName.contains("ScM") || mangledName.contains("Tu") {
+            return true
+        }
+        return false
+    }
+
+    /// Check if a type represents a Sendable closure.
+    ///
+    /// - Parameter typeName: The type name.
+    /// - Returns: true if the type looks like a @Sendable closure.
+    public static func looksLikeSendableClosure(_ typeName: String) -> Bool {
+        // @Sendable closures have specific patterns
+        typeName.contains("@Sendable") || typeName.contains("Sendable")
+    }
+
+    /// Check if a type represents an actor.
+    ///
+    /// - Parameter typeName: The type name.
+    /// - Returns: true if the type mentions actor isolation.
+    public static func looksLikeActor(_ typeName: String) -> Bool {
+        // Actor types or isolated parameters
+        typeName.contains("actor") || typeName.contains("@isolated") || typeName.contains("@MainActor")
+    }
+
+    /// Check if a type represents an opaque return type (some Protocol).
+    ///
+    /// - Parameter typeName: The type name.
+    /// - Returns: true if the type is an opaque type.
+    public static func looksLikeOpaqueType(_ typeName: String) -> Bool {
+        typeName.hasPrefix("some ") || typeName.contains("some ")
     }
 }
