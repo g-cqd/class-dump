@@ -4,6 +4,261 @@
 
 ---
 
+## IMMEDIATE: Codebase Refactoring & Organization
+
+### Code Organization Rules (ENFORCED)
+1. **One type per file**: One public XOR one internal type per file. Only private supporting types may remain.
+2. **One test suite per file**: Each test file contains exactly one `@Suite`.
+3. **Extensions in separate files**: Named `TypeName+Feature.swift` or `TypeName+ProtocolName.swift`.
+4. **Max 400 lines per file**: Split large files into focused modules.
+5. **Swift 6.2 strict concurrency**: All code must pass `-strict-concurrency=complete`.
+
+---
+
+### Task R01: Split Large Source Files (>400 lines)
+**Priority**: Critical | **Estimated Files**: 9 files → ~45 files
+
+| File | Lines | Action |
+|------|-------|--------|
+| `SwiftDemangler.swift` | 2,545 | Split into 6-7 files |
+| `ObjC2Processor.swift` | 1,755 | Split into 4-5 files |
+| `SwiftMetadata.swift` | 1,300 | Split into 8-10 files |
+| `SwiftMetadataProcessor.swift` | 1,227 | Split into 3-4 files |
+| `TextClassDumpVisitor.swift` | 726 | Split into 2 files |
+| `JSONOutputVisitor.swift` | 625 | Split into 2 files |
+| `SwiftOutputVisitor.swift` | 529 | Split into 2 files |
+| `ObjCTypeParser.swift` | 474 | Split into 2 files |
+
+- [ ] R01.1: **SwiftDemangler.swift** → Split into:
+  - `SwiftDemangler.swift` - Core demangler class + cache
+  - `SwiftDemangler+Parsing.swift` - Main parsing logic
+  - `SwiftDemangler+Types.swift` - Type parsing (generics, tuples, etc.)
+  - `SwiftDemangler+Functions.swift` - Function signature parsing
+  - `SwiftDemangler+Operators.swift` - Operator demangling
+  - `SwiftDemangler+Generics.swift` - Generic signature/constraint parsing
+  - `SwiftDemangler+Extensions.swift` - String helpers (move to String+SwiftDemangling.swift)
+
+- [ ] R01.2: **ObjC2Processor.swift** → Split into:
+  - `ObjC2Processor.swift` - Core processor class
+  - `ObjC2Processor+Classes.swift` - Class/metaclass loading
+  - `ObjC2Processor+Methods.swift` - Method loading (regular + small)
+  - `ObjC2Processor+Properties.swift` - Property/ivar loading
+  - `ObjC2Processor+Categories.swift` - Category loading
+  - `ObjC2Processor+Protocols.swift` - Protocol loading
+
+- [ ] R01.3: **SwiftMetadata.swift** → Extract types to individual files:
+  - `SwiftType.swift` - Core SwiftType struct
+  - `SwiftProtocol.swift` - SwiftProtocol struct
+  - `SwiftConformance.swift` - SwiftConformance struct
+  - `SwiftFieldDescriptor.swift` - SwiftFieldDescriptor struct
+  - `SwiftField.swift` - SwiftField struct
+  - `SwiftGenericRequirement.swift` - Generic requirement types
+  - `SwiftExtension.swift` - SwiftExtension struct
+  - `SwiftPropertyWrapper.swift` - Property wrapper enum/info
+  - `SwiftResultBuilder.swift` - Result builder enum/info
+  - `SwiftTypeDetection.swift` - Type detection utilities
+  - `SwiftContextDescriptorKind.swift` - Context descriptor enums
+  - `SwiftMetadata.swift` - Main SwiftMetadata container only
+
+- [ ] R01.4: **SwiftMetadataProcessor.swift** → Split into:
+  - `SwiftMetadataProcessor.swift` - Core processor
+  - `SwiftMetadataProcessor+Types.swift` - Type descriptor parsing
+  - `SwiftMetadataProcessor+Fields.swift` - Field descriptor parsing
+  - `SwiftMetadataProcessor+Protocols.swift` - Protocol parsing
+  - `SwiftMetadataProcessor+Conformances.swift` - Conformance parsing
+
+- [ ] R01.5: **TextClassDumpVisitor.swift** → Split into:
+  - `TextClassDumpVisitor.swift` - Core visitor
+  - `TextClassDumpVisitor+Formatting.swift` - Type formatting helpers
+
+- [ ] R01.6: **JSONOutputVisitor.swift** → Extract models:
+  - `JSONOutputVisitor.swift` - Core visitor
+  - `JSONOutputModels.swift` - All Codable structs (ClassDumpJSON, etc.)
+
+- [ ] R01.7: **SwiftOutputVisitor.swift** → Split into:
+  - `SwiftOutputVisitor.swift` - Core visitor
+  - `SwiftOutputVisitor+TypeConversion.swift` - ObjC→Swift type conversion
+
+- [ ] R01.8: **ObjCTypeParser.swift** → Split into:
+  - `ObjCTypeParser.swift` - Core parser
+  - `ObjCTypeParser+Cache.swift` - Caching infrastructure
+
+---
+
+### Task R02: Extract Multi-Type Files
+**Priority**: High | **Estimated Files**: 6 files → ~35 files
+
+- [ ] R02.1: **OtherLoadCommands.swift** (13 types) → Extract each:
+  - `DylinkerCommand.swift`
+  - `UUIDCommand.swift`
+  - `VersionCommand.swift`
+  - `BuildVersionCommand.swift` (with BuildPlatform, BuildToolVersion)
+  - `MainCommand.swift`
+  - `SourceVersionCommand.swift`
+  - `EncryptionInfoCommand.swift`
+  - `LinkeditDataCommand.swift`
+  - `RpathCommand.swift`
+  - `DyldInfoCommand.swift`
+
+- [ ] R02.2: **ObjC2RuntimeStructs.swift** (12 types) → Extract each:
+  - `ObjC2ListHeader.swift`
+  - `ObjC2SmallMethod.swift`
+  - `ObjC2ImageInfo.swift`
+  - `ObjC2Class.swift`
+  - `ObjC2ClassROData.swift`
+  - `ObjC2Method.swift`
+  - `ObjC2Ivar.swift`
+  - `ObjC2Property.swift`
+  - `ObjC2Protocol.swift`
+  - `ObjC2Category.swift`
+
+- [ ] R02.3: **ChainedFixups.swift** (7 types) → Extract each:
+  - `ChainedPointerFormat.swift`
+  - `ChainedImportFormat.swift`
+  - `ChainedFixupsHeader.swift`
+  - `ChainedImport.swift`
+  - `ChainedFixupResult.swift`
+  - `ChainedFixupsError.swift`
+  - `ChainedFixups.swift` (main)
+
+- [ ] R02.4: **ObjCTypeLexer.swift** (3 types) → Extract:
+  - `ObjCTypeToken.swift`
+  - `ObjCTypeLexerState.swift`
+  - `ObjCTypeLexer.swift` (main)
+
+- [ ] R02.5: **Section.swift** (2 types) → Extract:
+  - `SectionType.swift`
+  - `Section.swift` (main)
+
+---
+
+### Task R03: Extract Extensions to Separate Files
+**Priority**: High | **Estimated Files**: 2 files → ~10 files
+
+- [ ] R03.1: **VisitorExtensions.swift** → Distribute to:
+  - `ObjCClass+Visitor.swift`
+  - `ObjCCategory+Visitor.swift`
+  - `ObjCProtocol+Visitor.swift`
+  - `ObjCProperty+Visitor.swift`
+  - `ObjCInstanceVariable+Visitor.swift`
+  - `ObjCMethod+Visitor.swift`
+  - `ClassDumpVisitor+Helpers.swift`
+
+- [ ] R03.2: **ClassFrameworkVisitor.swift** → Extract:
+  - `ObjCClass+ClassFramework.swift`
+  - `ObjCCategory+ClassFramework.swift`
+
+---
+
+### Task R04: Split Test Files (Multi-Suite)
+**Priority**: High | **Estimated Files**: 28 files → ~130 files
+
+**Critical (10+ suites):**
+- [ ] R04.1: **TestLoadCommands.swift** (11 suites) → 11 files
+- [ ] R04.2: **TestGenericConstraints.swift** (11 suites) → 9 files
+- [ ] R04.3: **TestObjCTypeParsing.swift** (10 suites) → 10 files
+- [ ] R04.4: **TestTextVisitor.swift** (10 suites) → 8 files
+- [ ] R04.5: **TestObjCTypeEdgeCases.swift** (9 suites) → 8 files
+- [ ] R04.6: **TestObjCMetadata.swift** (9 suites) → 8 files
+
+**High (5-6 suites):**
+- [ ] R04.7: **TestMachOTypes.swift** (6 suites) → 6 files
+- [ ] R04.8: **TestNominalTypeDescriptor.swift** (6 suites) → 5 files
+- [ ] R04.9: **TestSwiftConformance.swift** (6 suites) → 5 files
+- [ ] R04.10: **TestVisitorExtensions.swift** (6 suites) → 6 files
+- [ ] R04.11: **TestSwiftProtocol.swift** (5 suites) → 4 files
+- [ ] R04.12: **TestObjCTypeFormatting.swift** (5 suites) → 3 files
+
+**Medium (2-4 suites):**
+- [ ] R04.13: Split remaining 16 multi-suite test files
+
+---
+
+### Task R05: Directory Structure Reorganization
+**Priority**: Medium
+
+- [ ] R05.1: Create subdirectories for large modules:
+  ```
+  Sources/ClassDumpCore/
+  ├── Swift/
+  │   ├── Demangling/          (SwiftDemangler + parts)
+  │   ├── Metadata/            (SwiftMetadata types)
+  │   └── Processing/          (SwiftMetadataProcessor + parts)
+  ├── ObjCMetadata/
+  │   ├── RuntimeStructs/      (ObjC2* types)
+  │   └── Processing/          (ObjC2Processor + parts)
+  ├── LoadCommands/
+  │   ├── Core/                (LoadCommand, Section, Segment)
+  │   └── Types/               (Individual command types)
+  └── Visitor/
+      ├── Core/                (Protocol, base types)
+      ├── Text/                (Text visitors)
+      └── Structured/          (JSON, SymbolGraph visitors)
+  ```
+
+- [ ] R05.2: Create subdirectories for tests:
+  ```
+  Tests/ClassDumpCoreTests/
+  ├── LoadCommands/            (Split test files)
+  ├── TypeSystem/              (Split test files)
+  ├── Demangling/              (Split test files)
+  └── Visitor/                 (Split test files)
+  ```
+
+---
+
+### Task R06: Naming Convention Alignment
+**Priority**: Medium
+
+- [ ] R06.1: Rename files to match primary type exactly
+- [ ] R06.2: Rename extension files to `TypeName+Feature.swift` pattern
+- [ ] R06.3: Rename internal types to use `_` prefix where appropriate
+- [ ] R06.4: Ensure all enum cases are `lowerCamelCase`
+
+---
+
+### Task R07: Import Organization
+**Priority**: Low
+
+- [ ] R07.1: Organize imports in 4 groups (separated by blank line):
+  1. Standard Library/Frameworks
+  2. External Dependencies
+  3. Internal Core/Utility Modules
+  4. Sibling/Feature Modules
+- [ ] R07.2: Alphabetize imports within each group
+
+---
+
+### Task R08: Documentation Alignment
+**Priority**: Low
+
+- [ ] R08.1: Add file headers with SPDX license identifier
+- [ ] R08.2: Add `// MARK: -` section dividers
+- [ ] R08.3: Ensure all public APIs have doc comments
+
+---
+
+### Task R09: Swift 6.2 Strict Concurrency Audit
+**Priority**: High
+
+- [ ] R09.1: Verify all types are `Sendable` where appropriate
+- [ ] R09.2: Audit all actors for proper isolation
+- [ ] R09.3: Ensure no `nonisolated(unsafe)` usage without justification
+- [ ] R09.4: Run with `-strict-concurrency=complete` flag
+
+---
+
+### Task R10: Validation & Verification
+**Priority**: Critical (After all refactoring)
+
+- [ ] R10.1: All 1028+ tests still passing
+- [ ] R10.2: No new compiler warnings
+- [ ] R10.3: `swift build` succeeds with strict concurrency
+- [ ] R10.4: Benchmark shows no performance regression
+- [ ] R10.5: Update test count in TODO.md
+
+---
+
 ## Recently Completed: String Interning & Performance Optimizations
 
 ### Task T11.7.1: String Interning ✅ Complete (2026-01-09)
