@@ -108,6 +108,11 @@ struct SystemDemanglerTests {
 
     @Test("Cache returns previously demangled results")
     func cachingWorks() async {
+        // Skip if swift-demangle not available (cache only works with system demangler)
+        guard await SystemDemangler.shared.checkAvailability() else {
+            return
+        }
+
         await SystemDemangler.shared.clearCache()
 
         let symbol = "_$sSS"
@@ -127,6 +132,11 @@ struct SystemDemanglerTests {
 
     @Test("Clear cache resets statistics", .serialized)
     func clearCacheWorks() async {
+        // Skip if swift-demangle not available (cache only works with system demangler)
+        guard await SystemDemangler.shared.checkAvailability() else {
+            return
+        }
+
         // Clear cache first to establish baseline
         await SystemDemangler.shared.clearCache()
 

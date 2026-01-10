@@ -279,7 +279,6 @@ struct DyldCacheObjCOptimizationTests {
 
         #expect(header.version > 0, "Version should be positive")
         #expect(header.selectorOptOffset != 0, "Selector table should exist")
-
     }
 
     @Test("Parses selector table")

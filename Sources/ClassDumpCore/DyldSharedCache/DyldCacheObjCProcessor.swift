@@ -60,6 +60,13 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
     /// Thread-safe string cache.
     private let stringCache = StringTableCache()
 
+    /// Base address for relative method selector resolution.
+    ///
+    /// For small methods in DSC, the selector `nameOffset` is relative to this base address
+    /// (when using direct selectors, i.e., iOS 16+). This is obtained from the
+    /// `relativeMethodSelectorBaseAddressOffset` field in the ObjC optimization header.
+    private let relativeMethodSelectorBase: UInt64?
+
     // MARK: - Initialization
 
     /// Initialize a processor for an image in a cache.
@@ -75,6 +82,51 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
         self.dataProvider = try DyldCacheDataProvider(cache: cache, image: image)
         // Use first mapping's address as shared region base for pointer decoding
         self.sharedRegionBase = cache.mappings.first?.address ?? 0
+
+        // Try to load the relative method selector base from ObjC optimization header
+        self.relativeMethodSelectorBase = Self.loadRelativeMethodSelectorBase(from: cache)
+    }
+
+    /// Load the relative method selector base address from the cache's ObjC optimization header.
+    ///
+    /// The `relativeMethodSelectorBaseAddressOffset` field in the ObjC optimization header
+    /// is a file offset that, when added to the cache's base virtual address, gives the
+    /// virtual address of the selector strings base.
+    ///
+    /// For small methods with direct selectors (iOS 16+), the method's `nameOffset` is
+    /// relative to this base address.
+    private static func loadRelativeMethodSelectorBase(from cache: DyldSharedCache) -> UInt64? {
+        guard cache.hasObjCOptimization else { return nil }
+
+        do {
+            let optHeader = try cache.objcOptimizationHeader()
+            let offset = optHeader.relativeMethodSelectorBaseAddressOffset
+            guard offset != 0 else { return nil }
+
+            // The relativeMethodSelectorBaseAddressOffset is a file offset in the cache.
+            // We need to convert it to a virtual address.
+            // According to Apple's dyld source, it's computed as:
+            //   (uint64_t)cacheHeader + relativeMethodSelectorBaseAddressOffset
+            // where cacheHeader is the in-memory base of the cache.
+
+            // Get the base virtual address from the first mapping
+            guard let firstMapping = cache.mappings.first else { return nil }
+
+            // The offset is relative to the cache file start.
+            // First mapping starts at file offset 0 with address `firstMapping.address`.
+            // So the virtual address is: firstMapping.address + offset
+            let selectorBaseAddress = UInt64(Int64(firstMapping.address) + offset)
+
+            // Validate that this address is within a valid mapping
+            if cache.translator.fileOffsetInt(for: selectorBaseAddress) != nil {
+                return selectorBaseAddress
+            }
+
+            return nil
+        }
+        catch {
+            return nil
+        }
     }
 
     // MARK: - Public API
@@ -674,14 +726,11 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
 
         // Check for small methods format
         if listHeader.usesSmallMethods {
-            // Small methods in DSC use a complex selector lookup mechanism involving
-            // the ObjC optimization header and relativeMethodSelectorBaseAddressOffset.
-            // The header layout varies across macOS/iOS versions, making reliable
-            // selector lookup difficult without version-specific handling.
-            //
-            // For now, skip small methods to avoid garbled output.
-            // TODO: Implement proper selector lookup for DSC small methods (T22)
-            return []
+            return try loadSmallMethods(
+                at: decodedAddress,
+                listHeader: listHeader,
+                usesDirectSelectors: listHeader.usesDirectSelectors
+            )
         }
 
         // Regular methods
@@ -700,6 +749,117 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
             let typeString = readString(at: typesAddr) ?? ""
 
             let method = ObjCMethod(name: name, typeString: typeString, address: rawMethod.imp)
+            methods.append(method)
+        }
+
+        return methods.reversed()
+    }
+
+    /// Load methods using the small method format (relative offsets).
+    ///
+    /// In modern DSC (iOS 14+), methods use a compact 12-byte format with relative offsets:
+    /// - `nameOffset`: Int32 relative offset to selector
+    /// - `typesOffset`: Int32 relative offset to type encoding
+    /// - `impOffset`: Int32 relative offset to implementation
+    ///
+    /// For selector resolution:
+    /// - With direct selectors (iOS 16+): nameOffset is relative to `relativeMethodSelectorBase`
+    /// - Without direct selectors: nameOffset points to a selector reference that dereferences to the string
+    ///
+    /// - Parameters:
+    ///   - listAddress: Virtual address of the method list.
+    ///   - listHeader: The parsed list header.
+    ///   - usesDirectSelectors: Whether selectors use direct offsets (iOS 16+).
+    /// - Returns: Array of parsed methods.
+    private func loadSmallMethods(
+        at listAddress: UInt64,
+        listHeader: ObjC2ListHeader,
+        usesDirectSelectors: Bool
+    ) throws -> [ObjCMethod] {
+        guard let offset = fileOffset(for: listAddress) else { return [] }
+
+        // Read all small method entries (12 bytes each, after 8-byte header)
+        let entrySize = 12
+        let listData = try cache.file.data(at: offset + 8, count: Int(listHeader.count) * entrySize)
+        var cursor = try DataCursor(data: listData)
+
+        var methods: [ObjCMethod] = []
+
+        for i in 0..<listHeader.count {
+            let smallMethod = try ObjC2SmallMethod(cursor: &cursor, byteOrder: byteOrder)
+
+            // Calculate VM addresses for this method entry
+            // Each small method is 12 bytes, starting after the 8-byte header
+            let methodEntryVMAddr = listAddress + 8 + UInt64(i) * 12
+
+            // Resolve the selector name
+            let name: String?
+
+            if usesDirectSelectors {
+                // iOS 16+: nameOffset is relative to the selector strings base.
+                // The selector string is directly at: selectorBase + nameOffset.
+                // If we don't have the selector base, we cannot resolve direct selectors.
+                guard let selectorBase = relativeMethodSelectorBase else {
+                    // Cannot resolve direct selectors without the base address.
+                    // This can happen when:
+                    // 1. The cache doesn't have an embedded ObjC optimization header
+                    // 2. The header parsing failed
+                    // 3. The relativeMethodSelectorBaseAddressOffset is 0
+                    // In this case, skip small methods entirely to avoid garbled output.
+                    return []
+                }
+                let selectorAddr = UInt64(Int64(selectorBase) + Int64(smallMethod.nameOffset))
+                name = readString(at: selectorAddr)
+            }
+            else {
+                // Pre-iOS 16: nameOffset is relative to the name field's address
+                // and points to a selector reference (SEL *) that dereferences to the string
+                let nameFieldVMAddr = methodEntryVMAddr
+                let selectorRefVMAddr = UInt64(Int64(nameFieldVMAddr) + Int64(smallMethod.nameOffset))
+
+                // Try to read as pointer dereference first
+                if let selectorRefOffset = fileOffset(for: selectorRefVMAddr) {
+                    let refData = try cache.file.data(at: selectorRefOffset, count: is64Bit ? 8 : 4)
+                    var refCursor = try DataCursor(data: refData)
+                    let rawSelectorPtr: UInt64
+                    if is64Bit {
+                        rawSelectorPtr = try refCursor.readLittleInt64()
+                    }
+                    else {
+                        rawSelectorPtr = UInt64(try refCursor.readLittleInt32())
+                    }
+                    let selectorAddr = decodePointer(rawSelectorPtr)
+                    if selectorAddr != 0 {
+                        name = readString(at: selectorAddr)
+                    }
+                    else {
+                        // Fallback: try reading directly as a string
+                        name = readString(at: selectorRefVMAddr)
+                    }
+                }
+                else {
+                    name = nil
+                }
+            }
+
+            guard let selectorName = name, !selectorName.isEmpty else { continue }
+
+            // Resolve the type encoding
+            // typesOffset is relative to the types field's address (offset 4 in entry)
+            let typesFieldVMAddr = methodEntryVMAddr + 4
+            let typesVMAddr = UInt64(Int64(typesFieldVMAddr) + Int64(smallMethod.typesOffset))
+            let typeString = readString(at: typesVMAddr) ?? ""
+
+            // Resolve the implementation address
+            // impOffset is relative to the imp field's address (offset 8 in entry)
+            let impFieldVMAddr = methodEntryVMAddr + 8
+            let impVMAddr = UInt64(Int64(impFieldVMAddr) + Int64(smallMethod.impOffset))
+
+            let method = ObjCMethod(
+                name: selectorName,
+                typeString: typeString,
+                address: impVMAddr
+            )
             methods.append(method)
         }
 

@@ -328,11 +328,33 @@ layouts vary across macOS/iOS versions. See T22 below.
 ## Future: Quality of Life
 
 ### Task T22: DSC Small Methods Support
-- [ ] T22.1: Implement version-specific ObjC optimization header parsing
-- [ ] T22.2: Handle `objcOptsOffset` (new) vs `__objc_opt_ro` section (old)
-- [ ] T22.3: Properly resolve `relativeMethodSelectorBaseAddressOffset`
-- [ ] T22.4: Parse small methods using selector strings base
-- [ ] T22.5: Add tests for method name extraction from DSC
+**Status**: Partially implemented (2026-01-10)
+
+- [x] T22.1: Implement small method parsing in `loadSmallMethods()`
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCProcessor.swift:750-867`
+  - Parses 12-byte relative method entries (nameOffset, typesOffset, impOffset)
+  - Handles both direct selectors (iOS 16+) and indirect selector references
+- [x] T22.2: Selector base address resolution
+  - Reads `relativeMethodSelectorBaseAddressOffset` from ObjC opt header
+  - Converts to virtual address using first mapping's address
+  - Validates address is within valid cache mapping
+- [x] T22.3: Safe fallback for unavailable selector base
+  - Returns empty array instead of garbled names
+  - Prevents garbled output when selector base unavailable
+- [ ] T22.4: **Support modern cache formats** (macOS 14+ / iOS 17+)
+  - Modern caches have `objcOptOffset = 0` in main header
+  - ObjC optimization may be in sub-caches or different location
+  - Need to investigate: header fields at offset 0x140+ may contain new ObjC opt location
+- [ ] T22.5: **Sub-cache ObjC optimization parsing**
+  - Some caches store ObjC optimization in .01/.02 sub-caches
+  - May need to scan sub-cache headers for objc_opt_t
+
+**Known Limitation**: On macOS Sonoma (14.x) and iOS 17+, the ObjC optimization
+header is often not embedded in the main cache file (`objcOptOffset = 0`). Small
+methods using direct selectors (bit 30 set) cannot be resolved without the
+`relativeMethodSelectorBaseAddressOffset`. In these cases, methods are safely
+skipped to avoid garbled output. Properties, instance variables, and protocols
+are still parsed correctly.
 
 ### Task T23: Inspection Command
 - [ ] T23.1: Add `class-dump info` subcommand
