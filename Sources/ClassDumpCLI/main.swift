@@ -130,7 +130,7 @@ struct DumpCommand: AsyncParsableCommand {
     @Option(
         name: .long,
         help:
-            "Output format: objc (default) for ObjC headers, swift for .swiftinterface-style, json for machine-readable"
+            "Output format: objc (default), swift (.swiftinterface-style), json (machine-readable), mixed (both ObjC and Swift)"
     )
     var format: String?
 
@@ -326,6 +326,17 @@ struct DumpCommand: AsyncParsableCommand {
                 swiftVisitor.headerString = generateHeaderString()
             }
             visitMetadata(metadata, processorInfo: processorInfo, with: swiftVisitor)
+            // Output is written in didEndVisiting()
+            return
+        }
+
+        // Mixed format output (both ObjC and Swift)
+        if formatLower == "mixed" {
+            let mixedVisitor = MixedOutputVisitor(options: visitorOptions)
+            if !suppressHeader {
+                mixedVisitor.headerString = generateHeaderString()
+            }
+            visitMetadata(metadata, processorInfo: processorInfo, with: mixedVisitor)
             // Output is written in didEndVisiting()
             return
         }

@@ -1,6 +1,6 @@
 # class-dump - Remaining Work
 
-**Current Status**: 957 tests passing | Swift 6.2 | Version 4.0.3
+**Current Status**: 973 tests passing | Swift 6.2 | Version 4.0.3
 
 ---
 
@@ -198,12 +198,24 @@ Converted NSLock-based registries to Swift actors for explicit memory safety:
   - Methods, properties, ivars
   - Optional methods, demangling, addresses
 
-### Task T16: Mixed Output Mode
-**Status**: Not started
+### Task T16: Mixed Output Mode ✅ Complete
+**Status**: Complete (2026-01-10)
 
-- [ ] T16.1: Add `--mixed` output mode
-- [ ] T16.2: Show both ObjC and Swift representations
-- [ ] T16.3: Useful for bridging header generation
+- [x] T16.1: **MixedOutputVisitor** - New visitor combining ObjC and Swift output
+  - Location: `Sources/ClassDumpCore/Visitor/MixedOutputVisitor.swift`
+  - Outputs both ObjC header syntax and Swift interface syntax
+  - Clear section headers separating each entity's representations
+- [x] T16.2: **Show both ObjC and Swift representations**
+  - Protocols: `@protocol Name` and `@objc public protocol Name`
+  - Classes: `@interface Name` and `@objc public class Name`
+  - Categories: `@interface Class (Category)` and `@objc public extension Class`
+- [x] T16.3: **CLI integration** - `--format mixed` option
+  - Useful for bridging header generation
+  - Helps understand ObjC/Swift type mapping
+- [x] T16.4: **16 new tests** for MixedOutputVisitor
+  - Protocol, class, category formatting in both styles
+  - Methods, properties, ivars in both outputs
+  - Optional methods, demangling, addresses, hidden classes
 
 ### Task T17: JSON Output Mode ✅ Complete
 **Status**: Complete (2026-01-10)
