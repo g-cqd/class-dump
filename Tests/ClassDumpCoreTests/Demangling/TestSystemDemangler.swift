@@ -4,7 +4,9 @@ import Testing
 @testable import ClassDumpCore
 
 /// Tests for SystemDemangler integration.
-@Suite("System Demangler Tests")
+///
+/// This suite runs serialized because tests share a singleton cache.
+@Suite("System Demangler Tests", .serialized)
 struct SystemDemanglerTests {
 
     // MARK: - Availability Tests
@@ -130,7 +132,7 @@ struct SystemDemanglerTests {
         #expect(stats.count >= 1)
     }
 
-    @Test("Clear cache resets statistics", .serialized)
+    @Test("Clear cache resets statistics")
     func clearCacheWorks() async {
         // Skip if swift-demangle not available (cache only works with system demangler)
         guard await SystemDemangler.shared.checkAvailability() else {
