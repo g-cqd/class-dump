@@ -339,8 +339,8 @@ layouts vary across macOS/iOS versions. See T22 below.
 
 ## Future: Quality of Life
 
-### Task T22: DSC Small Methods Support
-**Status**: Partially implemented (2026-01-10)
+### Task T22: DSC Small Methods Support ✅ Complete
+**Status**: Complete (2026-01-10)
 
 - [x] T22.1: Implement small method parsing in `loadSmallMethods()`
   - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCProcessor.swift:750-867`
@@ -348,25 +348,21 @@ layouts vary across macOS/iOS versions. See T22 below.
   - Handles both direct selectors (iOS 16+) and indirect selector references
 - [x] T22.2: Selector base address resolution
   - Reads `relativeMethodSelectorBaseAddressOffset` from ObjC opt header
-  - Converts to virtual address using first mapping's address
+  - Converts to virtual address using ObjC opt header's VM address
   - Validates address is within valid cache mapping
 - [x] T22.3: Safe fallback for unavailable selector base
   - Returns empty array instead of garbled names
   - Prevents garbled output when selector base unavailable
-- [ ] T22.4: **Support modern cache formats** (macOS 14+ / iOS 17+)
+- [x] T22.4: **Support modern cache formats** (macOS 14+ / iOS 17+)
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCOptimization.swift`
   - Modern caches have `objcOptOffset = 0` in main header
-  - ObjC optimization may be in sub-caches or different location
-  - Need to investigate: header fields at offset 0x140+ may contain new ObjC opt location
-- [ ] T22.5: **Sub-cache ObjC optimization parsing**
-  - Some caches store ObjC optimization in .01/.02 sub-caches
-  - May need to scan sub-cache headers for objc_opt_t
-
-**Known Limitation**: On macOS Sonoma (14.x) and iOS 17+, the ObjC optimization
-header is often not embedded in the main cache file (`objcOptOffset = 0`). Small
-methods using direct selectors (bit 30 set) cannot be resolved without the
-`relativeMethodSelectorBaseAddressOffset`. In these cases, methods are safely
-skipped to avoid garbled output. Properties, instance variables, and protocols
-are still parsed correctly.
+  - ObjC optimization is embedded in libobjc.A.dylib's `__TEXT.__objc_opt_ro` section
+  - Added `objcOptimizationHeaderFromLibobjc()` to find and parse embedded header
+  - Added `ObjCOptHeaderResult` struct to track header VM address for correct offset calculation
+- [x] T22.5: **Cross-version compatibility**
+  - Added `objcOptimizationHeaderWithFallback()` for seamless cross-version support
+  - Works with both old caches (objcOptOffset in header) and new caches (embedded in libobjc)
+  - Fixed selector base calculation: offset is relative to header VM address, not cache base
 
 ### Task T23: Inspection Command ✅ Complete
 **Status**: Complete (2026-01-10)
