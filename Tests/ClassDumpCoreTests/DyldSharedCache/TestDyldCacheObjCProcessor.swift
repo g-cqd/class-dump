@@ -502,10 +502,8 @@ struct DyldCacheMethodNameValidationTests {
             let methods = proto.instanceMethods + proto.classMethods
             if !methods.isEmpty {
                 protocolsWithMethods += 1
-                for method in methods {
-                    if isValidMethodName(method.name) {
-                        validMethodCount += 1
-                    }
+                for method in methods where isValidMethodName(method.name) {
+                    validMethodCount += 1
                 }
             }
         }

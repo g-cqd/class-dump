@@ -27,101 +27,160 @@ public struct ClassDumpJSON: Codable, Sendable {
 
     /// Generator info for provenance.
     public struct GeneratorInfo: Codable, Sendable {
+        /// Name of the generator tool.
         public let name: String
+        /// Version of the generator.
         public let version: String
+        /// ISO 8601 timestamp of generation.
         public let timestamp: String
     }
 
     /// File metadata.
     public struct FileInfo: Codable, Sendable {
+        /// Name of the Mach-O file.
         public let filename: String
+        /// UUID of the binary, if present.
         public let uuid: String?
+        /// CPU architecture (e.g., "arm64").
         public let architecture: String
+        /// Minimum OS version, if available.
         public let minOSVersion: String?
+        /// SDK version, if available.
         public let sdkVersion: String?
     }
 }
 
 /// JSON representation of an ObjC protocol.
 public struct ProtocolJSON: Codable, Sendable {
+    /// Display name of the protocol.
     public let name: String
+    /// Swift-mangled name, if applicable.
     public let mangledName: String?
+    /// Names of protocols this protocol adopts.
     public let adoptedProtocols: [String]
+    /// Required class methods.
     public let classMethods: [MethodJSON]
+    /// Required instance methods.
     public let instanceMethods: [MethodJSON]
+    /// Optional class methods.
     public let optionalClassMethods: [MethodJSON]
+    /// Optional instance methods.
     public let optionalInstanceMethods: [MethodJSON]
+    /// Declared properties.
     public let properties: [PropertyJSON]
 }
 
 /// JSON representation of an ObjC class.
 public struct ClassJSON: Codable, Sendable {
+    /// Display name of the class.
     public let name: String
+    /// Swift-mangled name, if applicable.
     public let mangledName: String?
+    /// Virtual address of the class object in hex.
     public let address: String?
+    /// Name of the superclass, if any.
     public let superclass: String?
+    /// Names of protocols the class adopts.
     public let adoptedProtocols: [String]
+    /// Swift protocol conformances.
     public let swiftConformances: [String]
+    /// Whether this is a Swift class.
     public let isSwiftClass: Bool
+    /// Whether the class is exported (visible).
     public let isExported: Bool
+    /// Instance variables declared by the class.
     public let instanceVariables: [IvarJSON]
+    /// Class methods.
     public let classMethods: [MethodJSON]
+    /// Instance methods.
     public let instanceMethods: [MethodJSON]
+    /// Declared properties.
     public let properties: [PropertyJSON]
 }
 
 /// JSON representation of an ObjC category.
 public struct CategoryJSON: Codable, Sendable {
+    /// Name of the category.
     public let name: String
+    /// Name of the class being extended.
     public let className: String
+    /// Names of protocols the category adopts.
     public let adoptedProtocols: [String]
+    /// Class methods added by the category.
     public let classMethods: [MethodJSON]
+    /// Instance methods added by the category.
     public let instanceMethods: [MethodJSON]
+    /// Properties added by the category.
     public let properties: [PropertyJSON]
 }
 
 /// JSON representation of an ObjC method.
 public struct MethodJSON: Codable, Sendable {
+    /// The method selector name.
     public let selector: String
+    /// The ObjC type encoding string.
     public let typeEncoding: String
+    /// Implementation address in hex, if available.
     public let address: String?
+    /// Parsed return type, if available.
     public let returnType: String?
+    /// Method parameters, if parsed.
     public let parameters: [ParameterJSON]?
 }
 
 /// JSON representation of a method parameter.
 public struct ParameterJSON: Codable, Sendable {
+    /// Parameter name from selector, if extractable.
     public let name: String?
+    /// Type of the parameter.
     public let type: String
 }
 
 /// JSON representation of an ObjC property.
 public struct PropertyJSON: Codable, Sendable {
+    /// Property name.
     public let name: String
+    /// ObjC type encoding string.
     public let typeEncoding: String
+    /// Parsed type, if available.
     public let type: String?
+    /// Property attribute flags.
     public let attributes: PropertyAttributesJSON
+    /// Getter selector name.
     public let getter: String
+    /// Setter selector name, if not readonly.
     public let setter: String?
+    /// Backing instance variable name, if any.
     public let ivarName: String?
 }
 
 /// JSON representation of property attributes.
 public struct PropertyAttributesJSON: Codable, Sendable {
+    /// Whether the property is readonly.
     public let isReadOnly: Bool
+    /// Whether the property uses copy semantics.
     public let isCopy: Bool
+    /// Whether the property uses retain/strong semantics.
     public let isRetain: Bool
+    /// Whether the property is nonatomic.
     public let isNonatomic: Bool
+    /// Whether the property is weak.
     public let isWeak: Bool
+    /// Whether the property is @dynamic.
     public let isDynamic: Bool
 }
 
 /// JSON representation of an instance variable.
 public struct IvarJSON: Codable, Sendable {
+    /// Instance variable name.
     public let name: String
+    /// ObjC type encoding string.
     public let typeEncoding: String
+    /// Parsed type, if available.
     public let type: String?
+    /// Offset from object base in hex.
     public let offset: String
+    /// Size in bytes, if known.
     public let size: String?
 }
 
@@ -302,6 +361,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
+    /// Called when visiting begins, resets state.
     public func willBeginVisiting() {
         // Reset state
         protocols = []
@@ -310,6 +370,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         fileInfo = nil
     }
 
+    /// Called when visiting ends, encodes and outputs JSON.
     public func didEndVisiting() {
         // Build the final JSON structure
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -344,6 +405,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Processor Visits
 
+    /// Called before visiting a processor, sets up type formatters and file info.
     public func willVisitProcessor(_ processor: ObjCProcessorInfo) {
         if let structureRegistry = processor.structureRegistry {
             typeFormatter.structureRegistry = structureRegistry
@@ -362,11 +424,14 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         )
     }
 
+    /// Called to visit processor info.
     public func visitProcessor(_ processor: ObjCProcessorInfo) {}
+    /// Called after visiting a processor.
     public func didVisitProcessor(_ processor: ObjCProcessorInfo) {}
 
     // MARK: - Protocol Visits
 
+    /// Called before visiting a protocol, initializes state.
     public func willVisitProtocol(_ proto: ObjCProtocol) {
         currentProtocol = proto
         currentProtocolClassMethods = []
@@ -377,6 +442,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         inOptionalSection = false
     }
 
+    /// Called after visiting a protocol, builds and stores ProtocolJSON.
     public func didVisitProtocol(_ proto: ObjCProtocol) {
         let demangledName = demangle(proto.name)
         let mangledName = demangledName != proto.name ? proto.name : nil
@@ -396,19 +462,24 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         currentProtocol = nil
     }
 
+    /// Called before visiting protocol properties.
     public func willVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
+    /// Called after visiting protocol properties.
     public func didVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
 
+    /// Called when entering optional methods section.
     public func willVisitOptionalMethods() {
         inOptionalSection = true
     }
 
+    /// Called when leaving optional methods section.
     public func didVisitOptionalMethods() {
         inOptionalSection = false
     }
 
     // MARK: - Class Visits
 
+    /// Called before visiting a class, initializes state.
     public func willVisitClass(_ objcClass: ObjCClass) {
         currentClass = objcClass
         currentClassIvars = []
@@ -417,6 +488,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         currentClassProperties = []
     }
 
+    /// Called after visiting a class, builds and stores ClassJSON.
     public func didVisitClass(_ objcClass: ObjCClass) {
         let demangledName = demangle(objcClass.name)
         let mangledName = demangledName != objcClass.name ? objcClass.name : nil
@@ -440,13 +512,18 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         currentClass = nil
     }
 
+    /// Called before visiting instance variables.
     public func willVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+    /// Called after visiting instance variables.
     public func didVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+    /// Called before visiting class properties.
     public func willVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
+    /// Called after visiting class properties.
     public func didVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
 
     // MARK: - Category Visits
 
+    /// Called before visiting a category, initializes state.
     public func willVisitCategory(_ category: ObjCCategory) {
         currentCategory = category
         currentCategoryClassMethods = []
@@ -454,6 +531,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         currentCategoryProperties = []
     }
 
+    /// Called after visiting a category, builds and stores CategoryJSON.
     public func didVisitCategory(_ category: ObjCCategory) {
         let categoryJSON = CategoryJSON(
             name: category.name,
@@ -468,11 +546,14 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         currentCategory = nil
     }
 
+    /// Called before visiting category properties.
     public func willVisitPropertiesOfCategory(_ category: ObjCCategory) {}
+    /// Called after visiting category properties.
     public func didVisitPropertiesOfCategory(_ category: ObjCCategory) {}
 
     // MARK: - Member Visits
 
+    /// Records a class method in the appropriate context.
     public func visitClassMethod(_ method: ObjCMethod) {
         let methodJSON = formatMethodJSON(method)
 
@@ -492,6 +573,7 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    /// Records an instance method in the appropriate context, skipping property accessors.
     public func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState) {
         // Skip property accessors
         if propertyState.property(forAccessor: method.name) != nil {
@@ -516,11 +598,13 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    /// Records an instance variable.
     public func visitIvar(_ ivar: ObjCInstanceVariable) {
         let ivarJSON = formatIvarJSON(ivar)
         currentClassIvars.append(ivarJSON)
     }
 
+    /// Records a property in the appropriate context.
     public func visitProperty(_ property: ObjCProperty) {
         let propertyJSON = formatPropertyJSON(property)
 
@@ -535,5 +619,6 @@ public final class JSONOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    /// Called to output any remaining properties not covered by instance methods.
     public func visitRemainingProperties(_ propertyState: VisitorPropertyState) {}
 }

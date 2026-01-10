@@ -7,16 +7,22 @@ import Foundation
 
 /// Memory protection flags matching mach/vm_prot.h.
 public struct VMProtection: OptionSet, Sendable {
+    /// The raw protection bits.
     public let rawValue: UInt32
 
+    /// Creates a protection value from raw bits.
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
     }
 
+    /// Read permission.
     public static let read = VMProtection(rawValue: 1 << 0)
+    /// Write permission.
     public static let write = VMProtection(rawValue: 1 << 1)
+    /// Execute permission.
     public static let execute = VMProtection(rawValue: 1 << 2)
 
+    /// A human-readable representation like "rwx" or "r-x".
     public var description: String {
         var parts: [String] = []
         if contains(.read) {
@@ -140,6 +146,7 @@ public struct DyldCacheMappingInfo: Sendable {
     ///   - file: The memory-mapped file.
     ///   - offset: The offset to read from.
     /// - Returns: The parsed mapping info.
+    /// - Throws: `MemoryMappedFile.Error` if reading fails.
     public static func parse(from file: MemoryMappedFile, at offset: Int) throws -> DyldCacheMappingInfo {
         DyldCacheMappingInfo(
             address: try file.read(UInt64.self, at: offset),
@@ -156,6 +163,7 @@ public struct DyldCacheMappingInfo: Sendable {
     ///   - file: The memory-mapped file.
     ///   - header: The cache header containing offset and count.
     /// - Returns: An array of mapping info structures.
+    /// - Throws: `MemoryMappedFile.Error` if reading fails.
     public static func parseAll(
         from file: MemoryMappedFile,
         header: DyldCacheHeader
@@ -177,6 +185,7 @@ public struct DyldCacheMappingInfo: Sendable {
 // MARK: - Debug Description
 
 extension DyldCacheMappingInfo: CustomStringConvertible {
+    /// A human-readable description showing segment name, address range, protection, and file offset.
     public var description: String {
         let prot = initialProtection.description
         let endAddr = String(endAddress, radix: 16, uppercase: true)

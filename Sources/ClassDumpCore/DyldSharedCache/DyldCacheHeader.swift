@@ -5,6 +5,7 @@ import Foundation
 
 // MARK: - Magic Constants
 
+// swift-format-ignore: AlwaysUseLowerCamelCase
 /// Known dyld_shared_cache magic strings.
 public enum DyldCacheMagic: String, CaseIterable, Sendable {
     case arm64 = "dyld_v1   arm64"
@@ -311,10 +312,12 @@ public struct DyldCacheHeader: Sendable {
 
     // MARK: - Errors
 
+    /// Errors that can occur when parsing the cache header.
     public enum ParseError: Error, CustomStringConvertible {
         case fileTooSmall(Int)
         case invalidMagic(String)
 
+        /// A human-readable description of the error.
         public var description: String {
             switch self {
                 case .fileTooSmall(let size):
@@ -329,6 +332,7 @@ public struct DyldCacheHeader: Sendable {
 // MARK: - Debug Description
 
 extension DyldCacheHeader: CustomStringConvertible {
+    /// A human-readable description of the header including magic, architecture, and offsets.
     public var description: String {
         """
         DyldCacheHeader {

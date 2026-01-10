@@ -304,6 +304,7 @@ public struct DyldCacheClassTable: Sendable {
         }
     }
 
+    /// Errors that can occur when parsing ObjC optimization data.
     public enum ParseError: Error {
         case addressNotMapped(UInt64)
     }
@@ -373,6 +374,7 @@ extension DyldSharedCache {
         case tableNotAvailable(String)
         case addressTranslationFailed
 
+        /// A human-readable description of the error.
         public var description: String {
             switch self {
                 case .notAvailable:

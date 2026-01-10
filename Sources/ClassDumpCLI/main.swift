@@ -1299,11 +1299,10 @@ struct AddressCommand: AsyncParsableCommand {
 
                 // Find which section contains this address
                 for segment in machOFile.segments {
-                    for section in segment.sections {
-                        if address >= section.addr && address < section.addr + section.size {
-                            print("Section:         \(segment.name),\(section.sectionName)")
-                            break
-                        }
+                    for section in segment.sections
+                    where address >= section.addr && address < section.addr + section.size {
+                        print("Section:         \(segment.name),\(section.sectionName)")
+                        break
                     }
                 }
             }

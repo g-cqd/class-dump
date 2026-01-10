@@ -258,6 +258,7 @@ public enum CodeSignatureError: Error, CustomStringConvertible {
     case invalidRange
     case noCodeSignature
 
+    /// A human-readable description of the error.
     public var description: String {
         switch self {
             case .dataTooSmall:

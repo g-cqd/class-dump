@@ -196,6 +196,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
+    /// Called when visiting begins, outputs the file header.
     public func willBeginVisiting() {
         if !headerString.isEmpty {
             append(headerString)
@@ -207,12 +208,14 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         appendLine()
     }
 
+    /// Called when visiting ends, writes output to stdout.
     public func didEndVisiting() {
         writeResultToStandardOutput()
     }
 
     // MARK: - Processor Visits
 
+    /// Called before visiting a processor, sets up type formatters.
     public func willVisitProcessor(_ processor: ObjCProcessorInfo) {
         if let structureRegistry = processor.structureRegistry {
             typeFormatter.structureRegistry = structureRegistry
@@ -222,6 +225,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    /// Called to visit processor info, outputs warning if no ObjC info present.
     public func visitProcessor(_ processor: ObjCProcessorInfo) {
         if !processor.hasObjectiveCRuntimeInfo {
             appendLine("// This file does not contain any Objective-C runtime information.")
@@ -229,10 +233,12 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
     }
 
+    /// Called after visiting a processor.
     public func didVisitProcessor(_ processor: ObjCProcessorInfo) {}
 
     // MARK: - Protocol Visits
 
+    /// Called before visiting a protocol, outputs protocol declaration.
     public func willVisitProtocol(_ proto: ObjCProtocol) {
         let protoName = demangle(proto.name)
 
@@ -248,6 +254,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         inOptionalSection = false
     }
 
+    /// Called after visiting a protocol, outputs closing syntax.
     public func didVisitProtocol(_ proto: ObjCProtocol) {
         indentLevel -= 1
         appendLine("}")
@@ -255,22 +262,27 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         inOptionalSection = false
     }
 
+    /// Called before visiting protocol properties.
     public func willVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
 
+    /// Called after visiting protocol properties.
     public func didVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
 
+    /// Called when entering optional methods section.
     public func willVisitOptionalMethods() {
         inOptionalSection = true
         appendLine()
         appendLine("// MARK: - Optional")
     }
 
+    /// Called when leaving optional methods section.
     public func didVisitOptionalMethods() {
         inOptionalSection = false
     }
 
     // MARK: - Class Visits
 
+    /// Called before visiting a class, outputs class declaration.
     public func willVisitClass(_ objcClass: ObjCClass) {
         let className = demangle(objcClass.name)
 
@@ -298,25 +310,31 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         indentLevel += 1
     }
 
+    /// Called after visiting a class, outputs closing syntax.
     public func didVisitClass(_ objcClass: ObjCClass) {
         indentLevel -= 1
         appendLine("}")
         appendLine()
     }
 
+    /// Called before visiting instance variables.
     public func willVisitIvarsOfClass(_ objcClass: ObjCClass) {
         appendLine()
         appendLine("// MARK: - Instance Variables")
     }
 
+    /// Called after visiting instance variables.
     public func didVisitIvarsOfClass(_ objcClass: ObjCClass) {}
 
+    /// Called before visiting class properties.
     public func willVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
 
+    /// Called after visiting class properties.
     public func didVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
 
     // MARK: - Category Visits
 
+    /// Called before visiting a category, outputs extension declaration.
     public func willVisitCategory(_ category: ObjCCategory) {
         let className = demangle(category.classNameForVisitor)
         let categoryName = category.name
@@ -339,23 +357,28 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         indentLevel += 1
     }
 
+    /// Called after visiting a category, outputs closing syntax.
     public func didVisitCategory(_ category: ObjCCategory) {
         indentLevel -= 1
         appendLine("}")
         appendLine()
     }
 
+    /// Called before visiting category properties.
     public func willVisitPropertiesOfCategory(_ category: ObjCCategory) {}
 
+    /// Called after visiting category properties.
     public func didVisitPropertiesOfCategory(_ category: ObjCCategory) {}
 
     // MARK: - Member Visits
 
+    /// Outputs a class method in Swift format.
     public func visitClassMethod(_ method: ObjCMethod) {
         let decl = formatSwiftMethod(method, isClassMethod: true)
         appendLine(decl)
     }
 
+    /// Outputs an instance method in Swift format, skipping property accessors.
     public func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState) {
         // Skip property accessors
         if propertyState.property(forAccessor: method.name) != nil {
@@ -366,6 +389,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         appendLine(decl)
     }
 
+    /// Outputs an instance variable in Swift format.
     public func visitIvar(_ ivar: ObjCInstanceVariable) {
         var typeStr: String
         if !ivar.typeString.isEmpty && ivar.typeString != ivar.typeEncoding {
@@ -388,6 +412,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         appendLine(decl)
     }
 
+    /// Outputs a property in Swift format.
     public func visitProperty(_ property: ObjCProperty) {
         guard let parsedType = property.parsedType else {
             appendLine("// Error parsing property: \(property.name)")
@@ -410,6 +435,7 @@ public final class SwiftOutputVisitor: ClassDumpVisitor, @unchecked Sendable {
         appendLine(decl)
     }
 
+    /// Called to output any remaining properties not covered by instance methods.
     public func visitRemainingProperties(_ propertyState: VisitorPropertyState) {}
 
     // MARK: - Method Formatting

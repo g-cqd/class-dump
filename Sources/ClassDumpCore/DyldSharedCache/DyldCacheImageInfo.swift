@@ -84,6 +84,7 @@ public struct DyldCacheImageInfo: Sendable {
     ///   - file: The memory-mapped file.
     ///   - offset: The offset to read from.
     /// - Returns: The parsed image info.
+    /// - Throws: `MemoryMappedFile.Error` if reading fails.
     public static func parse(from file: MemoryMappedFile, at offset: Int) throws -> DyldCacheImageInfo {
         let address = try file.read(UInt64.self, at: offset)
         let modTime = try file.read(UInt64.self, at: offset + 8)
@@ -110,6 +111,7 @@ public struct DyldCacheImageInfo: Sendable {
     ///   - file: The memory-mapped file.
     ///   - header: The cache header containing offset and count.
     /// - Returns: An array of image info structures.
+    /// - Throws: `MemoryMappedFile.Error` if reading fails.
     public static func parseAll(
         from file: MemoryMappedFile,
         header: DyldCacheHeader
@@ -191,6 +193,7 @@ public struct DyldCacheImageInfo: Sendable {
 // MARK: - Debug Description
 
 extension DyldCacheImageInfo: CustomStringConvertible {
+    /// A human-readable description showing the address and path.
     public var description: String {
         let addr = String(address, radix: 16, uppercase: true)
         return "0x\(addr.padding(toLength: 16, withPad: "0", startingAt: 0)) \(path)"

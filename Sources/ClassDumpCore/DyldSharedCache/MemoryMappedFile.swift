@@ -41,6 +41,7 @@ public final class MemoryMappedFile: @unchecked Sendable {
         case mmapFailed(String, Int32)
         case invalidRange(offset: Int, count: Int, fileSize: Int)
 
+        /// A human-readable description of the error.
         public var description: String {
             switch self {
                 case .fileNotFound(let path):
@@ -85,12 +86,14 @@ public final class MemoryMappedFile: @unchecked Sendable {
         self.size = Int(statInfo.st_size)
 
         // Memory map the file
-        let mapped = mmap(nil, size, PROT_READ, MAP_PRIVATE, fd, 0)
-        guard mapped != MAP_FAILED else {
+        guard
+            let mapped = mmap(nil, size, PROT_READ, MAP_PRIVATE, fd, 0),
+            mapped != MAP_FAILED
+        else {
             close(fd)
             throw Error.mmapFailed(path, errno)
         }
-        self.mappedPointer = mapped!
+        self.mappedPointer = mapped
     }
 
     deinit {

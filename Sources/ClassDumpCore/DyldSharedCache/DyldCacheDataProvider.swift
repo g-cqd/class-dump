@@ -51,6 +51,7 @@ public protocol BinaryDataProvider: Sendable {
 // MARK: - Default Implementation
 
 extension BinaryDataProvider {
+    /// Reads data from a virtual address by translating it to a file offset.
     public func readData(atAddress address: UInt64, count: Int) throws -> Data {
         guard let offset = fileOffset(for: address) else {
             throw DataProviderError.addressNotMapped(address)
@@ -65,6 +66,7 @@ public enum DataProviderError: Error, CustomStringConvertible {
     case readFailed(Int, Int)
     case outOfBounds(Int, Int)
 
+    /// A human-readable description of the error.
     public var description: String {
         switch self {
             case .addressNotMapped(let addr):
@@ -86,6 +88,7 @@ public final class StandaloneDataProvider: BinaryDataProvider, @unchecked Sendab
     private let data: Data
     private let translator: AddressTranslator
 
+    /// The total size of the binary data.
     public var dataSize: Int { data.count }
 
     /// Initialize with binary data and segment information.
@@ -98,10 +101,12 @@ public final class StandaloneDataProvider: BinaryDataProvider, @unchecked Sendab
         self.translator = AddressTranslator(segments: segments)
     }
 
+    /// Translates a virtual address to a file offset.
     public func fileOffset(for address: UInt64) -> Int? {
         translator.fileOffset(for: address)
     }
 
+    /// Reads data at the specified file offset.
     public func readData(at offset: Int, count: Int) throws -> Data {
         guard offset >= 0 && offset + count <= data.count else {
             throw DataProviderError.outOfBounds(offset, data.count)
@@ -109,6 +114,7 @@ public final class StandaloneDataProvider: BinaryDataProvider, @unchecked Sendab
         return data.subdata(in: offset..<(offset + count))
     }
 
+    /// Reads a null-terminated C string at the specified virtual address.
     public func readCString(at address: UInt64) -> String? {
         guard let offset = fileOffset(for: address) else { return nil }
         guard offset >= 0 && offset < data.count else { return nil }
@@ -139,6 +145,7 @@ public final class DyldCacheDataProvider: BinaryDataProvider, @unchecked Sendabl
     /// Address translator for the image's own sections.
     private let imageTranslator: AddressTranslator
 
+    /// The total size of the cache file.
     public var dataSize: Int { cache.file.size }
 
     /// Initialize with a cache and image.
@@ -205,6 +212,7 @@ public final class DyldCacheDataProvider: BinaryDataProvider, @unchecked Sendabl
         return segments
     }
 
+    /// Translates a virtual address to a file offset within the cache.
     public func fileOffset(for address: UInt64) -> Int? {
         // First, check if the address is within the image's own sections
         // The image sections have virtual addresses, but those map to DSC file offsets
@@ -225,15 +233,18 @@ public final class DyldCacheDataProvider: BinaryDataProvider, @unchecked Sendabl
         return nil
     }
 
+    /// Reads data at the specified file offset within the cache.
     public func readData(at offset: Int, count: Int) throws -> Data {
         return try cache.file.data(at: offset, count: count)
     }
 
+    /// Reads data from a virtual address, handling multi-file caches.
     public func readData(atAddress address: UInt64, count: Int) throws -> Data {
         // Use the DSC's readData which handles multi-file caches
         return try cache.readData(at: address, count: count)
     }
 
+    /// Reads a null-terminated C string from a virtual address, handling multi-file caches.
     public func readCString(at address: UInt64) -> String? {
         // Use the DSC's readCString which handles multi-file caches
         return cache.readCString(at: address)

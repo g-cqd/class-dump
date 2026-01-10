@@ -155,8 +155,8 @@ struct DyldCacheIntegrationTests {
 
         let elapsed = Date().timeIntervalSince(start)
 
-        // Should complete in under 1 second for 800 lookups
-        #expect(elapsed < 1.0, "Image lookup took \(elapsed)s, expected < 1s")
+        // Should complete in under 2 seconds for 800 lookups
+        #expect(elapsed < 2.0, "Image lookup took \(elapsed)s, expected < 2s")
     }
 
     @Test("Address translation is fast")

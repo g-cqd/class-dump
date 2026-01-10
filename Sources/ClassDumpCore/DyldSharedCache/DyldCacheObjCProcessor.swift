@@ -771,6 +771,7 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
     ///   - listHeader: The parsed list header.
     ///   - usesDirectSelectors: Whether selectors use direct offsets (iOS 16+).
     /// - Returns: Array of parsed methods.
+    /// - Throws: `MemoryMappedFile.Error` if reading fails.
     private func loadSmallMethods(
         at listAddress: UInt64,
         listHeader: ObjC2ListHeader,

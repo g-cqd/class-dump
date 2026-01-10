@@ -302,10 +302,12 @@ public final class DyldSharedCache: @unchecked Sendable {
 
     // MARK: - Errors
 
+    /// Errors that can occur when processing images in the cache.
     public enum ImageError: Error, CustomStringConvertible {
         case addressNotInCache(UInt64)
         case invalidMachOHeader(UInt32)
 
+        /// A human-readable description of the error.
         public var description: String {
             switch self {
                 case .addressNotInCache(let addr):
@@ -389,6 +391,7 @@ extension DyldSharedCache {
 // MARK: - Debug Description
 
 extension DyldSharedCache: CustomStringConvertible {
+    /// A human-readable description of the cache including path, architecture, and statistics.
     public var description: String {
         """
         DyldSharedCache {
