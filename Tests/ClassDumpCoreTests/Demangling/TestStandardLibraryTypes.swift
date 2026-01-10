@@ -83,9 +83,9 @@ struct CommonMangledPatternTests {
         #expect(SwiftDemangler.demangle("Sq") == "Optional")
     }
 
-    @Test("Void tuple demangles correctly")
-    func voidTuple() {
-        #expect(SwiftDemangler.demangle("yt") == "()")
+    @Test("Void type demangles correctly")
+    func voidType() {
+        #expect(SwiftDemangler.demangle("yt") == "Void")
     }
 
     @Test(

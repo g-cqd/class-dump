@@ -21,8 +21,11 @@ public struct SegmentDecryptor: Sendable {
 
     /// Magic values identifying encryption types.
     public struct Magic: Sendable {
+        /// No encryption.
         public static let none: UInt32 = 0
+        /// AES encryption (type 1).
         public static let aes: UInt32 = 0xc228_6295
+        /// Blowfish encryption (type 2).
         public static let blowfish: UInt32 = 0x2e69_cf40
     }
 
@@ -55,10 +58,10 @@ public struct SegmentDecryptor: Sendable {
         }
 
         switch magic {
-        case Magic.none: return .none
-        case Magic.aes: return .aes
-        case Magic.blowfish: return .blowfish
-        default: return .unknown(magic)
+            case Magic.none: return .none
+            case Magic.aes: return .aes
+            case Magic.blowfish: return .blowfish
+            default: return .unknown(magic)
         }
     }
 
@@ -75,14 +78,14 @@ public struct SegmentDecryptor: Sendable {
         let encryptionType = detectEncryptionType(data: data, isProtected: true)
 
         switch encryptionType {
-        case .none:
-            return data
-        case .aes:
-            return try decryptAES(data: data)
-        case .blowfish:
-            return try decryptBlowfish(data: data)
-        case .unknown(let magic):
-            throw SegmentDecryptionError.unsupportedEncryption(magic)
+            case .none:
+                return data
+            case .aes:
+                return try decryptAES(data: data)
+            case .blowfish:
+                return try decryptBlowfish(data: data)
+            case .unknown(let magic):
+                throw SegmentDecryptionError.unsupportedEncryption(magic)
         }
     }
 
@@ -190,6 +193,7 @@ public struct SegmentDecryptor: Sendable {
     }
 
     /// Decrypt using Blowfish (10.6 encryption).
+    ///
     /// Uses CBC mode with big-endian byte order.
     private static func decryptBlowfish(data: Data) throws -> Data {
         var result = Data(count: data.count)

@@ -2,6 +2,7 @@
 // Copyright © 2026 class-dump contributors. All rights reserved.
 
 import Foundation
+import Synchronization
 
 /// Swift name demangler for converting mangled Swift type names to human-readable form.
 ///
@@ -18,7 +19,101 @@ import Foundation
 /// - ``demangleFunctionSignature(_:)`` - For Swift function symbols (`_$s...F`)
 /// - ``demangleClosureType(_:)`` - For closure/function type expressions
 ///
+/// ## System Demangling
+///
+/// For complex symbols that the built-in demangler cannot handle, you can enable
+/// system demangling which shells out to `swift-demangle`:
+///
+/// ```swift
+/// // Enable at startup (before processing)
+/// await SwiftDemangler.enableSystemDemangling()
+///
+/// // Now demangle() will use system demangler for complex cases
+/// let result = SwiftDemangler.demangle("_$s...")
+/// ```
+///
 public enum SwiftDemangler: Sendable {
+
+    // MARK: - Configuration
+
+    /// Whether to use system demangler as fallback for complex symbols.
+    private static let useSystemDemangler = Mutex<Bool>(false)
+
+    /// Whether to use dynamic demangler (dlopen) as fallback.
+    private static let useDynamicDemangler = Mutex<Bool>(false)
+
+    /// Collected symbols that need system demangling (batch processed).
+    private static let pendingSymbols = Mutex<[String]>([])
+
+    /// Enable system demangling via `swift-demangle` for complex symbols.
+    ///
+    /// When enabled, symbols that the built-in demangler cannot handle will be
+    /// demangled using the system's `swift-demangle` tool. This provides higher
+    /// accuracy but requires Xcode to be installed.
+    ///
+    /// - Returns: `true` if system demangling is available.
+    @discardableResult
+    public static func enableSystemDemangling() async -> Bool {
+        let available = await SystemDemangler.shared.checkAvailability()
+        useSystemDemangler.withLock { $0 = available }
+        return available
+    }
+
+    /// Disable system demangling (use built-in only).
+    public static func disableSystemDemangling() {
+        useSystemDemangler.withLock { $0 = false }
+    }
+
+    /// Check if system demangling is enabled.
+    public static var isSystemDemanglingEnabled: Bool {
+        useSystemDemangler.withLock { $0 }
+    }
+
+    /// Enable dynamic library demangling via dlopen/dlsym.
+    ///
+    /// When enabled, symbols that the built-in demangler cannot handle will be
+    /// demangled using the system's libswiftCore.dylib or libswiftDemangle.dylib.
+    /// This is faster than system demangling (no process spawn) and provides
+    /// the same accuracy.
+    ///
+    /// - Returns: `true` if dynamic demangling is available.
+    @discardableResult
+    public static func enableDynamicDemangling() -> Bool {
+        let available = DynamicSwiftDemangler.shared.isAvailable
+        useDynamicDemangler.withLock { $0 = available }
+        return available
+    }
+
+    /// Disable dynamic library demangling.
+    public static func disableDynamicDemangling() {
+        useDynamicDemangler.withLock { $0 = false }
+    }
+
+    /// Check if dynamic demangling is enabled.
+    public static var isDynamicDemanglingEnabled: Bool {
+        useDynamicDemangler.withLock { $0 } && DynamicSwiftDemangler.shared.isAvailable
+    }
+
+    // MARK: - Demangling Cache
+
+    /// Thread-safe cache for memoizing demangled results.
+    ///
+    /// This significantly improves performance when the same mangled names
+    /// appear multiple times (common in class dumps with repeated type references).
+    private static let demangleCache = MutexCache<String, String>()
+
+    /// Clear the demangling cache.
+    ///
+    /// Useful for testing or when processing multiple unrelated binaries.
+    public static func clearCache() {
+        demangleCache.clear()
+    }
+
+    /// Get cache statistics for debugging/profiling.
+    public static var cacheStats: (count: Int, description: String) {
+        let count = demangleCache.count
+        return (count, "SwiftDemangler cache: \(count) entries")
+    }
 
     // MARK: - Generic Constraint Structures
 
@@ -46,10 +141,10 @@ public enum SwiftDemangler: Sendable {
         /// Format as Swift where clause component.
         public var description: String {
             switch kind {
-            case .conformance, .baseClass, .layout:
-                return "\(subject): \(constraint)"
-            case .sameType:
-                return "\(subject) == \(constraint)"
+                case .conformance, .baseClass, .layout:
+                    return "\(subject): \(constraint)"
+                case .sameType:
+                    return "\(subject) == \(constraint)"
             }
         }
     }
@@ -111,14 +206,14 @@ public enum SwiftDemangler: Sendable {
 
             // Add convention if not standard swift
             switch convention {
-            case .swift:
-                break  // Standard closure, no annotation needed
-            case .block:
-                parts.append("@convention(block)")
-            case .cFunction:
-                parts.append("@convention(c)")
-            case .thin:
-                parts.append("@convention(thin)")
+                case .swift:
+                    break  // Standard closure, no annotation needed
+                case .block:
+                    parts.append("@convention(block)")
+                case .cFunction:
+                    parts.append("@convention(c)")
+                case .thin:
+                    parts.append("@convention(thin)")
             }
 
             // Add @Sendable
@@ -172,25 +267,25 @@ public enum SwiftDemangler: Sendable {
         /// Map Swift type to ObjC equivalent for block declarations.
         private func mapToObjCType(_ swiftType: String) -> String {
             switch swiftType {
-            case "Void", "()": return "void"
-            case "Bool": return "BOOL"
-            case "Int": return "NSInteger"
-            case "UInt": return "NSUInteger"
-            case "Float": return "float"
-            case "Double": return "double"
-            case "String": return "NSString *"
-            case "Data": return "NSData *"
-            case "Array": return "NSArray *"
-            case "Dictionary": return "NSDictionary *"
-            case "Set": return "NSSet *"
-            default:
-                // Check if it's a pointer type or class
-                if swiftType.hasSuffix("?") {
-                    let base = String(swiftType.dropLast())
-                    return "\(mapToObjCType(base)) _Nullable"
-                }
-                // Assume class type
-                return "\(swiftType) *"
+                case "Void", "()": return "void"
+                case "Bool": return "BOOL"
+                case "Int": return "NSInteger"
+                case "UInt": return "NSUInteger"
+                case "Float": return "float"
+                case "Double": return "double"
+                case "String": return "NSString *"
+                case "Data": return "NSData *"
+                case "Array": return "NSArray *"
+                case "Dictionary": return "NSDictionary *"
+                case "Set": return "NSSet *"
+                default:
+                    // Check if it's a pointer type or class
+                    if swiftType.hasSuffix("?") {
+                        let base = String(swiftType.dropLast())
+                        return "\(mapToObjCType(base)) _Nullable"
+                    }
+                    // Assume class type
+                    return "\(swiftType) *"
             }
         }
     }
@@ -231,7 +326,8 @@ public enum SwiftDemangler: Sendable {
             if isThrowing {
                 if let errorType {
                     parts.append("throws(\(errorType))")
-                } else {
+                }
+                else {
                     parts.append("throws")
                 }
             }
@@ -265,13 +361,17 @@ public enum SwiftDemangler: Sendable {
     /// - Optional suffixes (Sg)
     /// - Array/Dictionary shorthands
     ///
+    /// When system demangling is enabled (via ``enableSystemDemangling()``),
+    /// symbols that cannot be demangled by the built-in demangler will use
+    /// the system's `swift-demangle` tool synchronously.
+    ///
     /// - Parameter mangled: The mangled type name string.
     /// - Returns: A demangled type name, or the original if demangling fails.
     public static func demangle(_ mangled: String) -> String {
         guard !mangled.isEmpty else { return "" }
 
         // Handle symbolic references (binary format) - return as-is for resolver
-        if let first = mangled.first, first.asciiValue ?? 0 <= 0x17 {
+        if let first = mangled.first, let firstAscii = first.asciiValue, firstAscii <= 0x17 {
             return mangled
         }
 
@@ -292,8 +392,51 @@ public enum SwiftDemangler: Sendable {
             return builtin
         }
 
+        // Check memoization cache for previously demangled results
+        if let cached = demangleCache.get(mangled) {
+            return cached
+        }
+
         // Try detailed demangling
-        return demangleDetailed(mangled)
+        var result = demangleDetailed(mangled)
+
+        // If built-in demangling returned unchanged and the name looks mangled,
+        // try fallback demanglers for better accuracy
+        if result == mangled && looksLikeSwiftMangled(mangled) {
+            // Try dynamic demangling first (in-process, faster)
+            if isDynamicDemanglingEnabled,
+                let dynamicResult = DynamicSwiftDemangler.shared.demangle(mangled)
+            {
+                result = dynamicResult
+            }
+            // Fall back to system demangling (out-of-process)
+            else if isSystemDemanglingEnabled {
+                result = SystemDemangler.shared.demangleSync(mangled)
+            }
+        }
+
+        demangleCache.set(mangled, value: result)
+        return result
+    }
+
+    /// Check if a string looks like a Swift mangled name.
+    ///
+    /// This is a quick heuristic to avoid calling the system demangler for
+    /// strings that are clearly not Swift symbols.
+    private static func looksLikeSwiftMangled(_ s: String) -> Bool {
+        // Swift 5+ symbols start with $s or _$s
+        if s.hasPrefix("$s") || s.hasPrefix("_$s") {
+            return true
+        }
+        // Legacy Swift symbols start with _T or _$S
+        if s.hasPrefix("_T") || s.hasPrefix("_$S") {
+            return true
+        }
+        // ObjC-style Swift class names
+        if s.hasPrefix("_Tt") {
+            return true
+        }
+        return false
     }
 
     /// Demangle an ObjC-style Swift class name.
@@ -373,9 +516,11 @@ public enum SwiftDemangler: Sendable {
         var input: Substring
         if mangledSymbol.hasPrefix("_$s") {
             input = mangledSymbol.dropFirst(3)
-        } else if mangledSymbol.hasPrefix("$s") {
+        }
+        else if mangledSymbol.hasPrefix("$s") {
             input = mangledSymbol.dropFirst(2)
-        } else {
+        }
+        else {
             return nil
         }
 
@@ -490,21 +635,26 @@ public enum SwiftDemangler: Sendable {
         if input.hasSuffix("XB") {
             convention = .block
             input = input.dropLast(2)
-        } else if input.hasSuffix("XC") {
+        }
+        else if input.hasSuffix("XC") {
             convention = .cFunction
             input = input.dropLast(2)
-        } else if input.hasSuffix("XE") {
+        }
+        else if input.hasSuffix("XE") {
             convention = .swift
             isEscaping = false  // Noescape
             input = input.dropLast(2)
-        } else if input.hasSuffix("Xf") {
+        }
+        else if input.hasSuffix("Xf") {
             convention = .thin
             input = input.dropLast(2)
-        } else if input.hasSuffix("c") {
+        }
+        else if input.hasSuffix("c") {
             convention = .swift
             isEscaping = true
             input = input.dropLast(1)
-        } else {
+        }
+        else {
             // No recognized function type suffix
             return nil
         }
@@ -549,7 +699,9 @@ public enum SwiftDemangler: Sendable {
     }
 
     /// Parse closure type components from mangled input.
-    private static func parseClosureTypeComponents(_ input: Substring) -> (
+    private static func parseClosureTypeComponents(
+        _ input: Substring
+    ) -> (
         params: [String], returnType: String, isAsync: Bool, isThrowing: Bool, isSendable: Bool
     ) {
         var remaining = input
@@ -591,14 +743,16 @@ public enum SwiftDemangler: Sendable {
             if let (typeName, rest) = parseGenericTypeArg(remaining, depth: 0) {
                 parsedTypes.append(typeName)
                 remaining = rest
-            } else if let (typeName, rest) = parseLengthPrefixed(remaining) {
+            }
+            else if let (typeName, rest) = parseLengthPrefixed(remaining) {
                 parsedTypes.append(typeName)
                 remaining = rest
                 // Skip type suffix
                 while let c = remaining.first, "CVO".contains(c) {
                     remaining = remaining.dropFirst()
                 }
-            } else {
+            }
+            else {
                 // Can't parse more, stop
                 break
             }
@@ -630,7 +784,9 @@ public enum SwiftDemangler: Sendable {
     ]
 
     /// Parse function signature types from mangled input.
-    private static func parseFunctionSignatureTypes(_ input: Substring) -> (
+    private static func parseFunctionSignatureTypes(
+        _ input: Substring
+    ) -> (
         params: [String], returnType: String, isAsync: Bool, isThrowing: Bool, isSendable: Bool,
         errorType: String?
     ) {
@@ -690,14 +846,16 @@ public enum SwiftDemangler: Sendable {
             if let (typeName, rest) = parseGenericTypeArg(remaining, depth: 0) {
                 parsedTypes.append(typeName)
                 remaining = rest
-            } else if let (typeName, rest) = parseLengthPrefixed(remaining) {
+            }
+            else if let (typeName, rest) = parseLengthPrefixed(remaining) {
                 parsedTypes.append(typeName)
                 remaining = rest
                 // Skip type suffix
                 while let c = remaining.first, "CVO".contains(c) {
                     remaining = remaining.dropFirst()
                 }
-            } else {
+            }
+            else {
                 // Can't parse more, stop
                 break
             }
@@ -880,11 +1038,10 @@ public enum SwiftDemangler: Sendable {
         var input = Substring(partial)
 
         // Skip common prefixes
-        for prefix in ["_TtCC", "_TtCO", "_TtCV", "_TtOO", "_TtOC", "_TtVO", "_TtVC", "_TtC", "_TtO", "_TtV"] {
-            if input.hasPrefix(prefix) {
-                input = input.dropFirst(prefix.count)
-                break
-            }
+        for prefix in ["_TtCC", "_TtCO", "_TtCV", "_TtOO", "_TtOC", "_TtVO", "_TtVC", "_TtC", "_TtO", "_TtV"]
+        where input.hasPrefix(prefix) {
+            input = input.dropFirst(prefix.count)
+            break
         }
 
         // Parse module name
@@ -955,12 +1112,11 @@ public enum SwiftDemangler: Sendable {
                 break
             }
 
-            if let (name, rest) = parseLengthPrefixed(input) {
-                names.append(name)
-                input = rest
-            } else {
+            guard let (name, rest) = parseLengthPrefixed(input) else {
                 break
             }
+            names.append(name)
+            input = rest
         }
 
         guard !names.isEmpty else { return nil }
@@ -1024,11 +1180,9 @@ public enum SwiftDemangler: Sendable {
     /// - Parameter mangled: The mangled type string.
     /// - Returns: A demangled type string, or the original if too complex.
     public static func demangleComplexType(_ mangled: String) -> String {
-        let result = demangle(mangled)
-        if result != mangled {
-            return result
-        }
-        return demangleDetailed(mangled)
+        // demangle() already uses the cache, so just call it
+        // It will fall through to demangleDetailed and cache the result
+        return demangle(mangled)
     }
 
     // MARK: - Type Lookup Tables
@@ -1097,7 +1251,7 @@ public enum SwiftDemangler: Sendable {
         "Sg": "Optional",
         "ySg": "?",
         "Sq": "Optional",
-        "yt": "()",
+        "yt": "Void",
         "ScT": "Task",
         "Scg": "TaskGroup",
         "ScG": "ThrowingTaskGroup",
@@ -1111,6 +1265,7 @@ public enum SwiftDemangler: Sendable {
     ]
 
     /// Swift standard library protocol shortcuts.
+    ///
     /// These are two-character codes used in mangled names for common protocols.
     private static let protocolShortcuts: [String: String] = [
         "SH": "Hashable",
@@ -1202,8 +1357,8 @@ public enum SwiftDemangler: Sendable {
         // CheckedContinuation with generic parameters (ScCy...G)
         if mangled.hasPrefix("ScCy") && mangled.hasSuffix("G") {
             if let (result, _) = parseTaskGenericArgsFromInput(
-                Substring(mangled.dropFirst(4)))
-            {
+                Substring(mangled.dropFirst(4))
+            ) {
                 // CheckedContinuation uses same format as Task: <Success, Failure>
                 return result.replacingOccurrences(of: "Task", with: "CheckedContinuation")
             }
@@ -1212,8 +1367,8 @@ public enum SwiftDemangler: Sendable {
         // UnsafeContinuation with generic parameters (ScUy...G)
         if mangled.hasPrefix("ScUy") && mangled.hasSuffix("G") {
             if let (result, _) = parseTaskGenericArgsFromInput(
-                Substring(mangled.dropFirst(4)))
-            {
+                Substring(mangled.dropFirst(4))
+            ) {
                 return result.replacingOccurrences(of: "Task", with: "UnsafeContinuation")
             }
         }
@@ -1308,21 +1463,19 @@ public enum SwiftDemangler: Sendable {
         // Parse type arguments
         var typeArgs: [String] = []
         while !input.isEmpty {
-            if let (arg, rest) = parseGenericTypeArg(input) {
-                typeArgs.append(arg)
-                input = rest
-            } else {
+            guard let (arg, rest) = parseGenericTypeArg(input) else {
                 break
             }
+            typeArgs.append(arg)
+            input = rest
         }
 
         // Format result
         let prefix = moduleName == "Swift" ? "" : "\(moduleName)."
-        if typeArgs.isEmpty {
-            return "\(prefix)\(typeName)"
-        } else {
+        guard typeArgs.isEmpty else {
             return "\(prefix)\(typeName)<\(typeArgs.joined(separator: ", "))>"
         }
+        return "\(prefix)\(typeName)"
     }
 
     /// Maximum recursion depth for nested generic parsing.
@@ -1450,6 +1603,29 @@ public enum SwiftDemangler: Sendable {
             return (shortcut, remaining)
         }
 
+        // Check for Swift module type (s + length-prefixed name, e.g., "s5Error")
+        if input.hasPrefix("s") {
+            let afterS = input.dropFirst()
+            if let firstAfterS = afterS.first, firstAfterS.isNumber {
+                if let (name, rest) = parseLengthPrefixed(afterS) {
+                    // Skip type kind suffixes
+                    var remaining = rest
+                    while let c = remaining.first, "CVOPp".contains(c) {
+                        remaining = remaining.dropFirst()
+                    }
+                    // Handle _p protocol existential suffix
+                    if remaining.hasPrefix("_p") {
+                        remaining = remaining.dropFirst(2)
+                    }
+                    // Check for Optional suffix
+                    if remaining.hasPrefix("Sg") {
+                        return ("\(name)?", remaining.dropFirst(2))
+                    }
+                    return (name, remaining)
+                }
+            }
+        }
+
         // Check for length-prefixed module.type (including protocol existentials)
         if let first = input.first, first.isNumber {
             if let (typeName, rest) = parseModuleQualifiedType(input, depth: depth) {
@@ -1469,7 +1645,7 @@ public enum SwiftDemangler: Sendable {
         return nil
     }
 
-    /// Parse a nested Array type (Say...G) recursively.
+    /// Parse a nested Array type (`Say...G`) recursively.
     ///
     /// - Parameters:
     ///   - input: Input starting with "Say".
@@ -1483,12 +1659,11 @@ public enum SwiftDemangler: Sendable {
         var foundClosing = false
 
         // Parse element type recursively
-        if let (element, rest) = parseGenericTypeArg(inner, depth: depth + 1) {
-            elementType = element
-            inner = rest
-        } else {
+        guard let (element, rest) = parseGenericTypeArg(inner, depth: depth + 1) else {
             return nil
         }
+        elementType = element
+        inner = rest
 
         // Look for closing G
         if inner.hasPrefix("G") {
@@ -1509,7 +1684,7 @@ public enum SwiftDemangler: Sendable {
         return (result, inner)
     }
 
-    /// Parse a nested Dictionary type (SDy...G) recursively.
+    /// Parse a nested Dictionary type (`SDy...G`) recursively.
     ///
     /// - Parameters:
     ///   - input: Input starting with "SDy".
@@ -1523,12 +1698,11 @@ public enum SwiftDemangler: Sendable {
 
         // Parse key and value types
         while typeArgs.count < 2 && !inner.isEmpty {
-            if let (arg, rest) = parseGenericTypeArg(inner, depth: depth + 1) {
-                typeArgs.append(arg)
-                inner = rest
-            } else {
+            guard let (arg, rest) = parseGenericTypeArg(inner, depth: depth + 1) else {
                 break
             }
+            typeArgs.append(arg)
+            inner = rest
         }
 
         // Look for closing G
@@ -1548,7 +1722,7 @@ public enum SwiftDemangler: Sendable {
         return (result, inner)
     }
 
-    /// Parse a nested Set type (Shy...G) recursively.
+    /// Parse a nested Set type (`Shy...G`) recursively.
     ///
     /// - Parameters:
     ///   - input: Input starting with "Shy".
@@ -1561,12 +1735,11 @@ public enum SwiftDemangler: Sendable {
         var elementType: String?
 
         // Parse element type recursively
-        if let (element, rest) = parseGenericTypeArg(inner, depth: depth + 1) {
-            elementType = element
-            inner = rest
-        } else {
+        guard let (element, rest) = parseGenericTypeArg(inner, depth: depth + 1) else {
             return nil
         }
+        elementType = element
+        inner = rest
 
         // Look for closing G
         guard inner.hasPrefix("G") else { return nil }
@@ -1597,12 +1770,11 @@ public enum SwiftDemangler: Sendable {
         var typeArgs: [String] = []
 
         // Parse success type
-        if let (arg, rest) = parseGenericTypeArg(inner, depth: 0) {
-            typeArgs.append(arg)
-            inner = rest
-        } else {
+        guard let (arg, rest) = parseGenericTypeArg(inner, depth: 0) else {
             return nil
         }
+        typeArgs.append(arg)
+        inner = rest
 
         // Check for second 'y' separator or continue parsing failure type
         if inner.hasPrefix("y") {
@@ -1610,12 +1782,11 @@ public enum SwiftDemangler: Sendable {
         }
 
         // Parse failure type
-        if let (arg, rest) = parseGenericTypeArg(inner, depth: 0) {
-            typeArgs.append(arg)
-            inner = rest
-        } else {
+        guard let (arg, rest) = parseGenericTypeArg(inner, depth: 0) else {
             return nil
         }
+        typeArgs.append(arg)
+        inner = rest
 
         // Look for closing G
         if inner.hasPrefix("G") {
@@ -1680,15 +1851,19 @@ public enum SwiftDemangler: Sendable {
         // Determine prefix and nesting level
         if name.hasPrefix("_TtGC") {
             input = name.dropFirst(5)
-        } else if name.hasPrefix("_TtCC") {
+        }
+        else if name.hasPrefix("_TtCC") {
             input = name.dropFirst(5)
             isNested = true
-        } else if name.hasPrefix("_TtC") {
+        }
+        else if name.hasPrefix("_TtC") {
             input = name.dropFirst(4)
-        } else if name.hasPrefix("_Tt") {
+        }
+        else if name.hasPrefix("_Tt") {
             input = name.dropFirst(3)
             guard let first = input.first, first.isNumber else { return nil }
-        } else {
+        }
+        else {
             return nil
         }
 
@@ -1722,13 +1897,17 @@ public enum SwiftDemangler: Sendable {
         // Determine prefix
         if name.hasPrefix("_TtCCC") {
             input = name.dropFirst(6)
-        } else if name.hasPrefix("_TtCC") {
+        }
+        else if name.hasPrefix("_TtCC") {
             input = name.dropFirst(5)
-        } else if name.hasPrefix("_TtC") {
+        }
+        else if name.hasPrefix("_TtC") {
             input = name.dropFirst(4)
-        } else if name.hasPrefix("_Tt") {
+        }
+        else if name.hasPrefix("_Tt") {
             input = name.dropFirst(3)
-        } else {
+        }
+        else {
             return []
         }
 
@@ -1790,7 +1969,8 @@ public enum SwiftDemangler: Sendable {
                 typeName = name
                 return objcToSwiftTypes[typeName] ?? "\(moduleName).\(typeName)"
             }
-        } else if input.hasPrefix("s") && !(input.first?.isNumber ?? true) {
+        }
+        else if input.hasPrefix("s") && !(input.first?.isNumber ?? true) {
             input = input.dropFirst()
             moduleName = "Swift"
         }
@@ -1821,12 +2001,11 @@ public enum SwiftDemangler: Sendable {
         if input.hasPrefix("y") {
             input = input.dropFirst()
             while !input.isEmpty && !input.hasPrefix("G") {
-                if let (arg, rest) = parseTypeArgument(input, words: &words, moduleName: moduleName) {
-                    genericArgs.append(arg)
-                    input = rest
-                } else {
+                guard let (arg, rest) = parseTypeArgument(input, words: &words, moduleName: moduleName) else {
                     break
                 }
+                genericArgs.append(arg)
+                input = rest
             }
             if input.hasPrefix("G") {
                 input = input.dropFirst()
@@ -1853,16 +2032,16 @@ public enum SwiftDemangler: Sendable {
             // Skip type suffixes
             if let first = remaining.first {
                 switch first {
-                case "V", "C", "O":
-                    remaining = remaining.dropFirst()
-                    continue
-                case "P":
-                    if remaining.hasPrefix("P_") {
-                        remaining = remaining.dropFirst(2)
+                    case "V", "C", "O":
+                        remaining = remaining.dropFirst()
                         continue
-                    }
-                default:
-                    break
+                    case "P":
+                        if remaining.hasPrefix("P_") {
+                            remaining = remaining.dropFirst(2)
+                            continue
+                        }
+                    default:
+                        break
                 }
             }
 
@@ -1900,14 +2079,19 @@ public enum SwiftDemangler: Sendable {
 
                 if char.isLowercase && char >= "a" && char <= "z" {
                     // Non-final word reference
-                    let index = Int(char.asciiValue! - Character("a").asciiValue!)
+                    let charValue = char.asciiValue ?? 0
+                    let aValue = Character("a").asciiValue ?? 97
+                    let index = Int(charValue - aValue)
                     if index < words.count {
                         result += words[index]
                     }
                     input = input.dropFirst()
-                } else if char.isUppercase && char >= "A" && char <= "Z" {
+                }
+                else if char.isUppercase && char >= "A" && char <= "Z" {
                     // Final word reference
-                    let index = Int(char.asciiValue! - Character("A").asciiValue!)
+                    let charValue = char.asciiValue ?? 0
+                    let capitalAValue = Character("A").asciiValue ?? 65
+                    let index = Int(charValue - capitalAValue)
                     if index < words.count {
                         result += words[index]
                     }
@@ -1922,16 +2106,17 @@ public enum SwiftDemangler: Sendable {
                         }
                     }
                     break  // Uppercase terminates
-                } else if char.isNumber {
+                }
+                else if char.isNumber {
                     // Literal string
-                    if let (literal, rest) = parseLengthPrefixed(input) {
-                        result += literal
-                        addWords(from: literal, to: &words)
-                        input = rest
-                    } else {
+                    guard let (literal, rest) = parseLengthPrefixed(input) else {
                         break
                     }
-                } else {
+                    result += literal
+                    addWords(from: literal, to: &words)
+                    input = rest
+                }
+                else {
                     break
                 }
             }
@@ -1957,40 +2142,12 @@ public enum SwiftDemangler: Sendable {
         words: inout [String],
         moduleName: String
     ) -> (String, Substring)? {
-        var input = input
-
-        if let first = input.first {
-            // Standard library shortcuts
-            if let shortcut = typeShortcuts[first] {
-                return (shortcut, input.dropFirst())
-            }
-
-            // Two-character patterns
-            if first == "S" && input.count >= 2 {
-                let twoChar = String(input.prefix(2))
-                if let pattern = commonPatterns[twoChar] {
-                    return (pattern, input.dropFirst(2))
-                }
-            }
-
-            // ObjC imported type
-            if first == "S" && input.count >= 2 {
-                let second = input[input.index(after: input.startIndex)]
-                if second == "o" {
-                    input = input.dropFirst(2)
-                    if let (name, rest) = parseLengthPrefixed(input) {
-                        let mapped = objcToSwiftTypes[name] ?? name
-                        var remaining = rest
-                        while let c = remaining.first, "CVOPy_".contains(c) {
-                            remaining = remaining.dropFirst()
-                        }
-                        return (mapped, remaining)
-                    }
-                }
-            }
+        // Handle common shortcuts
+        if let first = input.first, let shortcut = typeShortcuts[first] {
+            return (shortcut, input.dropFirst())
         }
 
-        // Try as qualified type
+        // Handle word substitutions
         if let (name, rest) = parseIdentifierWithSubstitutions(input, words: &words) {
             return (name, rest)
         }
@@ -1998,150 +2155,68 @@ public enum SwiftDemangler: Sendable {
         return nil
     }
 
-    /// Add words from an identifier to the word dictionary.
-    private static func addWords(from identifier: String, to words: inout [String]) {
-        if !words.contains(identifier) {
-            words.append(identifier)
-        }
-
-        // Split on uppercase boundaries
-        var currentWord = ""
-        for char in identifier {
-            if char.isUppercase && !currentWord.isEmpty {
-                if !words.contains(currentWord) {
-                    words.append(currentWord)
-                }
-                currentWord = String(char)
-            } else {
-                currentWord.append(char)
-            }
-        }
-        if !currentWord.isEmpty && !words.contains(currentWord) {
-            words.append(currentWord)
-        }
-    }
-
-    // MARK: - Concurrency Type Parsing
-
-    /// Parse generic arguments for Task<Success, Failure>.
-    ///
-    /// Input format: `<success-type><failure-type>`
-    /// Examples:
-    /// - `ytNever` → (Void, Never)
-    /// - `SSs5Errorp` → (String, Error)
-    /// - `SiNever` → (Int, Never)
+    /// Parse generic constraints.
     private static func parseTaskGenericArgs(_ input: String) -> (success: String, failure: String)? {
-        var remaining = Substring(input)
-
-        // Parse success type
-        guard let (successType, rest) = parseGenericType(remaining) else {
-            return nil
+        // Simplified parser for Success, Failure pattern
+        // Assumes Failure comes second and might be Never
+        if input.hasSuffix("s5NeverO") || input.hasSuffix("Never") {
+            let successPart = String(input.prefix(input.count - (input.hasSuffix("s5NeverO") ? 8 : 5)))
+            let success = demangle(successPart)
+            return (success, "Never")
         }
-        remaining = rest
-
-        // Parse failure type
-        guard let (failureType, _) = parseGenericType(remaining) else {
-            return nil
+        // If failure is Error (check both uppercase P and lowercase p for protocol suffix)
+        if input.hasSuffix("s5ErrorP") || input.hasSuffix("s5Errorp") {
+            let successPart = String(input.dropLast(8))
+            let success = demangle(successPart)
+            return (success, "Error")
         }
 
-        return (successType, failureType)
+        return (demangle(input), "Error")
     }
 
-    /// Parse a single generic type from a mangled string.
-    ///
-    /// Returns the demangled type name and remaining input.
-    private static func parseGenericType(_ input: Substring) -> (String, Substring)? {
-        guard !input.isEmpty else { return nil }
+    // MARK: - Utility Functions
 
-        // Check for Void tuple (yt)
-        if input.hasPrefix("yt") {
-            return ("Void", input.dropFirst(2))
-        }
-
-        // Check for "Never" (literal word) - must check before single-char shortcuts
-        if input.hasPrefix("Never") {
-            return ("Never", input.dropFirst(5))
-        }
-
-        // Check for Swift Error protocol (s5Errorp) - must check before 's' shortcut
-        if input.hasPrefix("s5Errorp") {
-            return ("Error", input.dropFirst(8))
-        }
-
-        // Check for qualified type (starts with 's' + digit for Swift module)
-        if input.hasPrefix("s"), input.count > 1 {
-            let afterS = input.dropFirst()
-            if let first = afterS.first, first.isNumber {
-                if let (typeName, rest) = parseLengthPrefixed(afterS) {
-                    // Skip type suffix (V, C, O, p)
-                    var remaining = rest
-                    while let c = remaining.first, "VCOpP".contains(c) {
-                        remaining = remaining.dropFirst()
-                    }
-                    return (typeName, remaining)
-                }
-            }
-        }
-
-        // Check for two-character patterns (SS, Si, Sb, Sd, Sf, Su)
-        if input.count >= 2 {
-            let twoChars = String(input.prefix(2))
-            if let result = commonPatterns[twoChars] {
-                return (result, input.dropFirst(2))
-            }
-        }
-
-        // Check for single-character shortcuts
-        if let first = input.first, let result = typeShortcuts[first] {
-            return (result, input.dropFirst())
-        }
-
-        // Check for length-prefixed type
-        if let first = input.first, first.isNumber {
-            if let (typeName, rest) = parseLengthPrefixed(input) {
-                // Skip type suffix
-                var remaining = rest
-                while let c = remaining.first, "VCOpP".contains(c) {
-                    remaining = remaining.dropFirst()
-                }
-                return (typeName, remaining)
-            }
-        }
-
-        return nil
-    }
-
-    // MARK: - Primitive Parsing Helpers
-
-    /// Parse a length-prefixed string (e.g., "10Foundation" -> "Foundation").
+    /// Parse a length-prefixed string (e.g., "13IDEFoundation").
     private static func parseLengthPrefixed(_ input: Substring) -> (String, Substring)? {
+        var index = input.startIndex
         var lengthStr = ""
-        var remaining = input
 
-        while let char = remaining.first, char.isNumber {
+        // Collect digits
+        while index < input.endIndex {
+            let char = input[index]
+            guard char.isNumber else { break }
             lengthStr.append(char)
-            remaining = remaining.dropFirst()
+            index = input.index(after: index)
         }
 
-        guard let length = Int(lengthStr), length > 0, remaining.count >= length else {
+        guard let length = Int(lengthStr), length > 0 else {
             return nil
         }
 
-        let str = String(remaining.prefix(length))
-        return (str, remaining.dropFirst(length))
+        let nameStart = index
+        guard let nameEnd = input.index(nameStart, offsetBy: length, limitedBy: input.endIndex) else {
+            return nil
+        }
+
+        let name = String(input[nameStart..<nameEnd])
+        let rest = input[nameEnd...]
+
+        return (name, rest)
     }
 
-    // MARK: - Generic Signature and Constraint Parsing
+    /// Add words from a name to the substitution dictionary.
+    private static func addWords(from name: String, to words: inout [String]) {
+        // Split by camel case and add each word
+        // This is a simplified approximation of Swift's word substitution logic
+        // Real implementation is more complex
+        words.append(name)
+    }
 
-    /// Demangle a generic signature with constraints.
+    // MARK: - Generic Constraint Parsing
+
+    /// Parse a generic signature from mangled format.
     ///
-    /// This parses the generic signature portion of a mangled name, extracting
-    /// type parameters and constraints (where clauses).
-    ///
-    /// Format in mangling:
-    /// - Generic params: `x`, `q_`, `q0_`, etc. (first param, second, third...)
-    /// - Constraints end with `l` (lowercase L)
-    /// - Constraint markers:
+    /// Generic signatures in Swift mangling use various markers to encode constraints:
     ///   - `Rz` - conformance requirement (T: Protocol)
     ///   - `Rs` - same-type requirement (T == Type)
     ///   - `Rl` - layout requirement (T: AnyObject)
@@ -2190,7 +2265,8 @@ public enum SwiftDemangler: Sendable {
             if let (constraint, rest) = parseGenericConstraint(input, paramNames: paramNames) {
                 constraints.append(constraint)
                 input = rest
-            } else {
+            }
+            else {
                 // Try to skip unrecognized content
                 input = input.dropFirst()
             }
@@ -2223,7 +2299,8 @@ public enum SwiftDemangler: Sendable {
             if let proto = protocolShortcuts[twoChars] {
                 protocolName = proto
                 remaining = remaining.dropFirst(2)
-            } else if let typeName = commonPatterns[twoChars] {
+            }
+            else if let typeName = commonPatterns[twoChars] {
                 // Also check common type patterns (SS, Si, etc.)
                 protocolName = typeName
                 remaining = remaining.dropFirst(2)
@@ -2275,50 +2352,50 @@ public enum SwiftDemangler: Sendable {
         var constraintTarget = protocolName ?? "Unknown"
 
         switch kindChar {
-        case "z":
-            // Conformance requirement (T: Protocol)
-            kind = .conformance
-            remaining = remaining.dropFirst()
+            case "z":
+                // Conformance requirement (T: Protocol)
+                kind = .conformance
+                remaining = remaining.dropFirst()
 
-        case "s":
-            // Same-type requirement (T == Type)
-            kind = .sameType
-            remaining = remaining.dropFirst()
-            // For same-type, we need to parse the target type
-            if let (typeName, rest) = parseConstraintType(remaining) {
-                constraintTarget = typeName
-                remaining = rest
-            }
+            case "s":
+                // Same-type requirement (T == Type)
+                kind = .sameType
+                remaining = remaining.dropFirst()
+                // For same-type, we need to parse the target type
+                if let (typeName, rest) = parseConstraintType(remaining) {
+                    constraintTarget = typeName
+                    remaining = rest
+                }
 
-        case "l":
-            // Layout requirement (T: AnyObject)
-            kind = .layout
-            remaining = remaining.dropFirst()
-            constraintTarget = "AnyObject"
+            case "l":
+                // Layout requirement (T: AnyObject)
+                kind = .layout
+                remaining = remaining.dropFirst()
+                constraintTarget = "AnyObject"
 
-        case "b":
-            // Base class requirement (T: BaseClass)
-            kind = .baseClass
-            remaining = remaining.dropFirst()
-            if let (className, rest) = parseConstraintType(remaining) {
-                constraintTarget = className
-                remaining = rest
-            }
+            case "b":
+                // Base class requirement (T: BaseClass)
+                kind = .baseClass
+                remaining = remaining.dropFirst()
+                if let (className, rest) = parseConstraintType(remaining) {
+                    constraintTarget = className
+                    remaining = rest
+                }
 
-        case "_":
-            // Associated type constraint marker (deeper path)
-            remaining = remaining.dropFirst()
-            // Parse associated type path
-            if let (path, rest) = parseAssociatedTypePath(remaining, baseParam: subject) {
-                subject = path
-                remaining = rest
-            }
-            kind = .conformance
+            case "_":
+                // Associated type constraint marker (deeper path)
+                remaining = remaining.dropFirst()
+                // Parse associated type path
+                if let (path, rest) = parseAssociatedTypePath(remaining, baseParam: subject) {
+                    subject = path
+                    remaining = rest
+                }
+                kind = .conformance
 
-        default:
-            // Unknown requirement type, try to continue
-            remaining = remaining.dropFirst()
-            kind = .conformance
+            default:
+                // Unknown requirement type, try to continue
+                remaining = remaining.dropFirst()
+                kind = .conformance
         }
 
         // Check for subject parameter override (underscore followed by index)
@@ -2411,7 +2488,8 @@ public enum SwiftDemangler: Sendable {
                 path = "\(baseParam).\(assocName)"
                 remaining = rest
             }
-        } else if remaining.count >= 7, remaining.hasPrefix("Element") {
+        }
+        else if remaining.count >= 7, remaining.hasPrefix("Element") {
             path = "\(baseParam).Element"
             remaining = remaining.dropFirst(7)
         }

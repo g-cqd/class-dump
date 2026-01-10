@@ -2,15 +2,16 @@ import Foundation
 
 /// Represents an Objective-C method (instance or class method).
 public struct ObjCMethod: Sendable, Hashable {
-    /// The method selector name (e.g., "initWithFrame:")
+    /// The method selector name (e.g., "initWithFrame:").
     public let name: String
 
-    /// The encoded type string (e.g., "@24@0:8{CGRect=dddd}16")
+    /// The encoded type string (e.g., "@24@0:8{CGRect=dddd}16").
     public let typeString: String
 
-    /// The implementation address (0 if not available)
+    /// The implementation address (0 if not available).
     public let address: UInt64
 
+    /// Initialize a method.
     public init(name: String, typeString: String, address: UInt64 = 0) {
         self.name = name
         self.typeString = typeString
@@ -18,6 +19,7 @@ public struct ObjCMethod: Sendable, Hashable {
     }
 
     /// Whether this is an instance method (vs class method).
+    ///
     /// Note: This property must be set based on context when parsing.
     public var isInstanceMethod: Bool {
         // This would need to be determined from context during parsing
@@ -36,12 +38,14 @@ public struct ObjCMethod: Sendable, Hashable {
 }
 
 extension ObjCMethod: Comparable {
+    /// Compare two methods by name.
     public static func < (lhs: ObjCMethod, rhs: ObjCMethod) -> Bool {
         lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
     }
 }
 
 extension ObjCMethod: CustomStringConvertible {
+    /// A textual description of the method.
     public var description: String {
         if address != 0 {
             return "ObjCMethod(\(name), addr: 0x\(String(address, radix: 16)))"

@@ -5,7 +5,7 @@ import Foundation
 /// Visitors traverse the ObjC metadata tree and can perform actions at each node.
 /// The visitor pattern allows separation of traversal logic from output generation.
 public protocol ClassDumpVisitor: AnyObject, Sendable {
-    /// Configuration options for the visitor
+    /// Configuration options for the visitor.
     var options: ClassDumpVisitorOptions { get set }
 
     // MARK: - Lifecycle
@@ -101,37 +101,65 @@ public protocol ClassDumpVisitor: AnyObject, Sendable {
 
 // MARK: - Default Implementations
 
+/// Default empty implementations for all visitor protocol methods.
+/// Conforming types only need to override the methods they care about.
 extension ClassDumpVisitor {
+    /// Called before visiting begins.
     public func willBeginVisiting() {}
+    /// Called after visiting ends.
     public func didEndVisiting() {}
 
+    /// Called before visiting a processor.
     public func willVisitProcessor(_ processor: ObjCProcessorInfo) {}
+    /// Called to visit a processor.
     public func visitProcessor(_ processor: ObjCProcessorInfo) {}
+    /// Called after visiting a processor.
     public func didVisitProcessor(_ processor: ObjCProcessorInfo) {}
 
+    /// Called before visiting a protocol.
     public func willVisitProtocol(_ proto: ObjCProtocol) {}
+    /// Called after visiting a protocol.
     public func didVisitProtocol(_ proto: ObjCProtocol) {}
+    /// Called before visiting properties of a protocol.
     public func willVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
+    /// Called after visiting properties of a protocol.
     public func didVisitPropertiesOfProtocol(_ proto: ObjCProtocol) {}
+    /// Called before visiting optional methods.
     public func willVisitOptionalMethods() {}
+    /// Called after visiting optional methods.
     public func didVisitOptionalMethods() {}
 
+    /// Called before visiting a class.
     public func willVisitClass(_ objcClass: ObjCClass) {}
+    /// Called after visiting a class.
     public func didVisitClass(_ objcClass: ObjCClass) {}
+    /// Called before visiting ivars of a class.
     public func willVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+    /// Called after visiting ivars of a class.
     public func didVisitIvarsOfClass(_ objcClass: ObjCClass) {}
+    /// Called before visiting properties of a class.
     public func willVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
+    /// Called after visiting properties of a class.
     public func didVisitPropertiesOfClass(_ objcClass: ObjCClass) {}
 
+    /// Called before visiting a category.
     public func willVisitCategory(_ category: ObjCCategory) {}
+    /// Called after visiting a category.
     public func didVisitCategory(_ category: ObjCCategory) {}
+    /// Called before visiting properties of a category.
     public func willVisitPropertiesOfCategory(_ category: ObjCCategory) {}
+    /// Called after visiting properties of a category.
     public func didVisitPropertiesOfCategory(_ category: ObjCCategory) {}
 
+    /// Called to visit a class method.
     public func visitClassMethod(_ method: ObjCMethod) {}
+    /// Called to visit an instance method.
     public func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState) {}
+    /// Called to visit an instance variable.
     public func visitIvar(_ ivar: ObjCInstanceVariable) {}
+    /// Called to visit a property.
     public func visitProperty(_ property: ObjCProperty) {}
+    /// Called to visit remaining properties.
     public func visitRemainingProperties(_ propertyState: VisitorPropertyState) {}
 }
 
@@ -139,22 +167,22 @@ extension ClassDumpVisitor {
 
 /// Style for demangling Swift names in output.
 public enum DemangleStyle: String, Sendable, CaseIterable {
-    /// Full Swift style: `Module.ClassName`
+    /// Full Swift style: `Module.ClassName`.
     case swift
 
-    /// ObjC style: just `ClassName` (drop module prefix)
+    /// ObjC style: just `ClassName` (drop module prefix).
     case objc
 
-    /// No demangling: show raw mangled names
+    /// No demangling: show raw mangled names.
     case none
 }
 
 /// Style for formatting method declarations.
 public enum MethodStyle: String, Sendable, CaseIterable {
-    /// ObjC style: `- (ReturnType)methodName:(ParamType)param;`
+    /// ObjC style: `- (ReturnType)methodName:(ParamType)param;`.
     case objc
 
-    /// Swift style: `func methodName(param: ParamType) -> ReturnType`
+    /// Swift style: `func methodName(param: ParamType) -> ReturnType`.
     case swift
 }
 
@@ -164,10 +192,10 @@ public enum MethodStyle: String, Sendable, CaseIterable {
 /// - `objc`: All types use Objective-C syntax (pointers, NS* types)
 /// - `swift`: Types use Swift syntax (optionals, generics)
 public enum OutputStyle: String, Sendable, CaseIterable {
-    /// ObjC output style: `NSArray *`, `NSDictionary *`, `Type *`
+    /// ObjC output style: `NSArray *`, `NSDictionary *`, `Type *`.
     case objc
 
-    /// Swift output style: `[Type]`, `[Key: Value]`, `Type?`
+    /// Swift output style: `[Type]`, `[Key: Value]`, `Type?`.
     case swift
 }
 
@@ -197,6 +225,7 @@ public struct ClassDumpVisitorOptions: Sendable {
     /// Output style for type formatting.
     public var outputStyle: OutputStyle
 
+    /// Initialize visitor options with the specified settings.
     public init(
         shouldShowStructureSection: Bool = true,
         shouldShowProtocolSection: Bool = true,
@@ -222,21 +251,22 @@ public struct ClassDumpVisitorOptions: Sendable {
 
 /// Information about an ObjC processor being visited.
 public struct ObjCProcessorInfo: Sendable {
-    /// The Mach-O file being processed
+    /// The Mach-O file being processed.
     public let machOFile: VisitorMachOFileInfo
 
-    /// Whether this file has ObjC runtime info
+    /// Whether this file has ObjC runtime info.
     public let hasObjectiveCRuntimeInfo: Bool
 
-    /// Garbage collection status (if any)
+    /// Garbage collection status (if any).
     public let garbageCollectionStatus: String?
 
-    /// Registry for structure/union type resolution
+    /// Registry for structure/union type resolution.
     public let structureRegistry: StructureRegistry?
 
-    /// Registry for method signature cross-referencing (block resolution)
+    /// Registry for method signature cross-referencing (block resolution).
     public let methodSignatureRegistry: MethodSignatureRegistry?
 
+    /// Initialize processor info with the specified Mach-O file and metadata.
     public init(
         machOFile: VisitorMachOFileInfo,
         hasObjectiveCRuntimeInfo: Bool,
@@ -254,54 +284,55 @@ public struct ObjCProcessorInfo: Sendable {
 
 /// Information about a Mach-O file being processed for visitor output.
 public struct VisitorMachOFileInfo: Sendable {
-    /// The filename
+    /// The filename.
     public let filename: String
 
-    /// UUID of the file (if available)
+    /// UUID of the file (if available).
     public let uuid: UUID?
 
-    /// Architecture name
+    /// Architecture name.
     public let archName: String
 
-    /// File type (MH_EXECUTE, MH_DYLIB, etc.)
+    /// File type (MH_EXECUTE, MH_DYLIB, etc.).
     public let filetype: UInt32
 
-    /// Whether the file is encrypted
+    /// Whether the file is encrypted.
     public let isEncrypted: Bool
 
-    /// Whether the file has protected segments
+    /// Whether the file has protected segments.
     public let hasProtectedSegments: Bool
 
-    /// Whether all protected segments can be decrypted
+    /// Whether all protected segments can be decrypted.
     public let canDecryptAllSegments: Bool
 
-    /// Dylib identifier (for MH_DYLIB)
+    /// Dylib identifier (for MH_DYLIB).
     public let dylibIdentifier: DylibInfo?
 
-    /// Source version string
+    /// Source version string.
     public let sourceVersion: String?
 
-    /// Build version string
+    /// Build version string.
     public let buildVersion: String?
 
-    /// Build tools list
+    /// Build tools list.
     public let buildTools: [String]?
 
-    /// Minimum macOS version
+    /// Minimum macOS version.
     public let minMacOSVersion: String?
 
-    /// Minimum iOS version
+    /// Minimum iOS version.
     public let minIOSVersion: String?
 
-    /// SDK version
+    /// SDK version.
     public let sdkVersion: String?
 
-    /// Run paths
+    /// Run paths.
     public let runPaths: [(path: String, resolved: String)]
 
-    /// Dyld environment entries
+    /// Dyld environment entries.
     public let dyldEnvironment: [String]
 
+    /// Initialize Mach-O file info with the specified properties.
     public init(
         filename: String,
         uuid: UUID? = nil,
@@ -341,15 +372,16 @@ public struct VisitorMachOFileInfo: Sendable {
 
 /// Information about a dylib.
 public struct DylibInfo: Sendable {
-    /// The dylib name/path
+    /// The dylib name/path.
     public let name: String
 
-    /// Current version string
+    /// Current version string.
     public let currentVersion: String
 
-    /// Compatibility version string
+    /// Compatibility version string.
     public let compatibilityVersion: String
 
+    /// Initialize dylib info with the specified name and versions.
     public init(name: String, currentVersion: String, compatibilityVersion: String) {
         self.name = name
         self.currentVersion = currentVersion

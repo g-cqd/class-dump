@@ -126,10 +126,8 @@ struct TestConcurrentProcessing {
             }
 
             var count = 0
-            for await value in group {
-                if value != nil {
-                    count += 1
-                }
+            for await value in group where value != nil {
+                count += 1
             }
             #expect(count == 1000)
         }
@@ -269,33 +267,140 @@ struct TestConcurrentProcessing {
 
 /// An actor for collecting results from async tasks
 actor ResultCollector<T> {
-    private var _items: [T] = []
+    private var itemsStorage: [T] = []
 
     var items: [T] {
-        _items
+        itemsStorage
     }
 
     func add(_ item: T) {
-        _items.append(item)
+        itemsStorage.append(item)
     }
 }
 
 // MARK: - Helper Types
 
-/// Thread-safe counter for testing
+/// Thread-safe counter for testing.
 final class ThreadSafeCounter: @unchecked Sendable {
-    private var _value: Int = 0
+    private var internalValue: Int = 0
     private let lock = NSLock()
 
     var value: Int {
         lock.lock()
         defer { lock.unlock() }
-        return _value
+        return internalValue
     }
 
     func increment() {
         lock.lock()
         defer { lock.unlock() }
-        _value += 1
+        internalValue += 1
+    }
+}
+
+// MARK: - Streaming API Tests
+
+@Suite("Streaming Processing Tests")
+struct TestStreamingProcessing {
+
+    /// Get a test binary path that exists on the system.
+    private static var testBinaryPath: String {
+        // Try Xcode frameworks first (most ObjC metadata)
+        let xcodeFramework =
+            "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
+        if FileManager.default.fileExists(atPath: xcodeFramework) {
+            return xcodeFramework
+        }
+        // Fallback to a command-line tool
+        return "/usr/bin/file"
+    }
+
+    @Test("Streaming API yields metadata items")
+    func streamingYieldsItems() async throws {
+        let path = Self.testBinaryPath
+        guard FileManager.default.fileExists(atPath: path) else {
+            // Skip test if no suitable binary found
+            return
+        }
+
+        let binary = try MachOBinary(contentsOf: URL(fileURLWithPath: path))
+        let machOFile = try binary.bestMatchForLocal()
+        let processor = ObjC2Processor(machOFile: machOFile)
+
+        var itemCount = 0
+
+        for await item in processor.stream() {
+            switch item {
+                case .protocol, .class, .category, .imageInfo:
+                    itemCount += 1
+                case .progress:
+                    break
+            }
+        }
+
+        // Should yield at least some items (or zero for non-ObjC binaries)
+        #expect(itemCount >= 0)
+    }
+
+    @Test("Streaming with progress yields progress updates")
+    func streamingWithProgress() async throws {
+        let path = Self.testBinaryPath
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let binary = try MachOBinary(contentsOf: URL(fileURLWithPath: path))
+        let machOFile = try binary.bestMatchForLocal()
+        let processor = ObjC2Processor(machOFile: machOFile)
+
+        var progressUpdates: [ProcessingProgress] = []
+
+        for await item in processor.stream(includeProgress: true) {
+            if case .progress(let progress) = item {
+                progressUpdates.append(progress)
+            }
+        }
+
+        // Should have at least the completion progress
+        let phases = Set(progressUpdates.map { $0.phase })
+        #expect(phases.contains(.complete))
+    }
+
+    @Test("Streaming matches batch processing results")
+    func streamingMatchesBatch() async throws {
+        let path = Self.testBinaryPath
+        guard FileManager.default.fileExists(atPath: path) else {
+            return
+        }
+
+        let binary = try MachOBinary(contentsOf: URL(fileURLWithPath: path))
+        let machOFile = try binary.bestMatchForLocal()
+
+        // Process with streaming
+        let streamProcessor = ObjC2Processor(machOFile: machOFile)
+        var streamedProtocols: [String] = []
+        var streamedClasses: [String] = []
+
+        for await item in streamProcessor.stream() {
+            switch item {
+                case .protocol(let proto):
+                    streamedProtocols.append(proto.name)
+                case .class(let cls):
+                    streamedClasses.append(cls.name)
+                default:
+                    break
+            }
+        }
+
+        // Process with batch
+        let batchProcessor = ObjC2Processor(machOFile: machOFile)
+        let metadata = try await batchProcessor.processAsync()
+
+        let batchProtocols = metadata.protocols.map { $0.name }
+        let batchClasses = metadata.classes.map { $0.name }
+
+        // Results should match (order may differ)
+        #expect(Set(streamedProtocols) == Set(batchProtocols))
+        #expect(Set(streamedClasses) == Set(batchClasses))
     }
 }

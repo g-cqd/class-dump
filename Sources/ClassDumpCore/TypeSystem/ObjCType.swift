@@ -7,89 +7,89 @@ import Foundation
 public indirect enum ObjCType: Sendable, Equatable {
     // MARK: - Primitive Types
 
-    /// Signed char (c)
+    /// Signed char (c).
     case char
-    /// Signed int (i)
+    /// Signed int (i).
     case int
-    /// Signed short (s)
+    /// Signed short (s).
     case short
-    /// Signed long (l)
+    /// Signed long (l).
     case long
-    /// Signed long long (q)
+    /// Signed long long (q).
     case longLong
-    /// Unsigned char (C)
+    /// Unsigned char (C).
     case unsignedChar
-    /// Unsigned int (I)
+    /// Unsigned int (I).
     case unsignedInt
-    /// Unsigned short (S)
+    /// Unsigned short (S).
     case unsignedShort
-    /// Unsigned long (L)
+    /// Unsigned long (L).
     case unsignedLong
-    /// Unsigned long long (Q)
+    /// Unsigned long long (Q).
     case unsignedLongLong
-    /// Float (f)
+    /// Float (f).
     case float
-    /// Double (d)
+    /// Double (d).
     case double
-    /// Long double (D)
+    /// Long double (D).
     case longDouble
-    /// C99 _Bool or C++ bool (B)
+    /// C99 _Bool or C++ bool (B).
     case bool
-    /// Void (v)
+    /// Void (v).
     case void
-    /// C string / char* (*)
+    /// C string / char* (*).
     case cString
-    /// Objective-C Class (#)
+    /// Objective-C Class (#).
     case objcClass
-    /// Objective-C SEL (:)
+    /// Objective-C SEL (:).
     case selector
-    /// Unknown/void (?)
+    /// Unknown/void (?).
     case unknown
-    /// NXAtom (%)
+    /// NXAtom (%).
     case atom
-    /// Signed 128-bit integer __int128 (t)
+    /// Signed 128-bit integer __int128 (t).
     case int128
-    /// Unsigned 128-bit integer unsigned __int128 (T)
+    /// Unsigned 128-bit integer unsigned __int128 (T).
     case unsignedInt128
 
     // MARK: - Complex Types
 
-    /// id type, optionally with a class name and/or protocols
+    /// id type, optionally with a class name and/or protocols.
     case id(className: String?, protocols: [String])
-    /// Pointer to another type (^)
+    /// Pointer to another type (^).
     case pointer(ObjCType)
-    /// Array with count and element type ([count type])
+    /// Array with count and element type ([count type]).
     case array(count: String, elementType: ObjCType)
-    /// Struct with optional name and members ({name=members})
+    /// Struct with optional name and members ({name=members}).
     case structure(name: ObjCTypeName?, members: [ObjCTypedMember])
-    /// Union with optional name and members ((name=members))
+    /// Union with optional name and members ((name=members)).
     case union(name: ObjCTypeName?, members: [ObjCTypedMember])
-    /// Bitfield with size (bN)
+    /// Bitfield with size (bN).
     case bitfield(size: String)
-    /// Function pointer (^?)
+    /// Function pointer (^?).
     case functionPointer
-    /// Block type with optional signature (@?)
+    /// Block type with optional signature (@?).
     case block(types: [ObjCType]?)
 
     // MARK: - Modifiers
 
-    /// const modifier (r)
+    /// const modifier (r).
     case const(ObjCType?)
-    /// in modifier (n)
+    /// in modifier (n).
     case `in`(ObjCType?)
-    /// inout modifier (N)
+    /// inout modifier (N).
     case `inout`(ObjCType?)
-    /// out modifier (o)
+    /// out modifier (o).
     case out(ObjCType?)
-    /// bycopy modifier (O)
+    /// bycopy modifier (O).
     case bycopy(ObjCType?)
-    /// byref modifier (R)
+    /// byref modifier (R).
     case byref(ObjCType?)
-    /// oneway modifier (V)
+    /// oneway modifier (V).
     case oneway(ObjCType?)
-    /// _Complex modifier (j)
+    /// _Complex modifier (j).
     case complex(ObjCType?)
-    /// _Atomic modifier (A)
+    /// _Atomic modifier (A).
     case atomic(ObjCType?)
 
     // MARK: - Initialization
@@ -97,80 +97,80 @@ public indirect enum ObjCType: Sendable, Equatable {
     /// Create a type from a single-character primitive type code.
     public static func primitive(from code: Character) -> ObjCType? {
         switch code {
-        case "c": return .char
-        case "i": return .int
-        case "s": return .short
-        case "l": return .long
-        case "q": return .longLong
-        case "C": return .unsignedChar
-        case "I": return .unsignedInt
-        case "S": return .unsignedShort
-        case "L": return .unsignedLong
-        case "Q": return .unsignedLongLong
-        case "f": return .float
-        case "d": return .double
-        case "D": return .longDouble
-        case "B": return .bool
-        case "v": return .void
-        case "*": return .cString
-        case "#": return .objcClass
-        case ":": return .selector
-        case "?": return .unknown
-        case "%": return .atom
-        case "t": return .int128
-        case "T": return .unsignedInt128
-        default: return nil
+            case "c": return .char
+            case "i": return .int
+            case "s": return .short
+            case "l": return .long
+            case "q": return .longLong
+            case "C": return .unsignedChar
+            case "I": return .unsignedInt
+            case "S": return .unsignedShort
+            case "L": return .unsignedLong
+            case "Q": return .unsignedLongLong
+            case "f": return .float
+            case "d": return .double
+            case "D": return .longDouble
+            case "B": return .bool
+            case "v": return .void
+            case "*": return .cString
+            case "#": return .objcClass
+            case ":": return .selector
+            case "?": return .unknown
+            case "%": return .atom
+            case "t": return .int128
+            case "T": return .unsignedInt128
+            default: return nil
         }
     }
 
     // MARK: - Properties
 
-    /// Whether this is an id type (@ without a class name)
+    /// Whether this is an id type (@ without a class name).
     public var isIDType: Bool {
         if case .id(className: nil, protocols: _) = self { return true }
         return false
     }
 
-    /// Whether this is a named object type (@ with a class name)
+    /// Whether this is a named object type (@ with a class name).
     public var isNamedObject: Bool {
         if case .id(className: let name?, protocols: _) = self { return !name.isEmpty }
         return false
     }
 
-    /// Whether this is a modifier type
+    /// Whether this is a modifier type.
     public var isModifier: Bool {
         switch self {
-        case .const, .in, .inout, .out, .bycopy, .byref, .oneway, .complex, .atomic:
-            return true
-        default:
-            return false
+            case .const, .in, .inout, .out, .bycopy, .byref, .oneway, .complex, .atomic:
+                return true
+            default:
+                return false
         }
     }
 
-    /// The underlying type, ignoring modifiers
+    /// The underlying type, ignoring modifiers.
     public var typeIgnoringModifiers: ObjCType {
         switch self {
-        case .const(let t), .in(let t), .inout(let t), .out(let t),
-            .bycopy(let t), .byref(let t), .oneway(let t), .complex(let t), .atomic(let t):
-            return t?.typeIgnoringModifiers ?? self
-        default:
-            return self
+            case .const(let t), .in(let t), .inout(let t), .out(let t),
+                .bycopy(let t), .byref(let t), .oneway(let t), .complex(let t), .atomic(let t):
+                return t?.typeIgnoringModifiers ?? self
+            default:
+                return self
         }
     }
 
-    /// The depth of nested structures/unions
+    /// The depth of nested structures/unions.
     public var structureDepth: Int {
         switch self {
-        case .pointer(let t), .array(_, let t):
-            return t.structureDepth
-        case .const(let t), .in(let t), .inout(let t), .out(let t),
-            .bycopy(let t), .byref(let t), .oneway(let t), .complex(let t), .atomic(let t):
-            return t?.structureDepth ?? 0
-        case .structure(_, let members), .union(_, let members):
-            let maxDepth = members.map { $0.type.structureDepth }.max() ?? 0
-            return maxDepth + 1
-        default:
-            return 0
+            case .pointer(let t), .array(_, let t):
+                return t.structureDepth
+            case .const(let t), .in(let t), .inout(let t), .out(let t),
+                .bycopy(let t), .byref(let t), .oneway(let t), .complex(let t), .atomic(let t):
+                return t?.structureDepth ?? 0
+            case .structure(_, let members), .union(_, let members):
+                let maxDepth = members.map { $0.type.structureDepth }.max() ?? 0
+                return maxDepth + 1
+            default:
+                return 0
         }
     }
 
@@ -188,112 +188,122 @@ public indirect enum ObjCType: Sendable, Equatable {
 
     private func typeString(includeVariableNames: Bool, showObjectTypes: Bool) -> String {
         switch self {
-        case .char: return "c"
-        case .int: return "i"
-        case .short: return "s"
-        case .long: return "l"
-        case .longLong: return "q"
-        case .unsignedChar: return "C"
-        case .unsignedInt: return "I"
-        case .unsignedShort: return "S"
-        case .unsignedLong: return "L"
-        case .unsignedLongLong: return "Q"
-        case .float: return "f"
-        case .double: return "d"
-        case .longDouble: return "D"
-        case .bool: return "B"
-        case .void: return "v"
-        case .cString: return "*"
-        case .objcClass: return "#"
-        case .selector: return ":"
-        case .unknown: return "?"
-        case .atom: return "%"
-        case .int128: return "t"
-        case .unsignedInt128: return "T"
+            case .char: return "c"
+            case .int: return "i"
+            case .short: return "s"
+            case .long: return "l"
+            case .longLong: return "q"
+            case .unsignedChar: return "C"
+            case .unsignedInt: return "I"
+            case .unsignedShort: return "S"
+            case .unsignedLong: return "L"
+            case .unsignedLongLong: return "Q"
+            case .float: return "f"
+            case .double: return "d"
+            case .longDouble: return "D"
+            case .bool: return "B"
+            case .void: return "v"
+            case .cString: return "*"
+            case .objcClass: return "#"
+            case .selector: return ":"
+            case .unknown: return "?"
+            case .atom: return "%"
+            case .int128: return "t"
+            case .unsignedInt128: return "T"
 
-        case .id(let className, _):
-            if showObjectTypes, let name = className {
-                return "@\"\(name)\""
-            }
-            return "@"
-
-        case .pointer(let t):
-            return "^\(t.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes))"
-
-        case .array(let count, let t):
-            return
-                "[\(count)\(t.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes))]"
-
-        case .structure(let name, let members):
-            if members.isEmpty {
-                return "{\(name?.description ?? "?")}"
-            }
-            let membersStr = members.map { m -> String in
-                var s = ""
-                if includeVariableNames, let varName = m.name {
-                    s += "\"\(varName)\""
+            case .id(let className, _):
+                if showObjectTypes, let name = className {
+                    return "@\"\(name)\""
                 }
-                s += m.type.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes)
-                return s
-            }.joined()
-            if let name = name {
-                return "{\(name)=\(membersStr)}"
-            }
-            return "{\(membersStr)}"
+                return "@"
 
-        case .union(let name, let members):
-            if members.isEmpty {
-                return "(\(name?.description ?? "?"))"
-            }
-            let membersStr = members.map { m -> String in
-                var s = ""
-                if includeVariableNames, let varName = m.name {
-                    s += "\"\(varName)\""
+            case .pointer(let t):
+                return "^\(t.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes))"
+
+            case .array(let count, let t):
+                return
+                    "[\(count)\(t.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes))]"
+
+            case .structure(let name, let members):
+                if members.isEmpty {
+                    return "{\(name?.description ?? "?")}"
                 }
-                s += m.type.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes)
-                return s
-            }.joined()
-            if let name = name {
-                return "(\(name)=\(membersStr))"
-            }
-            return "(\(membersStr))"
+                let membersStr =
+                    members.map { m -> String in
+                        var s = ""
+                        if includeVariableNames, let varName = m.name {
+                            s += "\"\(varName)\""
+                        }
+                        s += m.type.typeString(
+                            includeVariableNames: includeVariableNames,
+                            showObjectTypes: showObjectTypes
+                        )
+                        return s
+                    }
+                    .joined()
+                if let name = name {
+                    return "{\(name)=\(membersStr)}"
+                }
+                return "{\(membersStr)}"
 
-        case .bitfield(let size):
-            return "b\(size)"
+            case .union(let name, let members):
+                if members.isEmpty {
+                    return "(\(name?.description ?? "?"))"
+                }
+                let membersStr =
+                    members.map { m -> String in
+                        var s = ""
+                        if includeVariableNames, let varName = m.name {
+                            s += "\"\(varName)\""
+                        }
+                        s += m.type.typeString(
+                            includeVariableNames: includeVariableNames,
+                            showObjectTypes: showObjectTypes
+                        )
+                        return s
+                    }
+                    .joined()
+                if let name = name {
+                    return "(\(name)=\(membersStr))"
+                }
+                return "(\(membersStr))"
 
-        case .functionPointer:
-            return "^?"
+            case .bitfield(let size):
+                return "b\(size)"
 
-        case .block:
-            return "@?"
+            case .functionPointer:
+                return "^?"
 
-        case .const(let t):
-            return
-                "r\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .in(let t):
-            return
-                "n\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .inout(let t):
-            return
-                "N\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .out(let t):
-            return
-                "o\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .bycopy(let t):
-            return
-                "O\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .byref(let t):
-            return
-                "R\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .oneway(let t):
-            return
-                "V\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .complex(let t):
-            return
-                "j\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
-        case .atomic(let t):
-            return
-                "A\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .block:
+                return "@?"
+
+            case .const(let t):
+                return
+                    "r\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .`in`(let t):
+                return
+                    "n\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .`inout`(let t):
+                return
+                    "N\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .out(let t):
+                return
+                    "o\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .bycopy(let t):
+                return
+                    "O\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .byref(let t):
+                return
+                    "R\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .oneway(let t):
+                return
+                    "V\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .complex(let t):
+                return
+                    "j\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
+            case .atomic(let t):
+                return
+                    "A\(t?.typeString(includeVariableNames: includeVariableNames, showObjectTypes: showObjectTypes) ?? "")"
         }
     }
 }
@@ -302,12 +312,13 @@ public indirect enum ObjCType: Sendable, Equatable {
 
 /// A struct/union member with an optional variable name.
 public struct ObjCTypedMember: Sendable, Equatable {
-    /// The type of the member
+    /// The type of the member.
     public let type: ObjCType
 
-    /// The optional variable name
+    /// The optional variable name.
     public let name: String?
 
+    /// Initialize a typed member.
     public init(type: ObjCType, name: String? = nil) {
         self.type = type
         self.name = name
@@ -318,26 +329,28 @@ public struct ObjCTypedMember: Sendable, Equatable {
 
 /// Represents a type name, possibly with C++ template parameters.
 public struct ObjCTypeName: Sendable, Equatable, CustomStringConvertible {
-    /// The base name
+    /// The base name.
     public var name: String
 
-    /// Template type parameters (for C++ templates)
+    /// Template type parameters (for C++ templates).
     public var templateTypes: [ObjCTypeName]
 
-    /// Suffix after template parameters
+    /// Suffix after template parameters.
     public var suffix: String?
 
+    /// Initialize a type name.
     public init(name: String = "?", templateTypes: [ObjCTypeName] = [], suffix: String? = nil) {
         self.name = name
         self.templateTypes = templateTypes
         self.suffix = suffix
     }
 
-    /// Whether this is a template type
+    /// Whether this is a template type.
     public var isTemplateType: Bool {
         !templateTypes.isEmpty
     }
 
+    /// A textual description of the type name.
     public var description: String {
         var result = name
         if !templateTypes.isEmpty {
@@ -354,12 +367,13 @@ public struct ObjCTypeName: Sendable, Equatable, CustomStringConvertible {
 
 /// Represents a single type in a method signature, with its stack offset.
 public struct ObjCMethodType: Sendable, Equatable {
-    /// The type
+    /// The type.
     public let type: ObjCType
 
-    /// The stack offset (as a string, since it may be empty)
+    /// The stack offset (as a string, since it may be empty).
     public let offset: String?
 
+    /// Initialize a method type.
     public init(type: ObjCType, offset: String? = nil) {
         self.type = type
         self.offset = offset

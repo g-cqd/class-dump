@@ -5,10 +5,16 @@ import MachO
 
 /// Dylinker load command (LC_LOAD_DYLINKER, LC_ID_DYLINKER, LC_DYLD_ENVIRONMENT).
 public struct DylinkerCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The dynamic linker path name.
     public let name: String
 
+    /// Parse a dylinker command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -19,20 +25,23 @@ public struct DylinkerCommand: LoadCommandProtocol, Sendable {
                 let nameOffset = try cursor.readLittleInt32()
                 cursor = try DataCursor(data: data, offset: Int(nameOffset))
                 self.name = try cursor.readCString()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 let nameOffset = try cursor.readBigInt32()
                 cursor = try DataCursor(data: data, offset: Int(nameOffset))
                 self.name = try cursor.readCString()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
         }
     }
 }
 
 extension DylinkerCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "DylinkerCommand(\(commandName), \(name))"
     }
@@ -42,10 +51,16 @@ extension DylinkerCommand: CustomStringConvertible {
 
 /// UUID load command (LC_UUID).
 public struct UUIDCommand: LoadCommandProtocol, Sendable {
+    /// The command type (LC_UUID).
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The UUID value.
     public let uuid: UUID
 
+    /// Parse a UUID command from data.
     public init(data: Data) throws {
         guard data.count >= 24 else {
             throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
@@ -61,12 +76,14 @@ public struct UUIDCommand: LoadCommandProtocol, Sendable {
         }
     }
 
+    /// The string representation of the UUID.
     public var uuidString: String {
         uuid.uuidString
     }
 }
 
 extension UUIDCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "UUIDCommand(\(uuidString))"
     }
@@ -76,21 +93,30 @@ extension UUIDCommand: CustomStringConvertible {
 
 /// Version minimum load command (LC_VERSION_MIN_*).
 public struct VersionCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The minimum OS version.
     public let version: DylibCommand.Version
+
+    /// The SDK version.
     public let sdk: DylibCommand.Version
 
+    /// The platform this command targets.
     public var platform: Platform {
         switch cmd {
-        case UInt32(LC_VERSION_MIN_MACOSX): return .macOS
-        case UInt32(LC_VERSION_MIN_IPHONEOS): return .iOS
-        case UInt32(LC_VERSION_MIN_TVOS): return .tvOS
-        case UInt32(LC_VERSION_MIN_WATCHOS): return .watchOS
-        default: return .unknown
+            case UInt32(LC_VERSION_MIN_MACOSX): return .macOS
+            case UInt32(LC_VERSION_MIN_IPHONEOS): return .iOS
+            case UInt32(LC_VERSION_MIN_TVOS): return .tvOS
+            case UInt32(LC_VERSION_MIN_WATCHOS): return .watchOS
+            default: return .unknown
         }
     }
 
+    /// Supported platforms.
     public enum Platform: Sendable {
         case macOS
         case iOS
@@ -99,6 +125,7 @@ public struct VersionCommand: LoadCommandProtocol, Sendable {
         case unknown
     }
 
+    /// Parse a version command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -108,19 +135,22 @@ public struct VersionCommand: LoadCommandProtocol, Sendable {
                 self.cmdsize = try cursor.readLittleInt32()
                 self.version = DylibCommand.Version(packed: try cursor.readLittleInt32())
                 self.sdk = DylibCommand.Version(packed: try cursor.readLittleInt32())
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.version = DylibCommand.Version(packed: try cursor.readBigInt32())
                 self.sdk = DylibCommand.Version(packed: try cursor.readBigInt32())
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
         }
     }
 }
 
 extension VersionCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "VersionCommand(\(platform), version: \(version), sdk: \(sdk))"
     }
@@ -143,50 +173,69 @@ public enum BuildPlatform: UInt32, Sendable {
     case visionOS = 11
     case visionOSSimulator = 12
 
+    /// The name of the platform.
     public var name: String {
         switch self {
-        case .macOS: return "macOS"
-        case .iOS: return "iOS"
-        case .tvOS: return "tvOS"
-        case .watchOS: return "watchOS"
-        case .bridgeOS: return "bridgeOS"
-        case .macCatalyst: return "macCatalyst"
-        case .iOSSimulator: return "iOS Simulator"
-        case .tvOSSimulator: return "tvOS Simulator"
-        case .watchOSSimulator: return "watchOS Simulator"
-        case .driverKit: return "DriverKit"
-        case .visionOS: return "visionOS"
-        case .visionOSSimulator: return "visionOS Simulator"
+            case .macOS: return "macOS"
+            case .iOS: return "iOS"
+            case .tvOS: return "tvOS"
+            case .watchOS: return "watchOS"
+            case .bridgeOS: return "bridgeOS"
+            case .macCatalyst: return "macCatalyst"
+            case .iOSSimulator: return "iOS Simulator"
+            case .tvOSSimulator: return "tvOS Simulator"
+            case .watchOSSimulator: return "watchOS Simulator"
+            case .driverKit: return "DriverKit"
+            case .visionOS: return "visionOS"
+            case .visionOSSimulator: return "visionOS Simulator"
         }
     }
 }
 
 /// Build tool version information.
 public struct BuildToolVersion: Sendable {
+    /// The tool type.
     public let tool: UInt32
+
+    /// The tool version.
     public let version: DylibCommand.Version
 
+    /// The name of the tool.
     public var toolName: String {
         switch tool {
-        case 1: return "clang"
-        case 2: return "swift"
-        case 3: return "ld"
-        case 4: return "lld"
-        default: return "unknown(\(tool))"
+            case 1: return "clang"
+            case 2: return "swift"
+            case 3: return "ld"
+            case 4: return "lld"
+            default: return "unknown(\(tool))"
         }
     }
 }
 
 /// Build version load command (LC_BUILD_VERSION).
 public struct BuildVersionCommand: LoadCommandProtocol, Sendable {
+    /// The command type (LC_BUILD_VERSION).
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The target platform.
     public let platform: BuildPlatform?
+
+    /// The raw platform value.
     public let platformRaw: UInt32
+
+    /// The minimum OS version.
     public let minos: DylibCommand.Version
+
+    /// The SDK version.
     public let sdk: DylibCommand.Version
+
+    /// The build tools used.
     public let tools: [BuildToolVersion]
 
+    /// Parse a build version command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -207,7 +256,8 @@ public struct BuildVersionCommand: LoadCommandProtocol, Sendable {
                     tools.append(BuildToolVersion(tool: tool, version: version))
                 }
                 self.tools = tools
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.platformRaw = try cursor.readBigInt32()
@@ -226,13 +276,15 @@ public struct BuildVersionCommand: LoadCommandProtocol, Sendable {
             }
 
             self.platform = BuildPlatform(rawValue: platformRaw)
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
         }
     }
 }
 
 extension BuildVersionCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         let platformName = platform?.name ?? "unknown(\(platformRaw))"
         return "BuildVersionCommand(\(platformName), minos: \(minos), sdk: \(sdk))"
@@ -243,11 +295,19 @@ extension BuildVersionCommand: CustomStringConvertible {
 
 /// Main entry point load command (LC_MAIN).
 public struct MainCommand: LoadCommandProtocol, Sendable {
+    /// The command type (LC_MAIN).
     public let cmd: UInt32
-    public let cmdsize: UInt32
-    public let entryoff: UInt64  // File offset of main()
-    public let stacksize: UInt64  // Initial stack size (0 = default)
 
+    /// The size of the command in bytes.
+    public let cmdsize: UInt32
+
+    /// The file offset of the entry point.
+    public let entryoff: UInt64
+
+    /// The initial stack size.
+    public let stacksize: UInt64
+
+    /// Parse a main command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -257,19 +317,22 @@ public struct MainCommand: LoadCommandProtocol, Sendable {
                 self.cmdsize = try cursor.readLittleInt32()
                 self.entryoff = try cursor.readLittleInt64()
                 self.stacksize = try cursor.readLittleInt64()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.entryoff = try cursor.readBigInt64()
                 self.stacksize = try cursor.readBigInt64()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 24, actual: data.count)
         }
     }
 }
 
 extension MainCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "MainCommand(entryoff: 0x\(String(entryoff, radix: 16)), stacksize: \(stacksize))"
     }
@@ -279,8 +342,13 @@ extension MainCommand: CustomStringConvertible {
 
 /// Source version load command (LC_SOURCE_VERSION).
 public struct SourceVersionCommand: LoadCommandProtocol, Sendable {
+    /// The command type (LC_SOURCE_VERSION).
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The source version.
     public let version: UInt64
 
     /// Parsed version components (A.B.C.D.E).
@@ -293,6 +361,7 @@ public struct SourceVersionCommand: LoadCommandProtocol, Sendable {
         return "\(a).\(b).\(c).\(d).\(e)"
     }
 
+    /// Parse a source version command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -301,18 +370,21 @@ public struct SourceVersionCommand: LoadCommandProtocol, Sendable {
                 self.cmd = try cursor.readLittleInt32()
                 self.cmdsize = try cursor.readLittleInt32()
                 self.version = try cursor.readLittleInt64()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.version = try cursor.readBigInt64()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
         }
     }
 }
 
 extension SourceVersionCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "SourceVersionCommand(\(versionString))"
     }
@@ -322,18 +394,33 @@ extension SourceVersionCommand: CustomStringConvertible {
 
 /// Encryption info load command (LC_ENCRYPTION_INFO, LC_ENCRYPTION_INFO_64).
 public struct EncryptionInfoCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
-    public let cryptoff: UInt32  // File offset of encrypted range
-    public let cryptsize: UInt32  // Size of encrypted range
-    public let cryptid: UInt32  // Encryption system ID (0 = not encrypted)
-    public let pad: UInt32  // 64-bit only padding
+
+    /// The file offset of the encrypted range.
+    public let cryptoff: UInt32
+
+    /// The size of the encrypted range in bytes.
+    public let cryptsize: UInt32
+
+    /// The encryption system ID (0 = not encrypted).
+    public let cryptid: UInt32
+
+    /// Padding (64-bit only).
+    public let pad: UInt32
+
+    /// Whether this is a 64-bit command.
     public let is64Bit: Bool
 
+    /// Whether the segment is encrypted.
     public var isEncrypted: Bool {
         cryptid != 0
     }
 
+    /// Parse an encryption info command from data.
     public init(data: Data, byteOrder: ByteOrder, is64Bit: Bool) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -345,7 +432,8 @@ public struct EncryptionInfoCommand: LoadCommandProtocol, Sendable {
                 self.cryptsize = try cursor.readLittleInt32()
                 self.cryptid = try cursor.readLittleInt32()
                 self.pad = is64Bit ? try cursor.readLittleInt32() : 0
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.cryptoff = try cursor.readBigInt32()
@@ -355,13 +443,15 @@ public struct EncryptionInfoCommand: LoadCommandProtocol, Sendable {
             }
 
             self.is64Bit = is64Bit
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: is64Bit ? 24 : 20, actual: data.count)
         }
     }
 }
 
 extension EncryptionInfoCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "EncryptionInfoCommand(offset: 0x\(String(cryptoff, radix: 16)), size: \(cryptsize), encrypted: \(isEncrypted))"
     }
@@ -371,11 +461,19 @@ extension EncryptionInfoCommand: CustomStringConvertible {
 
 /// Linkedit data load command (LC_CODE_SIGNATURE, LC_FUNCTION_STARTS, etc.).
 public struct LinkeditDataCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The file offset of the data.
     public let dataoff: UInt32
+
+    /// The size of the data in bytes.
     public let datasize: UInt32
 
+    /// Parse a linkedit data command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -385,19 +483,22 @@ public struct LinkeditDataCommand: LoadCommandProtocol, Sendable {
                 self.cmdsize = try cursor.readLittleInt32()
                 self.dataoff = try cursor.readLittleInt32()
                 self.datasize = try cursor.readLittleInt32()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.dataoff = try cursor.readBigInt32()
                 self.datasize = try cursor.readBigInt32()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 16, actual: data.count)
         }
     }
 }
 
 extension LinkeditDataCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "LinkeditDataCommand(\(commandName), offset: 0x\(String(dataoff, radix: 16)), size: \(datasize))"
     }
@@ -407,10 +508,16 @@ extension LinkeditDataCommand: CustomStringConvertible {
 
 /// Runpath load command (LC_RPATH).
 public struct RpathCommand: LoadCommandProtocol, Sendable {
+    /// The command type (LC_RPATH).
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The runpath string.
     public let path: String
 
+    /// Parse an rpath command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -421,20 +528,23 @@ public struct RpathCommand: LoadCommandProtocol, Sendable {
                 let pathOffset = try cursor.readLittleInt32()
                 cursor = try DataCursor(data: data, offset: Int(pathOffset))
                 self.path = try cursor.readCString()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 let pathOffset = try cursor.readBigInt32()
                 cursor = try DataCursor(data: data, offset: Int(pathOffset))
                 self.path = try cursor.readCString()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 12, actual: data.count)
         }
     }
 }
 
 extension RpathCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "RpathCommand(\(path))"
     }
@@ -444,29 +554,48 @@ extension RpathCommand: CustomStringConvertible {
 
 /// Dyld info load command (LC_DYLD_INFO, LC_DYLD_INFO_ONLY).
 public struct DyldInfoCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
 
     // Rebase info
+    /// The file offset of the rebase info.
     public let rebaseOff: UInt32
+
+    /// The size of the rebase info in bytes.
     public let rebaseSize: UInt32
 
     // Binding info
+    /// The file offset of the binding info.
     public let bindOff: UInt32
+
+    /// The size of the binding info in bytes.
     public let bindSize: UInt32
 
     // Weak binding info
+    /// The file offset of the weak binding info.
     public let weakBindOff: UInt32
+
+    /// The size of the weak binding info in bytes.
     public let weakBindSize: UInt32
 
     // Lazy binding info
+    /// The file offset of the lazy binding info.
     public let lazyBindOff: UInt32
+
+    /// The size of the lazy binding info in bytes.
     public let lazyBindSize: UInt32
 
     // Export info
+    /// The file offset of the export info.
     public let exportOff: UInt32
+
+    /// The size of the export info in bytes.
     public let exportSize: UInt32
 
+    /// Parse a dyld info command from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         do {
             var cursor = try DataCursor(data: data, offset: 0)
@@ -484,7 +613,8 @@ public struct DyldInfoCommand: LoadCommandProtocol, Sendable {
                 self.lazyBindSize = try cursor.readLittleInt32()
                 self.exportOff = try cursor.readLittleInt32()
                 self.exportSize = try cursor.readLittleInt32()
-            } else {
+            }
+            else {
                 self.cmd = try cursor.readBigInt32()
                 self.cmdsize = try cursor.readBigInt32()
                 self.rebaseOff = try cursor.readBigInt32()
@@ -498,13 +628,15 @@ public struct DyldInfoCommand: LoadCommandProtocol, Sendable {
                 self.exportOff = try cursor.readBigInt32()
                 self.exportSize = try cursor.readBigInt32()
             }
-        } catch {
+        }
+        catch {
             throw LoadCommandError.dataTooSmall(expected: 48, actual: data.count)
         }
     }
 }
 
 extension DyldInfoCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "DyldInfoCommand(rebase: \(rebaseSize), bind: \(bindSize), weak: \(weakBindSize), lazy: \(lazyBindSize), export: \(exportSize))"
     }

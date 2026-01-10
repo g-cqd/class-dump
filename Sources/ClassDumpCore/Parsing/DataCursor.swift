@@ -1,5 +1,6 @@
 import Foundation
 
+/// Errors that can occur when reading data.
 public enum DataCursorError: Error, Equatable, Sendable {
     case offsetOutOfBounds(offset: Int, dataCount: Int)
     case readOutOfBounds(offset: Int, length: Int, dataCount: Int)
@@ -10,24 +11,44 @@ public enum DataCursorError: Error, Equatable, Sendable {
     case leb128TooLarge
 }
 
+/// A class for sequential reading of binary data.
 public struct DataCursor: Sendable {
+    /// The data being read.
     public let data: Data
+
+    /// The current read position.
     public private(set) var offset: Int
 
+    /// Initialize a cursor with data and optional start offset.
     public init(data: Data, offset: Int = 0) throws(DataCursorError) {
         self.data = data
         self.offset = 0
         try seek(to: offset)
     }
 
+    /// Reset the cursor to a new offset without reallocation.
+    ///
+    /// This is more efficient than creating a new DataCursor when you need
+    /// to read from multiple locations in the same data.
+    ///
+    /// - Parameter newOffset: The new offset to position the cursor at.
+    /// - Throws: `DataCursorError.offsetOutOfBounds` if offset is invalid.
+    @inline(__always)
+    public mutating func reset(to newOffset: Int) throws(DataCursorError) {
+        try seek(to: newOffset)
+    }
+
+    /// The number of bytes remaining to be read.
     public var remaining: Int {
         data.count - offset
     }
 
+    /// Whether the cursor is at the end of the data.
     public var isAtEnd: Bool {
         offset >= data.count
     }
 
+    /// Move the cursor to a specific offset.
     public mutating func seek(to newOffset: Int) throws(DataCursorError) {
         guard newOffset >= 0 else {
             throw .offsetOutOfBounds(offset: newOffset, dataCount: data.count)
@@ -38,11 +59,13 @@ public struct DataCursor: Sendable {
         offset = newOffset
     }
 
+    /// Advance the cursor by a number of bytes.
     public mutating func advance(by length: Int) throws(DataCursorError) {
         try requireAvailable(length)
         offset += length
     }
 
+    /// Read a single byte.
     public mutating func readByte() throws(DataCursorError) -> UInt8 {
         try requireAvailable(1)
         let byte = data[offset]
@@ -50,62 +73,75 @@ public struct DataCursor: Sendable {
         return byte
     }
 
+    /// Read a 16-bit integer (little endian).
     public mutating func readLittleInt16() throws(DataCursorError) -> UInt16 {
         let raw: UInt16 = try readInteger()
         return UInt16(littleEndian: raw)
     }
 
+    /// Read a 32-bit integer (little endian).
     public mutating func readLittleInt32() throws(DataCursorError) -> UInt32 {
         let raw: UInt32 = try readInteger()
         return UInt32(littleEndian: raw)
     }
 
+    /// Read a 64-bit integer (little endian).
     public mutating func readLittleInt64() throws(DataCursorError) -> UInt64 {
         let raw: UInt64 = try readInteger()
         return UInt64(littleEndian: raw)
     }
 
+    /// Read a 16-bit integer (big endian).
     public mutating func readBigInt16() throws(DataCursorError) -> UInt16 {
         let raw: UInt16 = try readInteger()
         return UInt16(bigEndian: raw)
     }
 
+    /// Read a 32-bit integer (big endian).
     public mutating func readBigInt32() throws(DataCursorError) -> UInt32 {
         let raw: UInt32 = try readInteger()
         return UInt32(bigEndian: raw)
     }
 
+    /// Read a 64-bit integer (big endian).
     public mutating func readBigInt64() throws(DataCursorError) -> UInt64 {
         let raw: UInt64 = try readInteger()
         return UInt64(bigEndian: raw)
     }
 
+    /// Read a 32-bit float (little endian).
     public mutating func readLittleFloat32() throws(DataCursorError) -> Float {
         Float(bitPattern: try readLittleInt32())
     }
 
+    /// Read a 32-bit float (big endian).
     public mutating func readBigFloat32() throws(DataCursorError) -> Float {
         Float(bitPattern: try readBigInt32())
     }
 
+    /// Read a 64-bit float (little endian).
     public mutating func readLittleFloat64() throws(DataCursorError) -> Double {
         Double(bitPattern: try readLittleInt64())
     }
 
+    /// Read bytes into an existing Data buffer.
     public mutating func appendBytes(length: Int, into data: inout Data) throws(DataCursorError) {
         try requireAvailable(length)
         data.append(self.data[offset..<(offset + length)])
         offset += length
     }
 
+    /// Read bytes into a raw buffer pointer.
     public mutating func readBytes(length: Int, into buffer: UnsafeMutableRawPointer) throws(DataCursorError) {
         try requireAvailable(length)
         self.data.copyBytes(
             to: buffer.assumingMemoryBound(to: UInt8.self),
-            from: offset..<(offset + length))
+            from: offset..<(offset + length)
+        )
         offset += length
     }
 
+    /// Read bytes as a new Data object.
     public mutating func readBytes(length: Int) throws(DataCursorError) -> Data {
         try requireAvailable(length)
         let slice = data[offset..<(offset + length)]
@@ -113,6 +149,7 @@ public struct DataCursor: Sendable {
         return Data(slice)
     }
 
+    /// Read a null-terminated C string.
     public mutating func readCString(encoding: String.Encoding = .ascii) throws(DataCursorError) -> String {
         guard offset < data.count else {
             throw .invalidCString
@@ -125,6 +162,7 @@ public struct DataCursor: Sendable {
         return try readString(length: length, encoding: encoding)
     }
 
+    /// Read a string of fixed length.
     public mutating func readString(length: Int, encoding: String.Encoding) throws(DataCursorError) -> String {
         try requireAvailable(length)
         let range = offset..<(offset + length)
@@ -145,6 +183,7 @@ public struct DataCursor: Sendable {
         return string
     }
 
+    /// Read a ULEB128 encoded integer.
     public mutating func readULEB128() throws(DataCursorError) -> UInt64 {
         var result: UInt64 = 0
         var bit = 0
@@ -168,6 +207,7 @@ public struct DataCursor: Sendable {
         return result
     }
 
+    /// Read an SLEB128 encoded integer.
     public mutating func readSLEB128() throws(DataCursorError) -> Int64 {
         var result: Int64 = 0
         var bit = 0

@@ -1,7 +1,7 @@
 import ArgumentParser
 import Foundation
 
-/// Regression testing tool for class-dump
+/// Regression testing tool for class-dump.
 ///
 /// Compares output from an old version of class-dump with the current version
 /// against system frameworks and applications to detect regressions.
@@ -149,7 +149,8 @@ struct RegressionTestCommand: AsyncParsableCommand {
                 if !result.success, let error = result.error {
                     print("  Error: \(error)")
                 }
-            } else {
+            }
+            else {
                 // Progress indicator
                 if tested % 10 == 0 {
                     print("  Tested \(tested)/\(allTargets.count)...")
@@ -178,7 +179,8 @@ struct RegressionTestCommand: AsyncParsableCommand {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             process.arguments = ["-a", "Kaleidoscope", oldDir.path, newDir.path]
             try? process.run()
-        } else {
+        }
+        else {
             print("To compare results, run:")
             print("  diff -r '\(oldDir.path)' '\(newDir.path)'")
             print("  # or")
@@ -230,7 +232,8 @@ struct RegressionTestCommand: AsyncParsableCommand {
             if let result = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
                 return result
             }
-        } else if ios {
+        }
+        else if ios {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
             process.arguments = ["-version", "-sdk", "iphoneos", "Path"]
@@ -255,7 +258,8 @@ struct RegressionTestCommand: AsyncParsableCommand {
             // iOS SDK paths
             frameworks += globPaths("\(sdkRoot)/System/Library/Frameworks/*.framework")
             frameworks += globPaths("\(sdkRoot)/System/Library/PrivateFrameworks/*.framework")
-        } else {
+        }
+        else {
             // macOS paths
             frameworks += globPaths("/System/Library/Frameworks/*.framework")
             frameworks += globPaths("/System/Library/PrivateFrameworks/*.framework")
@@ -457,12 +461,12 @@ enum RegressionTestError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .binaryNotFound(let path):
-            return "Binary not found: \(path)"
-        case .sdkNotFound(let sdk):
-            return "SDK not found: \(sdk)"
-        case .testFailed(let reason):
-            return "Test failed: \(reason)"
+            case .binaryNotFound(let path):
+                return "Binary not found: \(path)"
+            case .sdkNotFound(let sdk):
+                return "SDK not found: \(sdk)"
+            case .testFailed(let reason):
+                return "Test failed: \(reason)"
         }
     }
 }

@@ -5,37 +5,37 @@ import Foundation
 /// This visitor writes individual `.h` files to an output directory, with proper
 /// import statements based on framework mappings.
 public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
-    /// Output directory path
+    /// Output directory path.
     public var outputPath: String?
 
-    /// Header string to prepend to each file
+    /// Header string to prepend to each file.
     public var headerString: String = ""
 
-    /// Structure definitions for CDStructures.h
+    /// Structure definitions for CDStructures.h.
     public var structureDefinitions: String = ""
 
-    /// Framework name mappings (class name -> framework name)
+    /// Framework name mappings (class name -> framework name).
     public var frameworkNamesByClassName: [String: String] = [:]
 
-    /// Framework name mappings (protocol name -> framework name)
+    /// Framework name mappings (protocol name -> framework name).
     public var frameworkNamesByProtocolName: [String: String] = [:]
 
-    /// Class names defined within this binary (for filtering forward declarations)
+    /// Class names defined within this binary (for filtering forward declarations).
     public var internalClassNames: Set<String> = []
 
-    /// Protocol names defined within this binary (for filtering forward declarations)
+    /// Protocol names defined within this binary (for filtering forward declarations).
     public var internalProtocolNames: Set<String> = []
 
-    /// Location to insert reference imports
+    /// Location to insert reference imports.
     private var referenceLocation: Int = 0
 
-    /// Referenced class names
+    /// Referenced class names.
     private var referencedClassNames: Set<String> = []
 
-    /// Referenced protocol names (need import)
+    /// Referenced protocol names (need import).
     private var referencedProtocolNames: Set<String> = []
 
-    /// Weakly referenced protocol names (can use forward declaration)
+    /// Weakly referenced protocol names (can use forward declaration).
     private var weaklyReferencedProtocolNames: Set<String> = []
 
     public override init(options: ClassDumpVisitorOptions = .init()) {
@@ -200,20 +200,18 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
     }
 
     private func importString(forClassName name: String) -> String? {
-        if let framework = framework(forClassName: name) {
-            return "#import <\(framework)/\(name).h>\n"
-        } else {
+        guard let framework = framework(forClassName: name) else {
             return "#import \"\(name).h\"\n"
         }
+        return "#import <\(framework)/\(name).h>\n"
     }
 
     private func importString(forProtocolName name: String) -> String? {
         let headerName = "\(name)-Protocol.h"
-        if let framework = framework(forProtocolName: name) {
-            return "#import <\(framework)/\(headerName)>\n"
-        } else {
+        guard let framework = framework(forProtocolName: name) else {
             return "#import \"\(headerName)\"\n"
         }
+        return "#import <\(framework)/\(headerName)>\n"
     }
 
     private func generateReferenceString() -> String? {
@@ -291,11 +289,13 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
         if !fileManager.fileExists(atPath: path, isDirectory: &isDirectory) {
             do {
                 try fileManager.createDirectory(atPath: path, withIntermediateDirectories: true)
-            } catch {
+            }
+            catch {
                 print("Error: Couldn't create output directory: \(path)")
                 print("Error: \(error)")
             }
-        } else if !isDirectory.boolValue {
+        }
+        else if !isDirectory.boolValue {
             print("Error: File exists at output path: \(path)")
         }
     }
@@ -309,7 +309,8 @@ public final class MultiFileVisitor: TextClassDumpVisitor, @unchecked Sendable {
         if let data = resultString.data(using: .utf8) {
             do {
                 try data.write(to: URL(fileURLWithPath: fullPath), options: .atomic)
-            } catch {
+            }
+            catch {
                 print("Error writing file \(fullPath): \(error)")
             }
         }

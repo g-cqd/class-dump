@@ -22,7 +22,8 @@ struct ProtocolRequirementKindTests {
             (SwiftProtocolRequirement.Kind.modifyCoroutine, UInt8(6)),
             (SwiftProtocolRequirement.Kind.associatedTypeAccessFunction, UInt8(7)),
             (SwiftProtocolRequirement.Kind.associatedConformanceAccessFunction, UInt8(8)),
-        ])
+        ]
+    )
     func kindRawValues(kind: SwiftProtocolRequirement.Kind, expectedRaw: UInt8) {
         #expect(kind.rawValue == expectedRaw)
     }
@@ -36,7 +37,8 @@ struct ProtocolRequirementKindTests {
             (SwiftProtocolRequirement.Kind.getter, "getter"),
             (SwiftProtocolRequirement.Kind.setter, "setter"),
             (SwiftProtocolRequirement.Kind.associatedTypeAccessFunction, "associated type"),
-        ])
+        ]
+    )
     func kindDescriptions(kind: SwiftProtocolRequirement.Kind, expectedDescription: String) {
         #expect(kind.description == expectedDescription)
     }

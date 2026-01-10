@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Errors that can occur during ObjC metadata processing.
 public enum ObjCProcessorError: Error, Sendable {
@@ -10,13 +11,25 @@ public enum ObjCProcessorError: Error, Sendable {
 
 /// Result of processing ObjC metadata from a binary.
 public struct ObjCMetadata: Sendable {
+    /// The processed classes.
     public let classes: [ObjCClass]
+
+    /// The processed protocols.
     public let protocols: [ObjCProtocol]
+
+    /// The processed categories.
     public let categories: [ObjCCategory]
+
+    /// The image info (if available).
     public let imageInfo: ObjC2ImageInfo?
+
+    /// Registry of detected structures.
     public let structureRegistry: StructureRegistry
+
+    /// Registry of method signatures.
     public let methodSignatureRegistry: MethodSignatureRegistry
 
+    /// Initialize metadata results.
     public init(
         classes: [ObjCClass] = [],
         protocols: [ObjCProtocol] = [],
@@ -46,19 +59,70 @@ public struct ObjCMetadata: Sendable {
     }
 }
 
+// MARK: - Streaming API
+
+/// A single item from the streaming metadata processor.
+///
+/// Use this with `ObjC2Processor.stream()` to process large binaries with
+/// bounded memory usage. Items are yielded as they're processed.
+public enum ObjCMetadataItem: Sendable {
+    /// The binary's image info (always first if present).
+    case imageInfo(ObjC2ImageInfo)
+
+    /// A protocol definition.
+    case `protocol`(ObjCProtocol)
+
+    /// A class definition.
+    case `class`(ObjCClass)
+
+    /// A category definition.
+    case category(ObjCCategory)
+
+    /// Processing progress update.
+    case progress(ProcessingProgress)
+}
+
+/// Progress information during streaming processing.
+public struct ProcessingProgress: Sendable {
+    /// Current phase of processing.
+    public let phase: ProcessingPhase
+
+    /// Number of items processed so far in this phase.
+    public let processed: Int
+
+    /// Total items to process in this phase (if known).
+    public let total: Int?
+
+    /// Percentage complete (0-100) if total is known.
+    public var percentComplete: Int? {
+        guard let total = total, total > 0 else { return nil }
+        return min(100, (processed * 100) / total)
+    }
+}
+
+/// Processing phases for streaming.
+public enum ProcessingPhase: String, Sendable {
+    case protocols = "Loading protocols"
+    case classes = "Loading classes"
+    case categories = "Loading categories"
+    case complete = "Complete"
+}
+
 /// Processor for ObjC 2.0 metadata in Mach-O binaries.
 ///
 /// ## Thread Safety
 ///
 /// This class uses thread-safe caches for classes, protocols, and strings, enabling
 /// concurrent access during processing. The internal caches (`classesByAddress`,
-/// `protocolsByAddress`, `stringCache`) are protected by locks.
+/// `protocolsByAddress`, `stringCache`) are protected by `Mutex<T>` from the Swift
+/// Synchronization framework - providing automatic `Sendable` conformance and
+/// minimal overhead compared to actors.
 ///
-/// **Usage Pattern**: Create an instance, call `process()` once, then safely share
-/// the resulting `ObjCMetadata` struct (which is `Sendable`).
+/// **Usage Pattern**: Create an instance, call `process()` or `processAsync()`,
+/// then safely share the resulting `ObjCMetadata` struct (which is `Sendable`).
 ///
 /// The `@unchecked Sendable` conformance is provided because the class uses internal
-/// synchronization via `ThreadSafeCache` and `StringTableCache`.
+/// synchronization via Mutex-based caches and immutable initialization state.
 public final class ObjC2Processor: @unchecked Sendable {
     /// The raw binary data.
     private let data: Data
@@ -84,18 +148,47 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Swift field descriptors indexed by simple class name (for ObjC lookup).
     private var swiftFieldsByClassName: [String: SwiftFieldDescriptor] = [:]
 
+    /// Pre-computed demangled names for field descriptors (avoids re-demangling during lookup).
+    ///
+    /// Maps mangled type name → demangled type name.
+    private var demangledNameCache: [String: String] = [:]
+
+    /// All class name variants for comprehensive lookup (includes suffixes and components).
+    ///
+    /// This enables O(1) lookup instead of O(d) linear scan with demangling.
+    private var swiftFieldsByVariant: [String: SwiftFieldDescriptor] = [:]
+
+    // MARK: - Chained Fixup Constants
+
+    /// Pre-computed bit mask for 36-bit target address extraction (DYLD_CHAINED_PTR_64 format).
+    ///
+    /// Using a static constant avoids recomputation on every pointer decode.
+    private static let chainedFixupTargetMask36: UInt64 = (1 << 36) - 1  // 0xFFFFFFFFF
+
+    /// Pre-computed bit mask for extracting high8 bits (bits 36-43).
+    private static let chainedFixupHigh8Mask: UInt64 = 0xFF
+
+    /// Pre-computed bit mask for clearing low 3 bits (pointer alignment).
+    private static let pointerAlignmentMask: UInt64 = ~0x7
+
     /// Pointer size in bytes.
     private var ptrSize: Int {
         is64Bit ? 8 : 4
     }
 
     /// Thread-safe cache of loaded classes by address.
+    ///
+    /// Uses Mutex<T> from Swift Synchronization framework for thread safety.
     private let classesByAddress = ThreadSafeCache<UInt64, ObjCClass>()
 
     /// Thread-safe cache of loaded protocols by address (for uniquing).
+    ///
+    /// Uses Mutex<T> from Swift Synchronization framework for thread safety.
     private let protocolsByAddress = ThreadSafeCache<UInt64, ObjCProtocol>()
 
     /// Thread-safe cache for string table lookups (reduces repeated reads).
+    ///
+    /// Uses Mutex<T> from Swift Synchronization framework for thread safety.
     private let stringCache = StringTableCache()
 
     /// Fast address-to-file-offset translator with binary search.
@@ -103,8 +196,12 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     /// Initialize with binary data and segment information.
     public init(
-        data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, is64Bit: Bool,
-        chainedFixups: ChainedFixups? = nil, swiftMetadata: SwiftMetadata? = nil
+        data: Data,
+        segments: [SegmentCommand],
+        byteOrder: ByteOrder,
+        is64Bit: Bool,
+        chainedFixups: ChainedFixups? = nil,
+        swiftMetadata: SwiftMetadata? = nil
     ) {
         self.data = data
         self.segments = segments
@@ -116,86 +213,92 @@ public final class ObjC2Processor: @unchecked Sendable {
         // Initialize the address translator with binary search index
         self.addressTranslator = AddressTranslator(segments: segments)
 
-        // Build Swift field lookups
-        if let swift = swiftMetadata {
-            // Create a symbolic resolver for resolving field descriptor type names
-            let resolver = SwiftSymbolicResolver(
-                data: data,
-                segments: segments,
-                byteOrder: byteOrder,
-                chainedFixups: chainedFixups
-            )
+        // Initialize the symbolic resolver (actor) for thread-safe access
+        self.symbolicResolver = SwiftSymbolicResolver(
+            data: data,
+            segments: segments,
+            byteOrder: byteOrder,
+            chainedFixups: chainedFixups
+        )
 
-            // First, build a mapping from Swift types to their simple names
-            var typeNameByAddress: [UInt64: String] = [:]
-            var fullNameByAddress: [UInt64: String] = [:]
-            for swiftType in swift.types {
-                typeNameByAddress[swiftType.address] = swiftType.name
-                fullNameByAddress[swiftType.address] = swiftType.fullName
+        // Build Swift field lookups with comprehensive indexing for O(1) lookup
+        // Note: Uses simple demangling during init since resolver is async
+        if let swift = swiftMetadata {
+            buildSwiftFieldIndex(swift: swift)
+        }
+    }
+
+    /// Build comprehensive Swift field descriptor index for O(1) lookups.
+    ///
+    /// This pre-computes and caches all name variants during initialization to avoid
+    /// expensive demangling operations during lookup. The index includes:
+    /// - Raw mangled type names
+    /// - Demangled names (cached)
+    /// - All suffix variants (e.g., for "A.B.C", also indexes "B.C" and "C")
+    /// - Address-based lookups from SwiftType metadata
+    ///
+    /// Note: Symbolic resolution is done at runtime via the actor-based resolver
+    /// since it requires async access.
+    ///
+    /// - Complexity: O(d * k) where d = field descriptors, k = avg name components
+    private func buildSwiftFieldIndex(swift: SwiftMetadata) {
+        // Build address-to-name mappings from SwiftTypes
+        var typeNameByAddress: [UInt64: String] = [:]
+        var fullNameByAddress: [UInt64: String] = [:]
+        for swiftType in swift.types {
+            typeNameByAddress[swiftType.address] = swiftType.name
+            fullNameByAddress[swiftType.address] = swiftType.fullName
+        }
+
+        // Helper to add all suffix variants of a dotted name to the index
+        func indexAllVariants(_ name: String, descriptor: SwiftFieldDescriptor) {
+            guard !name.isEmpty && !name.hasPrefix("/*") else { return }
+
+            // Index the full name
+            swiftFieldsByVariant[name] = descriptor
+            swiftFieldsByClassName[name] = descriptor
+
+            // If it contains dots, index all suffix variants
+            if name.contains(".") {
+                let components = name.split(separator: ".")
+                // Index progressively shorter suffixes: A.B.C → B.C → C
+                for i in 1..<components.count {
+                    let suffix = components[i...].joined(separator: ".")
+                    swiftFieldsByVariant[suffix] = descriptor
+                    swiftFieldsByClassName[suffix] = descriptor
+                }
+                // Also index just the last component
+                if let last = components.last {
+                    swiftFieldsByVariant[String(last)] = descriptor
+                    swiftFieldsByClassName[String(last)] = descriptor
+                }
+            }
+        }
+
+        for fd in swift.fieldDescriptors {
+            // Index by raw mangled type name
+            swiftFieldsByMangledName[fd.mangledTypeName] = fd
+
+            // Pre-demangle and cache the result using SwiftDemangler (sync)
+            let demangled = SwiftDemangler.extractTypeName(fd.mangledTypeName)
+            if !demangled.isEmpty {
+                demangledNameCache[fd.mangledTypeName] = demangled
+                indexAllVariants(demangled, descriptor: fd)
             }
 
-            for fd in swift.fieldDescriptors {
-                // Index by raw mangled type name
-                swiftFieldsByMangledName[fd.mangledTypeName] = fd
+            // Index by address mappings from SwiftType metadata
+            if let typeName = typeNameByAddress[fd.address] {
+                indexAllVariants(typeName, descriptor: fd)
+            }
+            if let fullName = fullNameByAddress[fd.address] {
+                indexAllVariants(fullName, descriptor: fd)
+            }
 
-                // Try to extract a simple name from the mangled type
-                var simpleName: String?
-
-                // First, try using symbolic resolver if this is a symbolic reference
-                if fd.hasSymbolicReference {
-                    let resolved = resolver.resolveType(
-                        mangledData: fd.mangledTypeNameData,
-                        sourceOffset: fd.mangledTypeNameOffset
-                    )
-                    if !resolved.isEmpty && !resolved.hasPrefix("/*") {
-                        // Extract just the class name (last component)
-                        if resolved.contains(".") {
-                            simpleName = String(resolved.split(separator: ".").last ?? Substring(resolved))
-                        } else {
-                            simpleName = resolved
-                        }
-                    }
-                }
-
-                // Fall back to regular demangling if symbolic resolution didn't work
-                if simpleName == nil {
-                    let demangled = SwiftDemangler.extractTypeName(fd.mangledTypeName)
-                    if !demangled.isEmpty && !demangled.hasPrefix("/*") {
-                        // Extract just the class name (last component)
-                        if demangled.contains(".") {
-                            simpleName = String(demangled.split(separator: ".").last ?? Substring(demangled))
-                        } else {
-                            simpleName = demangled
-                        }
-                    }
-                }
-
-                // If we have a simple name, index by it
-                if let name = simpleName, !name.isEmpty, name != fd.mangledTypeName {
-                    swiftFieldsByClassName[name] = fd
-                }
-
-                // Also try the full resolved name (e.g. Module.Class)
-                let resolvedFullName = resolver.resolveType(
-                    mangledData: fd.mangledTypeNameData,
-                    sourceOffset: fd.mangledTypeNameOffset
-                )
-                if !resolvedFullName.isEmpty && !resolvedFullName.hasPrefix("/*") {
-                    swiftFieldsByClassName[resolvedFullName] = fd
-                    // Also index by simple name from resolved
-                    if resolvedFullName.contains(".") {
-                        let simplePart = String(resolvedFullName.split(separator: ".").last!)
-                        swiftFieldsByClassName[simplePart] = fd
-                    }
-                }
-
-                // Also index by the address if we can match to a SwiftType
-                if let typeName = typeNameByAddress[fd.address] {
-                    swiftFieldsByClassName[typeName] = fd
-                }
-                // Also index by full name (e.g. "OuterClass.InnerClass")
-                if let fullName = fullNameByAddress[fd.address] {
-                    swiftFieldsByClassName[fullName] = fd
+            // Extract and index class name from mangled format if present
+            if fd.mangledTypeName.hasPrefix("_Tt") {
+                if let (module, className) = SwiftDemangler.demangleClassName(fd.mangledTypeName) {
+                    indexAllVariants("\(module).\(className)", descriptor: fd)
+                    indexAllVariants(className, descriptor: fd)
                 }
             }
         }
@@ -217,34 +320,75 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Process all ObjC metadata from the binary.
+    /// Process all ObjC metadata from the binary (synchronous wrapper).
+    ///
+    /// This method provides backwards compatibility by wrapping the async version.
+    /// For better performance, prefer using `processAsync()` in an async context.
+    ///
+    /// - Note: This blocks the current thread while waiting for async processing to complete.
     public func process() throws -> ObjCMetadata {
-        // Clear caches
+        // Use a Mutex-protected box to ensure proper memory visibility across threads.
+        // The semaphore provides ordering but Swift's memory model needs
+        // explicit synchronization for value visibility.
+        let resultBox = MutexCache<Int, Result<ObjCMetadata, Error>>()
+        let semaphore = DispatchSemaphore(value: 0)
+
+        Task { @Sendable in
+            do {
+                let metadata = try await self.processAsync()
+                resultBox.set(0, value: .success(metadata))
+            }
+            catch {
+                resultBox.set(0, value: .failure(error))
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
+        guard let result = resultBox.get(0) else {
+            throw ObjCProcessorError.invalidData("Failed to retrieve processing result")
+        }
+        return try result.get()
+    }
+
+    // MARK: - Async Parallel Processing
+
+    /// Process all ObjC metadata from the binary using parallel loading.
+    ///
+    /// This async version uses structured concurrency to load classes and protocols
+    /// in parallel, providing significant speedup on multi-core systems.
+    ///
+    /// - Returns: The processed ObjC metadata.
+    /// - Throws: If processing fails.
+    /// - Complexity: O(n/p) where n = total items and p = available parallelism.
+    public func processAsync() async throws -> ObjCMetadata {
+        // Clear caches (sync - Mutex-based)
         classesByAddress.clear()
         protocolsByAddress.clear()
         stringCache.clear()
 
-        // Load image info first
+        // Load image info first (quick, not worth parallelizing)
         let imageInfo = try? loadImageInfo()
 
-        // Load protocols first (they may be referenced by classes)
-        let protocols = try loadProtocols()
+        // Load protocols first (they may be referenced by classes) - parallel
+        let protocols = try await loadProtocolsAsync()
 
-        // Load classes
-        let classes = try loadClasses()
+        // Load classes - parallel
+        let classes = try await loadClassesAsync()
 
-        // Load categories
-        let categories = try loadCategories()
+        // Load categories (typically few, sequential is fine)
+        let categories = try await loadCategoriesAsync()
 
         // Build structure registry from all type encodings
-        let structureRegistry = buildStructureRegistry(
+        let structureRegistry = await buildStructureRegistry(
             classes: classes,
             protocols: protocols,
             categories: categories
         )
 
-        // Build method signature registry from protocols (for block signature cross-referencing)
-        let methodSignatureRegistry = buildMethodSignatureRegistry(protocols: protocols)
+        // Build method signature registry from protocols
+        let methodSignatureRegistry = await buildMethodSignatureRegistry(protocols: protocols)
 
         return ObjCMetadata(
             classes: classes,
@@ -256,12 +400,340 @@ public final class ObjC2Processor: @unchecked Sendable {
         )
     }
 
+    // MARK: - Streaming Processing
+
+    /// Process ObjC metadata as a stream for memory-efficient handling of large binaries.
+    ///
+    /// This method yields metadata items as they're processed, allowing callers to:
+    /// - Process arbitrarily large binaries with bounded memory
+    /// - Output items immediately without waiting for full processing
+    /// - Cancel processing early if desired
+    ///
+    /// ## Example
+    /// ```swift
+    /// for await item in processor.stream() {
+    ///     switch item {
+    ///     case .protocol(let proto):
+    ///         print("Protocol: \(proto.name)")
+    ///     case .class(let cls):
+    ///         print("Class: \(cls.name)")
+    ///     case .category(let cat):
+    ///         print("Category: \(cat.name)")
+    ///     case .progress(let progress):
+    ///         print("\(progress.phase.rawValue): \(progress.processed)/\(progress.total ?? 0)")
+    ///     case .imageInfo:
+    ///         break
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameter includeProgress: Whether to yield progress updates (default: false).
+    /// - Returns: An async sequence of metadata items.
+    public func stream(includeProgress: Bool = false) -> AsyncStream<ObjCMetadataItem> {
+        AsyncStream { continuation in
+            Task {
+                do {
+                    try await self.streamProcessing(continuation: continuation, includeProgress: includeProgress)
+                    continuation.finish()
+                }
+                catch {
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
+    /// Internal streaming implementation.
+    private func streamProcessing(
+        continuation: AsyncStream<ObjCMetadataItem>.Continuation,
+        includeProgress: Bool
+    ) async throws {
+        // Clear caches
+        classesByAddress.clear()
+        protocolsByAddress.clear()
+        stringCache.clear()
+
+        // Yield image info first
+        if let imageInfo = try? loadImageInfo() {
+            continuation.yield(.imageInfo(imageInfo))
+        }
+
+        // Stream protocols
+        let protocolAddresses = try collectProtocolAddresses()
+        let protocolTotal = protocolAddresses.count
+
+        if includeProgress {
+            continuation.yield(
+                .progress(
+                    ProcessingProgress(
+                        phase: .protocols,
+                        processed: 0,
+                        total: protocolTotal
+                    )
+                )
+            )
+        }
+
+        for (index, address) in protocolAddresses.enumerated() {
+            if let proto = try await loadProtocolAsync(at: address) {
+                continuation.yield(.protocol(proto))
+            }
+
+            if includeProgress && (index + 1) % 50 == 0 {
+                continuation.yield(
+                    .progress(
+                        ProcessingProgress(
+                            phase: .protocols,
+                            processed: index + 1,
+                            total: protocolTotal
+                        )
+                    )
+                )
+            }
+        }
+
+        // Stream classes
+        let classAddresses = try collectClassAddresses()
+        let classTotal = classAddresses.count
+
+        if includeProgress {
+            continuation.yield(
+                .progress(
+                    ProcessingProgress(
+                        phase: .classes,
+                        processed: 0,
+                        total: classTotal
+                    )
+                )
+            )
+        }
+
+        for (index, address) in classAddresses.enumerated() {
+            if let cls = try await loadClassAsync(at: address) {
+                continuation.yield(.class(cls))
+            }
+
+            if includeProgress && (index + 1) % 50 == 0 {
+                continuation.yield(
+                    .progress(
+                        ProcessingProgress(
+                            phase: .classes,
+                            processed: index + 1,
+                            total: classTotal
+                        )
+                    )
+                )
+            }
+        }
+
+        // Stream categories
+        let categoryAddresses = try collectCategoryAddresses()
+        let categoryTotal = categoryAddresses.count
+
+        if includeProgress {
+            continuation.yield(
+                .progress(
+                    ProcessingProgress(
+                        phase: .categories,
+                        processed: 0,
+                        total: categoryTotal
+                    )
+                )
+            )
+        }
+
+        for (index, address) in categoryAddresses.enumerated() {
+            if let category = try await loadCategoryAsync(at: address) {
+                continuation.yield(.category(category))
+            }
+
+            if includeProgress && (index + 1) % 50 == 0 {
+                continuation.yield(
+                    .progress(
+                        ProcessingProgress(
+                            phase: .categories,
+                            processed: index + 1,
+                            total: categoryTotal
+                        )
+                    )
+                )
+            }
+        }
+
+        if includeProgress {
+            continuation.yield(
+                .progress(
+                    ProcessingProgress(
+                        phase: .complete,
+                        processed: protocolTotal + classTotal + categoryTotal,
+                        total: protocolTotal + classTotal + categoryTotal
+                    )
+                )
+            )
+        }
+    }
+
+    /// Load all protocol addresses from the binary.
+    private func collectProtocolAddresses() throws -> [UInt64] {
+        guard
+            let section = findSection(segment: "__DATA", section: "__objc_protolist")
+                ?? findSection(segment: "__DATA_CONST", section: "__objc_protolist")
+        else {
+            return []
+        }
+
+        guard let sectionData = readSectionData(section) else {
+            return []
+        }
+
+        var cursor = try DataCursor(data: sectionData, offset: 0)
+        var addresses: [UInt64] = []
+
+        while cursor.offset < sectionData.count {
+            let rawAddress: UInt64
+            if is64Bit {
+                rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+            }
+            else {
+                let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                rawAddress = UInt64(value)
+            }
+
+            let protocolAddress = decodeChainedFixupPointer(rawAddress)
+            if protocolAddress != 0 {
+                addresses.append(protocolAddress)
+            }
+        }
+
+        return addresses
+    }
+
+    /// Load all class addresses from the binary.
+    private func collectClassAddresses() throws -> [UInt64] {
+        guard
+            let section = findSection(segment: "__DATA", section: "__objc_classlist")
+                ?? findSection(segment: "__DATA_CONST", section: "__objc_classlist")
+        else {
+            return []
+        }
+
+        guard let sectionData = readSectionData(section) else {
+            return []
+        }
+
+        var cursor = try DataCursor(data: sectionData, offset: 0)
+        var addresses: [UInt64] = []
+
+        while cursor.offset < sectionData.count {
+            let rawAddress: UInt64
+            if is64Bit {
+                rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+            }
+            else {
+                let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                rawAddress = UInt64(value)
+            }
+
+            let classAddress = decodeChainedFixupPointer(rawAddress)
+            if classAddress != 0 {
+                addresses.append(classAddress)
+            }
+        }
+
+        return addresses
+    }
+
+    /// Load all category addresses from the binary.
+    private func collectCategoryAddresses() throws -> [UInt64] {
+        guard
+            let section = findSection(segment: "__DATA", section: "__objc_catlist")
+                ?? findSection(segment: "__DATA_CONST", section: "__objc_catlist")
+        else {
+            return []
+        }
+
+        guard let sectionData = readSectionData(section) else {
+            return []
+        }
+
+        var cursor = try DataCursor(data: sectionData, offset: 0)
+        var addresses: [UInt64] = []
+
+        while cursor.offset < sectionData.count {
+            let rawAddress: UInt64
+            if is64Bit {
+                rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+            }
+            else {
+                let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                rawAddress = UInt64(value)
+            }
+
+            let categoryAddress = decodeChainedFixupPointer(rawAddress)
+            if categoryAddress != 0 {
+                addresses.append(categoryAddress)
+            }
+        }
+
+        return addresses
+    }
+
+    /// Load protocols in parallel using structured concurrency.
+    private func loadProtocolsAsync() async throws -> [ObjCProtocol] {
+        let addresses = try collectProtocolAddresses()
+
+        // Use TaskGroup for parallel loading with actor-based caching
+        return try await withThrowingTaskGroup(of: ObjCProtocol?.self, returning: [ObjCProtocol].self) { group in
+            for address in addresses {
+                group.addTask {
+                    try await self.loadProtocolAsync(at: address)
+                }
+            }
+
+            var protocols: [ObjCProtocol] = []
+            protocols.reserveCapacity(addresses.count)
+
+            for try await proto in group {
+                if let proto = proto {
+                    protocols.append(proto)
+                }
+            }
+
+            return protocols
+        }
+    }
+
+    /// Load classes in parallel using structured concurrency.
+    private func loadClassesAsync() async throws -> [ObjCClass] {
+        let addresses = try collectClassAddresses()
+
+        // Use TaskGroup for parallel loading with actor-based caching
+        return try await withThrowingTaskGroup(of: ObjCClass?.self, returning: [ObjCClass].self) { group in
+            for address in addresses {
+                group.addTask {
+                    try await self.loadClassAsync(at: address)
+                }
+            }
+
+            var classes: [ObjCClass] = []
+            classes.reserveCapacity(addresses.count)
+
+            for try await aClass in group {
+                if let aClass = aClass {
+                    classes.append(aClass)
+                }
+            }
+
+            return classes
+        }
+    }
+
     /// Build a structure registry from all type encodings in the metadata.
     private func buildStructureRegistry(
         classes: [ObjCClass],
         protocols: [ObjCProtocol],
         categories: [ObjCCategory]
-    ) -> StructureRegistry {
+    ) async -> StructureRegistry {
         let registry = StructureRegistry()
 
         // Register structures from classes
@@ -269,23 +741,23 @@ public final class ObjC2Processor: @unchecked Sendable {
             // From instance variables
             for ivar in objcClass.instanceVariables {
                 if let parsedType = ivar.parsedType {
-                    registry.register(parsedType)
+                    await registry.register(parsedType)
                 }
             }
 
             // From properties
             for property in objcClass.properties {
                 if let parsedType = property.parsedType {
-                    registry.register(parsedType)
+                    await registry.register(parsedType)
                 }
             }
 
             // From methods
             for method in objcClass.classMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
             for method in objcClass.instanceMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
         }
 
@@ -293,20 +765,20 @@ public final class ObjC2Processor: @unchecked Sendable {
         for proto in protocols {
             for property in proto.properties {
                 if let parsedType = property.parsedType {
-                    registry.register(parsedType)
+                    await registry.register(parsedType)
                 }
             }
             for method in proto.classMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
             for method in proto.instanceMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
             for method in proto.optionalClassMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
             for method in proto.optionalInstanceMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
         }
 
@@ -314,14 +786,14 @@ public final class ObjC2Processor: @unchecked Sendable {
         for category in categories {
             for property in category.properties {
                 if let parsedType = property.parsedType {
-                    registry.register(parsedType)
+                    await registry.register(parsedType)
                 }
             }
             for method in category.classMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
             for method in category.instanceMethods {
-                registerMethodTypes(method, in: registry)
+                await registerMethodTypes(method, in: registry)
             }
         }
 
@@ -329,10 +801,10 @@ public final class ObjC2Processor: @unchecked Sendable {
     }
 
     /// Register structures from a method's type encoding.
-    private func registerMethodTypes(_ method: ObjCMethod, in registry: StructureRegistry) {
+    private func registerMethodTypes(_ method: ObjCMethod, in registry: StructureRegistry) async {
         guard let types = try? ObjCType.parseMethodType(method.typeEncoding) else { return }
         for methodType in types {
-            registry.register(methodType.type)
+            await registry.register(methodType.type)
         }
     }
 
@@ -341,11 +813,11 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Protocol methods often have richer type encodings (especially for blocks)
     /// than the implementing class methods. This registry allows cross-referencing
     /// to get better block signatures.
-    private func buildMethodSignatureRegistry(protocols: [ObjCProtocol]) -> MethodSignatureRegistry {
+    private func buildMethodSignatureRegistry(protocols: [ObjCProtocol]) async -> MethodSignatureRegistry {
         let registry = MethodSignatureRegistry()
 
         for proto in protocols {
-            registry.registerProtocol(proto)
+            await registry.registerProtocol(proto)
         }
 
         return registry
@@ -355,11 +827,9 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     /// Find a section by segment and section name.
     private func findSection(segment segmentName: String, section sectionName: String) -> Section? {
-        for segment in segments {
-            if segment.name == segmentName || segment.name.hasPrefix(segmentName) {
-                if let section = segment.section(named: sectionName) {
-                    return section
-                }
+        for segment in segments where segment.name == segmentName || segment.name.hasPrefix(segmentName) {
+            if let section = segment.section(named: sectionName) {
+                return section
             }
         }
         return nil
@@ -391,16 +861,15 @@ public final class ObjC2Processor: @unchecked Sendable {
     /// Read a null-terminated string at the given virtual address.
     ///
     /// Uses SIMD-accelerated null terminator detection for performance.
+    /// Thread-safe caching via Mutex ensures concurrent access safety.
     private func readString(at address: UInt64) -> String? {
         guard address != 0 else { return nil }
 
-        // Check cache first (thread-safe)
-        return stringCache.getOrRead(at: address) { [self] in
-            guard let offset = fileOffset(for: address) else { return nil }
-            guard offset >= 0 && offset < data.count else { return nil }
-
-            // Use SIMD-accelerated null terminator detection and zero-copy string creation
-            return SIMDStringUtils.readNullTerminatedString(from: data, at: offset)
+        // Check cache first (Mutex-based, sync)
+        return stringCache.getOrRead(at: address) {
+            guard let offset = self.fileOffset(for: address) else { return nil }
+            guard offset >= 0 && offset < self.data.count else { return nil }
+            return SIMDStringUtils.readNullTerminatedString(from: self.data, at: offset)
         }
     }
 
@@ -412,13 +881,12 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         var cursor = try DataCursor(data: data, offset: offset)
 
-        if is64Bit {
-            let rawValue = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            return decodeChainedFixupPointer(rawValue)
-        } else {
+        guard is64Bit else {
             let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
             return UInt64(value)
         }
+        let rawValue = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+        return decodeChainedFixupPointer(rawValue)
     }
 
     /// Result of decoding a pointer that may be a chained fixup.
@@ -434,17 +902,17 @@ public final class ObjC2Processor: @unchecked Sendable {
         if let fixups = chainedFixups {
             let result = fixups.decodePointer(rawPointer)
             switch result {
-            case .rebase(let target):
-                return .address(target)
-            case .bind(let ordinal, _):
-                if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
-                    // Strip leading underscore if present
-                    let name = symbolName.hasPrefix("_") ? String(symbolName.dropFirst()) : symbolName
-                    return .bindSymbol(name)
-                }
-                return .bindOrdinal(ordinal)
-            case .notFixup:
-                return .address(rawPointer)
+                case .rebase(let target):
+                    return .address(target)
+                case .bind(let ordinal, _):
+                    if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
+                        // Strip leading underscore if present
+                        let name = symbolName.hasPrefix("_") ? String(symbolName.dropFirst()) : symbolName
+                        return .bindSymbol(name)
+                    }
+                    return .bindOrdinal(ordinal)
+                case .notFixup:
+                    return .address(rawPointer)
             }
         }
 
@@ -453,6 +921,7 @@ public final class ObjC2Processor: @unchecked Sendable {
     }
 
     /// Decode a chained fixup pointer to get the actual target address.
+    ///
     /// Modern arm64/arm64e binaries use chained fixups where pointers are encoded
     /// with metadata in the high bits and the target address in the low bits.
     private func decodeChainedFixupPointer(_ rawPointer: UInt64) -> UInt64 {
@@ -486,11 +955,10 @@ public final class ObjC2Processor: @unchecked Sendable {
             }
 
             // Try 36-bit target first (DYLD_CHAINED_PTR_64)
-            let targetMask36: UInt64 = (1 << 36) - 1  // 0xFFFFFFFFF (36 bits)
-            let target = rawPointer & targetMask36
+            let target = rawPointer & Self.chainedFixupTargetMask36
 
             // high8 is at bits 36-43
-            let high8 = (rawPointer >> 36) & 0xFF
+            let high8 = (rawPointer >> 36) & Self.chainedFixupHigh8Mask
 
             // If high8 is non-zero and looks like part of a valid address, incorporate it
             // Otherwise just return the 36-bit target
@@ -509,21 +977,21 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Swift Type Resolution
 
-    /// Lazy symbolic resolver for Swift type references.
-    private lazy var symbolicResolver: SwiftSymbolicResolver? = {
-        SwiftSymbolicResolver(
-            data: data,
-            segments: segments,
-            byteOrder: byteOrder,
-            chainedFixups: chainedFixups
-        )
-    }()
+    /// Actor-based symbolic resolver for Swift type references.
+    ///
+    /// Initialized at startup for thread-safe access from parallel tasks.
+    private let symbolicResolver: SwiftSymbolicResolver
 
     /// Try to resolve a Swift type name for an ivar based on class name and field name.
     ///
     /// Swift classes expose ivars to ObjC runtime but don't provide type encodings.
     /// We can look up the type from Swift field descriptors if available.
-    private func resolveSwiftIvarType(className: String, ivarName: String) -> String? {
+    ///
+    /// This function uses a pre-built comprehensive index for O(1) lookups in most cases.
+    /// The index includes all name variants (suffixes, components) computed during initialization.
+    ///
+    /// - Complexity: O(1) average case (dictionary lookups), O(d) worst case for edge cases
+    private func resolveSwiftIvarType(className: String, ivarName: String) async -> String? {
         guard swiftMetadata != nil else { return nil }
 
         // Extract the demangled class name from ObjC mangled name
@@ -538,19 +1006,22 @@ public final class ObjC2Processor: @unchecked Sendable {
             if let last = nestedNames.last {
                 targetClassName = last
             }
-        } else if className.hasPrefix("_TtC") || className.hasPrefix("_TtGC") {
+        }
+        else if className.hasPrefix("_TtC") || className.hasPrefix("_TtGC") {
             if let (_, name) = SwiftDemangler.demangleClassName(className) {
                 targetClassName = name
             }
-        } else if className.hasPrefix("_Tt") {
+        }
+        else if className.hasPrefix("_Tt") {
             // Other mangled formats - try to extract the last component
             // The class name is typically at the end after module name
             targetClassName = extractSimpleClassName(from: className)
         }
 
-        // First, try direct lookup by class name (fastest path)
-        if let descriptor = swiftFieldsByClassName[targetClassName] {
-            if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+        // Use comprehensive variant index for O(1) lookup
+        // The index contains all suffix variants computed during initialization
+        if let descriptor = swiftFieldsByVariant[targetClassName] {
+            if let resolved = await resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
                 return resolved
             }
         }
@@ -558,8 +1029,8 @@ public final class ObjC2Processor: @unchecked Sendable {
         // For nested classes, try looking up by the full nested path
         if nestedNames.count > 1 {
             let nestedPath = nestedNames.joined(separator: ".")
-            if let descriptor = swiftFieldsByClassName[nestedPath] {
-                if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+            if let descriptor = swiftFieldsByVariant[nestedPath] {
+                if let resolved = await resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
                     return resolved
                 }
             }
@@ -569,8 +1040,8 @@ public final class ObjC2Processor: @unchecked Sendable {
         if className.hasPrefix("_TtC") || className.hasPrefix("_TtGC") {
             if let (module, name) = SwiftDemangler.demangleClassName(className) {
                 let fullName = "\(module).\(name)"
-                if let descriptor = swiftFieldsByClassName[fullName] {
-                    if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+                if let descriptor = swiftFieldsByVariant[fullName] {
+                    if let resolved = await resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
                         return resolved
                     }
                 }
@@ -581,18 +1052,18 @@ public final class ObjC2Processor: @unchecked Sendable {
         // This handles cases like "IDEBuildNoticeProvider" exposed to ObjC
         if !className.hasPrefix("_Tt") {
             // Try direct lookup - the class name might match a Swift type name
-            if let descriptor = swiftFieldsByClassName[className] {
-                if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+            if let descriptor = swiftFieldsByVariant[className] {
+                if let resolved = await resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
                     return resolved
                 }
             }
         }
 
-        // Fall back to searching through all descriptors
+        // Optimized fallback using pre-cached demangled names (no runtime demangling)
+        // This handles edge cases where the comprehensive index didn't match
         for (mangledTypeName, descriptor) in swiftFieldsByMangledName {
-            // The mangled type name in field descriptors may be a symbolic reference
-            // or a mangled string. Try to match based on demangled class name.
-            let demangled = SwiftDemangler.extractTypeName(mangledTypeName)
+            // Use cached demangled name instead of re-demangling at runtime
+            let demangled = demangledNameCache[mangledTypeName] ?? ""
 
             // Check if this descriptor matches our class
             let descriptorClassName = extractSimpleClassName(from: demangled)
@@ -600,7 +1071,7 @@ public final class ObjC2Processor: @unchecked Sendable {
             if descriptorClassName == targetClassName || demangled.hasSuffix(targetClassName)
                 || mangledTypeName.contains(targetClassName)
             {
-                if let resolved = resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
+                if let resolved = await resolveFieldFromDescriptor(descriptor, fieldName: ivarName) {
                     return resolved
                 }
             }
@@ -610,7 +1081,10 @@ public final class ObjC2Processor: @unchecked Sendable {
     }
 
     /// Resolve a field's type from a descriptor by field name.
-    private func resolveFieldFromDescriptor(_ descriptor: SwiftFieldDescriptor, fieldName ivarName: String)
+    private func resolveFieldFromDescriptor(
+        _ descriptor: SwiftFieldDescriptor,
+        fieldName ivarName: String
+    ) async
         -> String?
     {
         for record in descriptor.records {
@@ -625,17 +1099,15 @@ public final class ObjC2Processor: @unchecked Sendable {
                 || "_" + fieldName == ivarName || fieldName == "$" + ivarName || "$" + fieldName == ivarName
 
             if matches {
-                // Try to resolve the type using symbolic resolver
+                // Try to resolve the type using symbolic resolver (actor - async)
                 // Always try the resolver first with raw data (handles embedded refs too)
                 if !record.mangledTypeData.isEmpty {
-                    if let resolver = symbolicResolver {
-                        let resolved = resolver.resolveType(
-                            mangledData: record.mangledTypeData,
-                            sourceOffset: record.mangledTypeNameOffset
-                        )
-                        if !resolved.isEmpty && !resolved.hasPrefix("/*") && resolved != record.mangledTypeName {
-                            return resolved
-                        }
+                    let resolved = await symbolicResolver.resolveType(
+                        mangledData: record.mangledTypeData,
+                        sourceOffset: record.mangledTypeNameOffset
+                    )
+                    if !resolved.isEmpty && !resolved.hasPrefix("/*") && resolved != record.mangledTypeName {
+                        return resolved
                     }
                 }
 
@@ -693,45 +1165,10 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Protocol Loading
 
-    private func loadProtocols() throws -> [ObjCProtocol] {
-        guard
-            let section = findSection(segment: "__DATA", section: "__objc_protolist")
-                ?? findSection(segment: "__DATA_CONST", section: "__objc_protolist")
-        else {
-            return []
-        }
-
-        guard let sectionData = readSectionData(section) else {
-            return []
-        }
-
-        var cursor = try DataCursor(data: sectionData, offset: 0)
-        var protocols: [ObjCProtocol] = []
-
-        while cursor.offset < sectionData.count {
-            let rawAddress: UInt64
-            if is64Bit {
-                rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            } else {
-                let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
-                rawAddress = UInt64(value)
-            }
-
-            let protocolAddress = decodeChainedFixupPointer(rawAddress)
-            if protocolAddress != 0 {
-                if let proto = try loadProtocol(at: protocolAddress) {
-                    protocols.append(proto)
-                }
-            }
-        }
-
-        return protocols
-    }
-
-    private func loadProtocol(at address: UInt64) throws -> ObjCProtocol? {
+    private func loadProtocolAsync(at address: UInt64) async throws -> ObjCProtocol? {
         guard address != 0 else { return nil }
 
-        // Check cache first (thread-safe)
+        // Check Mutex cache first (sync)
         if let cached = protocolsByAddress.get(address) {
             return cached
         }
@@ -751,14 +1188,14 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         let proto = ObjCProtocol(name: name, address: address)
 
-        // Cache immediately to handle circular references (thread-safe)
+        // Cache immediately to handle circular references (sync)
         protocolsByAddress.set(address, value: proto)
 
         // Load adopted protocols
         if rawProtocol.protocols != 0 {
             let adoptedAddresses = try loadProtocolAddressList(at: rawProtocol.protocols)
             for adoptedAddr in adoptedAddresses {
-                if let adoptedProto = try loadProtocol(at: adoptedAddr) {
+                if let adoptedProto = try await loadProtocolAsync(at: adoptedAddr) {
                     proto.addAdoptedProtocol(adoptedProto)
                 }
             }
@@ -766,14 +1203,16 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         // Load methods
         for method in try loadMethods(
-            at: rawProtocol.instanceMethods, extendedTypesAddress: rawProtocol.extendedMethodTypes)
-        {
+            at: rawProtocol.instanceMethods,
+            extendedTypesAddress: rawProtocol.extendedMethodTypes
+        ) {
             proto.addInstanceMethod(method)
         }
 
         for method in try loadMethods(
-            at: rawProtocol.classMethods, extendedTypesAddress: rawProtocol.extendedMethodTypes)
-        {
+            at: rawProtocol.classMethods,
+            extendedTypesAddress: rawProtocol.extendedMethodTypes
+        ) {
             proto.addClassMethod(method)
         }
 
@@ -805,7 +1244,8 @@ public final class ObjC2Processor: @unchecked Sendable {
         let rawCount: UInt64
         if is64Bit {
             rawCount = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-        } else {
+        }
+        else {
             let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
             rawCount = UInt64(value)
         }
@@ -816,7 +1256,8 @@ public final class ObjC2Processor: @unchecked Sendable {
             let rawAddr: UInt64
             if is64Bit {
                 rawAddr = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            } else {
+            }
+            else {
                 let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
                 rawAddr = UInt64(value)
             }
@@ -831,45 +1272,10 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Class Loading
 
-    private func loadClasses() throws -> [ObjCClass] {
-        guard
-            let section = findSection(segment: "__DATA", section: "__objc_classlist")
-                ?? findSection(segment: "__DATA_CONST", section: "__objc_classlist")
-        else {
-            return []
-        }
-
-        guard let sectionData = readSectionData(section) else {
-            return []
-        }
-
-        var cursor = try DataCursor(data: sectionData, offset: 0)
-        var classes: [ObjCClass] = []
-
-        while cursor.offset < sectionData.count {
-            let rawAddress: UInt64
-            if is64Bit {
-                rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            } else {
-                let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
-                rawAddress = UInt64(value)
-            }
-
-            let classAddress = decodeChainedFixupPointer(rawAddress)
-            if classAddress != 0 {
-                if let aClass = try loadClass(at: classAddress) {
-                    classes.append(aClass)
-                }
-            }
-        }
-
-        return classes
-    }
-
-    private func loadClass(at address: UInt64) throws -> ObjCClass? {
+    private func loadClassAsync(at address: UInt64) async throws -> ObjCClass? {
         guard address != 0 else { return nil }
 
-        // Check cache first (thread-safe)
+        // Check Mutex cache first (sync)
         if let cached = classesByAddress.get(address) {
             return cached
         }
@@ -882,11 +1288,9 @@ public final class ObjC2Processor: @unchecked Sendable {
         let rawClass = try ObjC2Class(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
 
         // Load class data (class_ro_t)
-        // The dataPointer may have the Swift flag in bit 0, and may be a chained fixup pointer
         let rawDataPointer = rawClass.dataPointer
         let decodedDataPointer = decodeChainedFixupPointer(rawDataPointer)
-        // Mask off low bits (Swift class flags)
-        let dataPointerClean = decodedDataPointer & ~0x7
+        let dataPointerClean = decodedDataPointer & Self.pointerAlignmentMask
 
         guard dataPointerClean != 0 else {
             return nil
@@ -910,29 +1314,27 @@ public final class ObjC2Processor: @unchecked Sendable {
         aClass.classDataAddress = rawClass.dataPointer
         aClass.metaclassAddress = rawClass.isa
 
-        // Cache immediately (thread-safe)
+        // Cache immediately to handle circular references (sync)
         classesByAddress.set(address, value: aClass)
 
         // Load superclass - may be an address or a bind to external symbol
         let superclassResult = decodePointerWithBindInfo(rawClass.superclass)
         switch superclassResult {
-        case .address(let superclassAddr):
-            if superclassAddr != 0, let superclass = try loadClass(at: superclassAddr) {
-                aClass.superclassRef = ObjCClassReference(name: superclass.name, address: superclassAddr)
-            }
-        case .bindSymbol(let symbolName):
-            // External superclass (e.g., NSObject from Foundation)
-            // The symbol name is the class name prefixed with OBJC_CLASS_$_
-            let className: String
-            if symbolName.hasPrefix("OBJC_CLASS_$_") {
-                className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
-            } else {
-                className = symbolName
-            }
-            aClass.superclassRef = ObjCClassReference(name: className, address: 0)
-        case .bindOrdinal(let ordinal):
-            // We have an ordinal but couldn't resolve the name
-            aClass.superclassRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
+            case .address(let superclassAddr):
+                if superclassAddr != 0, let superclass = try await loadClassAsync(at: superclassAddr) {
+                    aClass.superclassRef = ObjCClassReference(name: superclass.name, address: superclassAddr)
+                }
+            case .bindSymbol(let symbolName):
+                let className: String
+                if symbolName.hasPrefix("OBJC_CLASS_$_") {
+                    className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
+                }
+                else {
+                    className = symbolName
+                }
+                aClass.superclassRef = ObjCClassReference(name: className, address: 0)
+            case .bindOrdinal(let ordinal):
+                aClass.superclassRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
         }
 
         // Load instance methods
@@ -940,7 +1342,7 @@ public final class ObjC2Processor: @unchecked Sendable {
             aClass.addInstanceMethod(method)
         }
 
-        // Load class methods from metaclass (decode chained fixup pointer)
+        // Load class methods from metaclass
         let isaAddr = decodeChainedFixupPointer(rawClass.isa)
         if isaAddr != 0 {
             for method in try loadClassMethods(at: isaAddr) {
@@ -948,29 +1350,31 @@ public final class ObjC2Processor: @unchecked Sendable {
             }
         }
 
-        // Load instance variables (pass class name and Swift flag for type resolution)
-        for ivar in try loadInstanceVariables(
-            at: classData.ivars, className: aClass.name, isSwiftClass: aClass.isSwiftClass)
-        {
+        // Load instance variables (async - uses actor-based Swift resolver)
+        for ivar in try await loadInstanceVariables(
+            at: classData.ivars,
+            className: aClass.name,
+            isSwiftClass: aClass.isSwiftClass
+        ) {
             aClass.addInstanceVariable(ivar)
         }
 
-        // Load protocols (use thread-safe cache lookup)
+        // Load protocols using Mutex cache (sync)
         let protocolAddresses = try loadProtocolAddressList(at: classData.baseProtocols)
         for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress.get(protoAddr) ?? (try? loadProtocol(at: protoAddr)) {
+            if let proto = protocolsByAddress.get(protoAddr) {
+                aClass.addAdoptedProtocol(proto)
+            }
+            else if let proto = try? await loadProtocolAsync(at: protoAddr) {
                 aClass.addAdoptedProtocol(proto)
             }
         }
 
-        // Link Swift protocol conformances if this is a Swift class
+        // Link Swift protocol conformances
         if aClass.isSwiftClass, let swift = swiftMetadata {
-            // Try to find conformances by class name
             let conformances = swift.conformances(forType: name)
-            for conformance in conformances {
-                if !conformance.protocolName.isEmpty {
-                    aClass.addSwiftConformance(conformance.protocolName)
-                }
+            for conformance in conformances where !conformance.protocolName.isEmpty {
+                aClass.addSwiftConformance(conformance.protocolName)
             }
         }
 
@@ -991,7 +1395,7 @@ public final class ObjC2Processor: @unchecked Sendable {
 
         // Decode dataPointer (may be chained fixup) and mask Swift flags
         let decodedDataPointer = decodeChainedFixupPointer(rawClass.dataPointer)
-        let dataPointerClean = decodedDataPointer & ~0x7
+        let dataPointerClean = decodedDataPointer & Self.pointerAlignmentMask
         guard dataPointerClean != 0 else { return [] }
         guard let dataOffset = fileOffset(for: dataPointerClean) else { return [] }
 
@@ -1003,7 +1407,8 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Category Loading
 
-    private func loadCategories() throws -> [ObjCCategory] {
+    /// Async version of loadCategories using actor-based caching.
+    private func loadCategoriesAsync() async throws -> [ObjCCategory] {
         guard
             let section = findSection(segment: "__DATA", section: "__objc_catlist")
                 ?? findSection(segment: "__DATA_CONST", section: "__objc_catlist")
@@ -1022,14 +1427,15 @@ public final class ObjC2Processor: @unchecked Sendable {
             let rawAddress: UInt64
             if is64Bit {
                 rawAddress = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            } else {
+            }
+            else {
                 let value = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
                 rawAddress = UInt64(value)
             }
 
             let categoryAddress = decodeChainedFixupPointer(rawAddress)
             if categoryAddress != 0 {
-                if let category = try loadCategory(at: categoryAddress) {
+                if let category = try await loadCategoryAsync(at: categoryAddress) {
                     categories.append(category)
                 }
             }
@@ -1038,7 +1444,7 @@ public final class ObjC2Processor: @unchecked Sendable {
         return categories
     }
 
-    private func loadCategory(at address: UInt64) throws -> ObjCCategory? {
+    private func loadCategoryAsync(at address: UInt64) async throws -> ObjCCategory? {
         guard address != 0 else { return nil }
         guard let offset = fileOffset(for: address) else { return nil }
 
@@ -1056,21 +1462,26 @@ public final class ObjC2Processor: @unchecked Sendable {
         // Set class reference - may be an address or a bind to external class
         let clsResult = decodePointerWithBindInfo(rawCategory.cls)
         switch clsResult {
-        case .address(let clsAddr):
-            if clsAddr != 0, let aClass = classesByAddress.get(clsAddr) ?? (try? loadClass(at: clsAddr)) {
-                category.classRef = ObjCClassReference(name: aClass.name, address: clsAddr)
-            }
-        case .bindSymbol(let symbolName):
-            // External class (e.g., NSObject from Foundation)
-            let className: String
-            if symbolName.hasPrefix("OBJC_CLASS_$_") {
-                className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
-            } else {
-                className = symbolName
-            }
-            category.classRef = ObjCClassReference(name: className, address: 0)
-        case .bindOrdinal(let ordinal):
-            category.classRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
+            case .address(let clsAddr):
+                if clsAddr != 0 {
+                    if let aClass = classesByAddress.get(clsAddr) {
+                        category.classRef = ObjCClassReference(name: aClass.name, address: clsAddr)
+                    }
+                    else if let aClass = try? await loadClassAsync(at: clsAddr) {
+                        category.classRef = ObjCClassReference(name: aClass.name, address: clsAddr)
+                    }
+                }
+            case .bindSymbol(let symbolName):
+                let className: String
+                if symbolName.hasPrefix("OBJC_CLASS_$_") {
+                    className = String(symbolName.dropFirst("OBJC_CLASS_$_".count))
+                }
+                else {
+                    className = symbolName
+                }
+                category.classRef = ObjCClassReference(name: className, address: 0)
+            case .bindOrdinal(let ordinal):
+                category.classRef = ObjCClassReference(name: "/* bind ordinal \(ordinal) */", address: 0)
         }
 
         // Load instance methods
@@ -1083,10 +1494,13 @@ public final class ObjC2Processor: @unchecked Sendable {
             category.addClassMethod(method)
         }
 
-        // Load protocols (use thread-safe cache lookup)
+        // Load protocols using Mutex cache (sync)
         let protocolAddresses = try loadProtocolAddressList(at: rawCategory.protocols)
         for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress.get(protoAddr) ?? (try? loadProtocol(at: protoAddr)) {
+            if let proto = protocolsByAddress.get(protoAddr) {
+                category.addAdoptedProtocol(proto)
+            }
+            else if let proto = try? await loadProtocolAsync(at: protoAddr) {
                 category.addAdoptedProtocol(proto)
             }
         }
@@ -1138,7 +1552,8 @@ public final class ObjC2Processor: @unchecked Sendable {
                 let extTypesAddr: UInt64
                 if is64Bit {
                     extTypesAddr = byteOrder == .little ? try extCursor.readLittleInt64() : try extCursor.readBigInt64()
-                } else {
+                }
+                else {
                     let value = byteOrder == .little ? try extCursor.readLittleInt32() : try extCursor.readBigInt32()
                     extTypesAddr = UInt64(value)
                 }
@@ -1165,6 +1580,7 @@ public final class ObjC2Processor: @unchecked Sendable {
     }
 
     /// Load methods using the small method format (relative offsets).
+    ///
     /// Used in iOS 14+ / macOS 11+ binaries.
     private func loadSmallMethods(at listAddress: UInt64, listHeader: ObjC2ListHeader) throws -> [ObjCMethod] {
         guard let offset = fileOffset(for: listAddress) else { return [] }
@@ -1230,7 +1646,11 @@ public final class ObjC2Processor: @unchecked Sendable {
 
     // MARK: - Instance Variable Loading
 
-    private func loadInstanceVariables(at address: UInt64, className: String = "", isSwiftClass: Bool = false) throws
+    private func loadInstanceVariables(
+        at address: UInt64,
+        className: String = "",
+        isSwiftClass: Bool = false
+    ) async throws
         -> [ObjCInstanceVariable]
     {
         guard address != 0 else { return [] }
@@ -1264,7 +1684,7 @@ public final class ObjC2Processor: @unchecked Sendable {
             // For Swift classes, try to resolve from Swift metadata even if encoding exists
             // (Swift encodings are often generic/incomplete like '@' or 'B')
             if isSwift {
-                if let swiftType = resolveSwiftIvarType(className: className, ivarName: name) {
+                if let swiftType = await resolveSwiftIvarType(className: className, ivarName: name) {
                     typeString = swiftType
                 }
             }
@@ -1279,7 +1699,8 @@ public final class ObjC2Processor: @unchecked Sendable {
                     let value =
                         byteOrder == .little ? try offsetCursor.readLittleInt64() : try offsetCursor.readBigInt64()
                     actualOffset = UInt64(UInt32(truncatingIfNeeded: value))
-                } else {
+                }
+                else {
                     let value =
                         byteOrder == .little ? try offsetCursor.readLittleInt32() : try offsetCursor.readBigInt32()
                     actualOffset = UInt64(value)

@@ -149,13 +149,17 @@ struct SegmentDecryptorTests {
         let unknownMagic: UInt32 = 0xBADC0DE
         data.withUnsafeMutableBytes { buffer in
             buffer.storeBytes(
-                of: unknownMagic.littleEndian, toByteOffset: 3 * SegmentDecryptor.pageSize, as: UInt32.self)
+                of: unknownMagic.littleEndian,
+                toByteOffset: 3 * SegmentDecryptor.pageSize,
+                as: UInt32.self
+            )
         }
 
         let encType = SegmentDecryptor.detectEncryptionType(data: data, isProtected: true)
         if case .unknown(let magic) = encType {
             #expect(magic == unknownMagic)
-        } else {
+        }
+        else {
             Issue.record("Expected unknown encryption type")
         }
     }
@@ -182,7 +186,8 @@ struct SegmentDecryptorTests {
             buffer.storeBytes(
                 of: SegmentDecryptor.Magic.none.littleEndian,
                 toByteOffset: 3 * SegmentDecryptor.pageSize,
-                as: UInt32.self)
+                as: UInt32.self
+            )
         }
 
         let decrypted = try SegmentDecryptor.decrypt(data: data)
@@ -199,7 +204,8 @@ struct SegmentDecryptorTests {
             buffer.storeBytes(
                 of: unknownMagic.littleEndian,
                 toByteOffset: 3 * SegmentDecryptor.pageSize,
-                as: UInt32.self)
+                as: UInt32.self
+            )
         }
 
         #expect(throws: SegmentDecryptionError.self) {
@@ -234,7 +240,8 @@ struct SegmentEncryptionTypeTests {
 
         if case .unknown(let magic) = SegmentEncryptionType(magic: 0xBAD) {
             #expect(magic == 0xBAD)
-        } else {
+        }
+        else {
             Issue.record("Expected unknown type")
         }
     }

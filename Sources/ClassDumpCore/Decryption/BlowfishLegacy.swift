@@ -11,10 +11,10 @@ import Foundation
 final class BlowfishLegacy: @unchecked Sendable {
     private static let rounds = 16
 
-    /// P-array (18 32-bit words)
+    /// P-array (18 32-bit words).
     private var pArray: [UInt32]
 
-    /// S-boxes (4 x 256 32-bit words, stored flat)
+    /// S-boxes (4 x 256 32-bit words, stored flat).
     private var sBoxes: [UInt32]
 
     /// Initialize Blowfish with a key (supports up to 72 bytes).
@@ -132,9 +132,10 @@ final class BlowfishLegacy: @unchecked Sendable {
 }
 
 /// Initial P-array and S-box values for Blowfish.
+///
 /// These are derived from the hexadecimal digits of pi.
 enum BlowfishConstants {
-    /// Initial P-array values (18 entries)
+    /// Initial P-array values (18 entries).
     static let origP: [UInt32] = [
         0x243f_6a88, 0x85a3_08d3, 0x1319_8a2e, 0x0370_7344,
         0xa409_3822, 0x299f_31d0, 0x082e_fa98, 0xec4e_6c89,
@@ -143,7 +144,7 @@ enum BlowfishConstants {
         0x9216_d5d9, 0x8979_fb1b,
     ]
 
-    /// Initial S-box values (4 x 256 = 1024 entries, stored flat)
+    /// Initial S-box values (4 x 256 = 1024 entries, stored flat).
     static let origS: [UInt32] = [
         // S-box 0
         0xd131_0ba6, 0x98df_b5ac, 0x2ffd_72db, 0xd01a_dfb7, 0xb8e1_afed, 0x6a26_7e96, 0xba7c_9045, 0xf12c_7f99,

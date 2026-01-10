@@ -3,10 +3,19 @@ import MachO
 
 /// Represents a single architecture slice within a fat (universal) binary.
 public struct FatArch: Sendable {
+    /// The CPU type.
     public let cputype: cpu_type_t
+
+    /// The CPU subtype.
     public let cpusubtype: cpu_subtype_t
+
+    /// The file offset of this slice.
     public let offset: UInt64
+
+    /// The size of this slice in bytes.
     public let size: UInt64
+
+    /// The alignment of this slice.
     public let align: UInt32
 
     /// The architecture represented by this slice.
@@ -62,6 +71,7 @@ public struct FatArch: Sendable {
 }
 
 extension FatArch: CustomStringConvertible {
+    /// A textual description of the fat architecture slice.
     public var description: String {
         "FatArch(\(archName), offset: 0x\(String(offset, radix: 16)), size: \(size), align: 2^\(align))"
     }
@@ -69,7 +79,10 @@ extension FatArch: CustomStringConvertible {
 
 /// Represents a fat (universal) binary containing multiple architecture slices.
 public struct FatFile: Sendable {
+    /// The architectures contained in this fat file.
     public let arches: [FatArch]
+
+    /// Whether this is a 64-bit fat file (Mach-O 64-bit fat header).
     public let is64Bit: Bool
 
     /// The architecture names contained in this fat file.
@@ -89,12 +102,12 @@ public struct FatFile: Sendable {
         }
 
         switch magic {
-        case FAT_MAGIC:
-            self.is64Bit = false
-        case FAT_MAGIC_64:
-            self.is64Bit = true
-        default:
-            throw .invalidFatMagic(magic)
+            case FAT_MAGIC:
+                self.is64Bit = false
+            case FAT_MAGIC_64:
+                self.is64Bit = true
+            default:
+                throw .invalidFatMagic(magic)
         }
 
         do {
@@ -107,13 +120,15 @@ public struct FatFile: Sendable {
             for _ in 0..<nfatArch {
                 if is64Bit {
                     arches.append(try FatArch(cursor64: &cursor))
-                } else {
+                }
+                else {
                     arches.append(try FatArch(cursor: &cursor))
                 }
             }
 
             self.arches = arches
-        } catch {
+        }
+        catch {
             throw .dataTooSmall(expected: 8, actual: data.count)
         }
     }
@@ -167,6 +182,7 @@ public struct FatFile: Sendable {
 }
 
 extension FatFile: CustomStringConvertible {
+    /// A textual description of the fat file.
     public var description: String {
         "FatFile(\(arches.count) arches: \(archNames.joined(separator: ", ")))"
     }

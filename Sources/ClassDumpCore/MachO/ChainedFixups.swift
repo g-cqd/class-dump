@@ -17,6 +17,7 @@ public enum ChainedPointerFormat: UInt16, Sendable {
     case ptr64KernelCache = 8  // DYLD_CHAINED_PTR_64_KERNEL_CACHE
     case arm64eUserland = 9  // DYLD_CHAINED_PTR_ARM64E_USERLAND
     case arm64eFirmware = 10  // DYLD_CHAINED_PTR_ARM64E_FIRMWARE
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     case x86_64KernelCache = 11  // DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE
     case arm64eUserland24 = 12  // DYLD_CHAINED_PTR_ARM64E_USERLAND24
     case arm64eSharedCache = 13  // DYLD_CHAINED_PTR_ARM64E_SHARED_CACHE
@@ -25,23 +26,23 @@ public enum ChainedPointerFormat: UInt16, Sendable {
     /// Stride in bytes between fixup locations.
     public var stride: Int {
         switch self {
-        case .arm64e, .arm64eUserland, .arm64eUserland24, .arm64eSharedCache:
-            return 8
-        case .arm64eKernel, .arm64eFirmware, .ptr32Firmware, .ptr64, .ptr64Offset,
-            .ptr32, .ptr32Cache, .ptr64KernelCache, .arm64eSegmented:
-            return 4
-        case .x86_64KernelCache:
-            return 1
+            case .arm64e, .arm64eUserland, .arm64eUserland24, .arm64eSharedCache:
+                return 8
+            case .arm64eKernel, .arm64eFirmware, .ptr32Firmware, .ptr64, .ptr64Offset,
+                .ptr32, .ptr32Cache, .ptr64KernelCache, .arm64eSegmented:
+                return 4
+            case .x86_64KernelCache:
+                return 1
         }
     }
 
     /// Pointer size in bytes.
     public var pointerSize: Int {
         switch self {
-        case .ptr32, .ptr32Cache, .ptr32Firmware:
-            return 4
-        default:
-            return 8
+            case .ptr32, .ptr32Cache, .ptr32Firmware:
+                return 4
+            default:
+                return 8
         }
     }
 }
@@ -59,14 +60,28 @@ public enum ChainedImportFormat: UInt32, Sendable {
 
 /// Header of the LC_DYLD_CHAINED_FIXUPS payload.
 public struct ChainedFixupsHeader: Sendable {
+    /// The fixups version.
     public let fixupsVersion: UInt32
+
+    /// The offset of the starts info.
     public let startsOffset: UInt32
+
+    /// The offset of the imports table.
     public let importsOffset: UInt32
+
+    /// The offset of the symbols table.
     public let symbolsOffset: UInt32
+
+    /// The number of imports.
     public let importsCount: UInt32
+
+    /// The format of the imports table.
     public let importsFormat: ChainedImportFormat
+
+    /// The format of the symbols table.
     public let symbolsFormat: UInt32  // 0 = uncompressed, 1 = zlib
 
+    /// Parse a chained fixups header from data.
     public init(data: Data, byteOrder: ByteOrder) throws {
         guard data.count >= 24 else {
             throw ChainedFixupsError.dataTooSmall
@@ -82,7 +97,8 @@ public struct ChainedFixupsHeader: Sendable {
             let rawImportsFormat = try cursor.readLittleInt32()
             importsFormat = ChainedImportFormat(rawValue: rawImportsFormat) ?? .standard
             symbolsFormat = try cursor.readLittleInt32()
-        } else {
+        }
+        else {
             fixupsVersion = try cursor.readBigInt32()
             startsOffset = try cursor.readBigInt32()
             importsOffset = try cursor.readBigInt32()
@@ -99,12 +115,22 @@ public struct ChainedFixupsHeader: Sendable {
 
 /// A single import entry from the chained fixups import table.
 public struct ChainedImport: Sendable {
+    /// The import ordinal.
     public let ordinal: UInt32
+
+    /// The symbol name.
     public let name: String
+
+    /// The library ordinal.
     public let libOrdinal: Int
+
+    /// Whether this is a weak import.
     public let isWeakImport: Bool
+
+    /// The addend.
     public let addend: Int64
 
+    /// Initialize a chained import entry.
     public init(ordinal: UInt32, name: String, libOrdinal: Int, isWeakImport: Bool, addend: Int64 = 0) {
         self.ordinal = ordinal
         self.name = name
@@ -128,6 +154,7 @@ public enum ChainedFixupResult: Sendable {
 
 // MARK: - Chained Fixups Error
 
+/// Errors that can occur when parsing chained fixups.
 public enum ChainedFixupsError: Error, Sendable {
     case dataTooSmall
     case invalidFormat
@@ -184,7 +211,8 @@ public struct ChainedFixups: Sendable {
                     libOrdinal: libOrdinal,
                     isWeakImport: isWeak,
                     addend: addend
-                ))
+                )
+            )
         }
 
         self.imports = parsedImports
@@ -204,36 +232,36 @@ public struct ChainedFixups: Sendable {
         byteOrder: ByteOrder
     ) throws -> (libOrdinal: Int, isWeak: Bool, nameOffset: UInt64, addend: Int64) {
         switch format {
-        case .standard:
-            // DYLD_CHAINED_IMPORT: 4 bytes
-            // Bits 0-7: lib ordinal (signed)
-            // Bit 8: weak import
-            // Bits 9-31: name offset
-            let raw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
-            let libOrdinal = Int(Int8(truncatingIfNeeded: raw & 0xFF))
-            let isWeak = (raw >> 8) & 1 != 0
-            let nameOffset = UInt64((raw >> 9) & 0x7FFFFF)
-            return (libOrdinal, isWeak, nameOffset, 0)
+            case .standard:
+                // DYLD_CHAINED_IMPORT: 4 bytes
+                // Bits 0-7: lib ordinal (signed)
+                // Bit 8: weak import
+                // Bits 9-31: name offset
+                let raw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                let libOrdinal = Int(Int8(truncatingIfNeeded: raw & 0xFF))
+                let isWeak = (raw >> 8) & 1 != 0
+                let nameOffset = UInt64((raw >> 9) & 0x7FFFFF)
+                return (libOrdinal, isWeak, nameOffset, 0)
 
-        case .addend:
-            // DYLD_CHAINED_IMPORT_ADDEND: 4 + 4 bytes
-            let raw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
-            let libOrdinal = Int(Int8(truncatingIfNeeded: raw & 0xFF))
-            let isWeak = (raw >> 8) & 1 != 0
-            let nameOffset = UInt64((raw >> 9) & 0x7FFFFF)
-            let addendRaw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
-            let addend = Int64(Int32(bitPattern: addendRaw))
-            return (libOrdinal, isWeak, nameOffset, addend)
+            case .addend:
+                // DYLD_CHAINED_IMPORT_ADDEND: 4 + 4 bytes
+                let raw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                let libOrdinal = Int(Int8(truncatingIfNeeded: raw & 0xFF))
+                let isWeak = (raw >> 8) & 1 != 0
+                let nameOffset = UInt64((raw >> 9) & 0x7FFFFF)
+                let addendRaw = byteOrder == .little ? try cursor.readLittleInt32() : try cursor.readBigInt32()
+                let addend = Int64(Int32(bitPattern: addendRaw))
+                return (libOrdinal, isWeak, nameOffset, addend)
 
-        case .addend64:
-            // DYLD_CHAINED_IMPORT_ADDEND64: 8 + 8 bytes
-            let raw = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            let libOrdinal = Int(Int16(truncatingIfNeeded: raw & 0xFFFF))
-            let isWeak = (raw >> 16) & 1 != 0
-            let nameOffset = (raw >> 32) & 0xFFFF_FFFF
-            let addendRaw = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
-            let addend = Int64(bitPattern: addendRaw)
-            return (libOrdinal, isWeak, nameOffset, addend)
+            case .addend64:
+                // DYLD_CHAINED_IMPORT_ADDEND64: 8 + 8 bytes
+                let raw = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+                let libOrdinal = Int(Int16(truncatingIfNeeded: raw & 0xFFFF))
+                let isWeak = (raw >> 16) & 1 != 0
+                let nameOffset = (raw >> 32) & 0xFFFF_FFFF
+                let addendRaw = byteOrder == .little ? try cursor.readLittleInt64() : try cursor.readBigInt64()
+                let addend = Int64(bitPattern: addendRaw)
+                return (libOrdinal, isWeak, nameOffset, addend)
         }
     }
 
@@ -301,21 +329,21 @@ public struct ChainedFixups: Sendable {
         let fmt = format ?? pointerFormat ?? .ptr64
 
         switch fmt {
-        case .arm64e, .arm64eUserland, .arm64eKernel, .arm64eFirmware:
-            return decodeArm64ePointer(rawPointer)
+            case .arm64e, .arm64eUserland, .arm64eKernel, .arm64eFirmware:
+                return decodeArm64ePointer(rawPointer)
 
-        case .arm64eUserland24:
-            return decodeArm64eUserland24Pointer(rawPointer)
+            case .arm64eUserland24:
+                return decodeArm64eUserland24Pointer(rawPointer)
 
-        case .ptr64, .ptr64Offset:
-            return decodePtr64Pointer(rawPointer)
+            case .ptr64, .ptr64Offset:
+                return decodePtr64Pointer(rawPointer)
 
-        case .ptr32:
-            return decodePtr32Pointer(UInt32(truncatingIfNeeded: rawPointer))
+            case .ptr32:
+                return decodePtr32Pointer(UInt32(truncatingIfNeeded: rawPointer))
 
-        default:
-            // For other formats, use heuristic
-            return decodeHeuristicPointer(rawPointer)
+            default:
+                // For other formats, use heuristic
+                return decodeHeuristicPointer(rawPointer)
         }
     }
 
@@ -331,11 +359,13 @@ public struct ChainedFixups: Sendable {
             let addendRaw = (raw >> 32) & 0x7FFFF
             let addend = signExtend19(addendRaw)
             return .bind(ordinal: ordinal, addend: addend)
-        } else if auth != 0 {
+        }
+        else if auth != 0 {
             // Auth rebase
             let target = raw & 0xFFFF_FFFF  // 32-bit target
             return .rebase(target: target)
-        } else {
+        }
+        else {
             // Regular rebase
             let target = raw & 0x7FF_FFFF_FFFF  // 43-bit target
             let high8 = (raw >> 43) & 0xFF
@@ -353,11 +383,13 @@ public struct ChainedFixups: Sendable {
             let addendRaw = (raw >> 32) & 0x7FFFF
             let addend = signExtend19(addendRaw)
             return .bind(ordinal: ordinal, addend: addend)
-        } else if auth != 0 {
+        }
+        else if auth != 0 {
             // Auth rebase
             let target = raw & 0xFFFF_FFFF
             return .rebase(target: target)
-        } else {
+        }
+        else {
             // Regular rebase
             let target = raw & 0x7FF_FFFF_FFFF
             let high8 = (raw >> 43) & 0xFF
@@ -368,32 +400,30 @@ public struct ChainedFixups: Sendable {
     private func decodePtr64Pointer(_ raw: UInt64) -> ChainedFixupResult {
         let bind = (raw >> 63) & 1
 
-        if bind != 0 {
-            // Bind
-            let ordinal = UInt32(raw & 0xFFFFFF)
-            let addend = Int64((raw >> 24) & 0xFF)
-            return .bind(ordinal: ordinal, addend: addend)
-        } else {
+        guard bind != 0 else {
             // Rebase
             let target = raw & 0xF_FFFF_FFFF  // 36-bit target
             let high8 = (raw >> 36) & 0xFF
             return .rebase(target: (high8 << 56) | target)
         }
+        // Bind
+        let ordinal = UInt32(raw & 0xFFFFFF)
+        let addend = Int64((raw >> 24) & 0xFF)
+        return .bind(ordinal: ordinal, addend: addend)
     }
 
     private func decodePtr32Pointer(_ raw: UInt32) -> ChainedFixupResult {
         let bind = (raw >> 31) & 1
 
-        if bind != 0 {
-            // Bind
-            let ordinal = raw & 0xFFFFF  // 20-bit ordinal
-            let addend = Int64((raw >> 20) & 0x3F)
-            return .bind(ordinal: ordinal, addend: addend)
-        } else {
+        guard bind != 0 else {
             // Rebase
             let target = UInt64(raw & 0x3FFFFFF)  // 26-bit target
             return .rebase(target: target)
         }
+        // Bind
+        let ordinal = raw & 0xFFFFF  // 20-bit ordinal
+        let addend = Int64((raw >> 20) & 0x3F)
+        return .bind(ordinal: ordinal, addend: addend)
     }
 
     private func decodeHeuristicPointer(_ raw: UInt64) -> ChainedFixupResult {

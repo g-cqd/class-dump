@@ -1,398 +1,202 @@
 # class-dump - Remaining Work
 
-**Current Status**: 840 tests passing | Swift 6.2 | Version 4.0.2
+**Current Status**: 957 tests passing | Swift 6.2 | Version 4.0.3
 
 ---
 
-## Priority 0: Critical Swift Type Demangling Fixes (IMMEDIATE)
+## Recently Completed: String Interning & Performance Optimizations
 
-### Task T00: Swift Type Resolution Regressions
-**Status**: ✅ Complete
+### Task T11.7.1: String Interning ✅ Complete (2026-01-09)
+Integrated string interning into `StringTableCache` for automatic memory deduplication:
 
-Fixed Swift type demangling issues with 34 new comprehensive tests.
+- [x] **MutexStringInterner** - Sync interner for hot paths (Mutex-based)
+- [x] **StringTableCache** - Now automatically interns all cached strings
+- [x] Strings at different addresses with same content share memory
+- [x] Added `internStats` property for monitoring (unique count, hit count)
+- [x] **Impact**: 60-80% memory savings for string storage
 
-**T00.1: Swift.AnyObject Conversion to id** ✅ Complete
-- Added `Swift.AnyObject` → `id` conversion in ObjC output mode
-- Modified: `TextClassDumpVisitor.convertSwiftTypeToObjC()` and type map
-- Modified: `ObjCTypeFormatter.format()` for AnyObject handling
+### Task T11.6.5 & T11.6.6: Optimization Evaluation ✅ (2026-01-09)
 
-**T00.2: Malformed Array Type Demangling** ✅ Complete
-- Added `parseModuleQualifiedType()` for module.type parsing with `_p` suffix
-- Handles: `Say13IDEFoundation19IDETestingSpecifier_pG` → `[any IDETestingSpecifier]`
-- Proper Swift syntax using `any` for existential types
+- [x] **T11.6.5: Lock-Free String Cache** - Evaluated, determined current Mutex optimal
+  - `Mutex<T>` uses `os_unfair_lock` (nanosecond-scale)
+  - Critical sections are tiny (hash lookup)
+  - Adding atomics would increase complexity without meaningful benefit
+  - Benchmark shows consistent <1s performance on IDEFoundation
 
-**T00.3: Corrupted Generic Array Types** ✅ Complete
-- Validation pass catches partially demangled strings
-- Test coverage in T00.8 validation tests
+- [x] **T11.6.6: Direction-Optimizing BFS** - Evaluated, minimal benefit
+  - Only used for `-I` (sort by inheritance) option
+  - Inheritance chains typically 2-5 levels deep
+  - Bidirectional traversal overkill for such short chains
 
-**T00.4: Builtin.DefaultActorStorage Resolution** ✅ Complete
-- DefaultActorStorage handled in demangling
-- Tests verify proper formatting
+### Task T11.6.7: Actor-Based Registries ✅ Complete (2026-01-09)
+Converted NSLock-based registries to Swift actors for explicit memory safety:
 
-**T00.5: Swift Concurrency Type Demangling** ✅ Complete
-- Added AsyncStream/AsyncThrowingStream with generics: `ScSy...G`
-- Added CheckedContinuation/UnsafeContinuation with generics: `ScCy...G`, `ScUy...G`
-- Added `parseTaskGenericArgsFromInput()` helper for Task<Success, Failure>
-- Handles nested: `SayScTyytNeverGG` → `[Task<(), Never>]`
+- [x] **MethodSignatureRegistry** → Actor
+  - All methods now async-isolated
+  - Block signature lookups require `await`
+  - Pre-resolve signatures before sync formatting
 
-**T00.6: Protocol Existential Types (`_p` suffix)** ✅ Complete
-- `_p` suffix parsed in `parseModuleQualifiedType()`
-- Outputs Swift `any Protocol` syntax for existentials
+- [x] **StructureRegistry** → Actor
+  - All methods now async-isolated
+  - Structure resolution requires `await`
+  - Typedef mappings initialized in property declaration
 
-**T00.7: Complex Nested Generic Dictionary Types** ✅ Complete
-- Covered by improved generic type parsing
-- Test coverage for deeply nested dictionaries
+- [x] **Updated Callers**
+  - CLI uses `await` for registry access
+  - Tests updated for async APIs
+  - ObjCTypeFormatter documented for pre-resolved workflow
 
-**T00.8: Guard Against Partial Demangling Output** ✅ Complete
-- Added `isValidDemangledOutput()` helper to detect garbage
-- Tests verify malformed output detection
-
-**Files modified**:
-- `Sources/ClassDumpCore/Visitor/TextClassDumpVisitor.swift`
-- `Sources/ClassDumpCore/Swift/SwiftDemangler.swift`
-- `Sources/ClassDumpCore/TypeSystem/ObjCTypeFormatter.swift`
-
-**Tests added**:
-- `Tests/ClassDumpCoreTests/Demangling/TestSwiftTypeResolution.swift` (34 tests)
+**Design Decision**: Mutex-based caches (`MutexCache`, `StringTableCache`, `TypeEncodingCache`, `MethodTypeCache`) kept as-is for hot paths where async overhead is not justified.
 
 ---
 
-## Priority 1: Output Quality (HIGH PRIORITY)
+## Priority 3: Performance & Concurrency (Remaining)
 
-### Task T07: Swift Standard Library Type Demangling
-**Status**: ✅ Complete (commit 330d1c9)
+### Task T11.7: Phase 4 - Memory Optimization ✅ Complete
+**Status**: Complete
 
-Enhanced Swift stdlib type demangling to handle:
-- `SD` prefix (Dictionary<K,V>)
-- `Sa` prefix (Array<T>)
-- `Sc` prefix (Continuation types)
-- `So` prefix (ObjC imported types with `_p` protocol suffix)
-- `Ss` prefix (String, other stdlib types)
-- Nested generic arguments recursively
-- 15 new tests for complex nested stdlib types
+- [x] T11.7.1: **String Interning Table** ✅ Complete
+  - Created `MutexStringInterner` for sync contexts
+  - Integrated into `StringTableCache` (automatic interning)
+  - **Impact**: 60-80% memory savings for repeated strings
 
-### Task T08: Output Mode Consistency & Formatting
-**Status**: ✅ Complete
+- [x] T11.7.2: **Streaming Architecture for Large Binaries** ✅ Complete (2026-01-09)
+  - Created `stream()` method returning `AsyncStream<ObjCMetadataItem>`
+  - Yields protocols, classes, categories as they're processed
+  - Optional progress updates with `includeProgress: true`
+  - Enables bounded memory for arbitrarily large binaries
+  - 3 new tests for streaming API
+  - **Impact**: O(1) memory for streaming output
 
-Implemented strict output mode enforcement with `--output-style` flag:
-
-**ObjC Mode (default)** - All output is valid ObjC syntax:
-- Pointer asterisks: `IDETestManager *testManager`
-- Swift optionals converted: `IDETestable?` → `IDETestable *`
-- Swift Dictionary syntax: `[String: Type]` → `NSDictionary *`
-- Swift Array syntax: `[Type]` → `NSArray *`
-- Class types get pointers: `Module.ClassName *`
-
-**Swift Mode** - All output preserves Swift syntax:
-- Use Swift type names: `String`, `[Type]`, `[Key: Value]`
-- Use Swift optionals: `Type?`
-- No pointer asterisks
-
-**Flags**: `--output-style=objc|swift` (default: objc)
-
-- [x] T08.1: Add `--output-style` flag with `objc` and `swift` options
-- [x] T08.2: Implement ObjC formatter that converts all Swift syntax to ObjC
-- [x] T08.3: Add pointer asterisks for Swift class type ivars in ObjC mode
-- [x] T08.4: Convert Swift optionals to ObjC pointers in ObjC mode
-- [x] T08.5: Convert Swift Dictionary/Array syntax to ObjC types in ObjC mode
-- [x] T08.6: Investigated missing ivar names - handled by skipping invalid ivars
-- [x] T08.7: Add tests for output mode consistency (14 new tests)
-- [x] T08.8: Document the output mode flag in CLI help
-
----
-
-## Priority 2: Type Resolution
-
-### Task T09: Resolve Forward-Declared Types
-**Status**: ✅ Complete
-
-Created a StructureRegistry system to collect and resolve forward-declared types.
-
-**Phase 1: Core Registry** (T09.1) ✅ Complete
-- [x] T09.1.1: Create `StructureRegistry` class with register/resolve methods
-- [x] T09.1.2: Add ObjCType helper methods (isForwardDeclaredStructure, structureName)
-- [x] T09.1.3: Write unit tests for StructureRegistry (24 tests)
-- [x] T09.1.4: Integrate with ObjC2Processor to collect structures
-- [x] T09.1.5: Wire up to ObjCTypeFormatter for resolution during formatting
-- [x] T09.1.6: Generate CDStructures.h content from registry
-
-**Phase 2: Typedef Resolution** (T09.2) ✅ Complete
-- [x] T09.2.1: Add typedef tracking for common types (CGFloat, NSInteger, etc.)
-- [x] T09.2.2: Use Swift metadata field descriptors for type names (already implemented)
-
-**Phase 3: @class Enhancement** (T09.3) ✅ Complete
-- [x] T09.3.1: Enhance existing @class handling in MultiFileVisitor
-- [x] T09.3.2: Only emit @class for truly external classes
-- [x] T09.3.3: Fixed empty @class declarations bug
-
-**Phase 4: Swift Metadata Cross-Reference** (T09.4) ✅ Complete
-- [x] T09.4.1: Cross-reference Swift field descriptors for type resolution
-- [x] T09.4.2: Implemented via SwiftSymbolicResolver
-
-**Files**:
-- `Sources/ClassDumpCore/TypeSystem/StructureRegistry.swift` (NEW)
-- `Tests/ClassDumpCoreTests/TypeSystem/TestStructureRegistry.swift` (NEW)
-- `Sources/ClassDumpCore/TypeSystem/ObjCTypeFormatter.swift`
-- `Sources/ClassDumpCore/ObjCMetadata/ObjC2Processor.swift`
-- `Sources/ClassDumpCore/Visitor/ClassDumpVisitor.swift`
-- `Sources/ClassDumpCLI/main.swift`
-
-### Task T10: Block Type Resolution Improvements
-**Status**: ✅ Complete
-
-**T10.1: Protocol Method Signature Cross-Reference** ✅ Complete
-- Created `MethodSignatureRegistry` to index protocol method signatures by selector
-- Block types without signatures (`@?`) can now be enhanced with richer signatures from protocol methods
-- Protocol sources are prioritized over class sources
-- Registry wired into `ObjCTypeFormatter` for automatic block type enhancement
-- 14 new tests for MethodSignatureRegistry
-
-**T10.2: Swift Closure to ObjC Block Conversion** ✅ Complete
-- Swift closure types from field descriptors now convert to ObjC block syntax in ObjC output mode
-- `(String) -> Void` → `void (^)(NSString *)`
-- `@escaping (Int, Bool) -> String` → `NSString * (^)(NSInteger, BOOL)`
-- Handles common Swift-to-ObjC type mappings (String→NSString, Int→NSInteger, Bool→BOOL, etc.)
-- Strips @escaping, @Sendable and other attributes before conversion
-- Swift output mode preserves original closure syntax
-- 7 new tests for closure conversion
-
-**T10.3: Add --show-raw-types Debugging Flag** ✅ Complete
-- Added `--show-raw-types` flag to CLI
-- Methods show raw type encoding in comments: `// @24@0:8@16`
-- Ivars show raw ObjC type encoding: `// @"NSString"`
-- Properties show raw attribute string: `// T@"NSString",R,C,V_name`
-- 5 new tests for show-raw-types feature
-
-**Files**:
-- `Sources/ClassDumpCore/TypeSystem/MethodSignatureRegistry.swift` (NEW)
-- `Tests/ClassDumpCoreTests/TypeSystem/TestMethodSignatureRegistry.swift` (NEW)
-- `Sources/ClassDumpCore/TypeSystem/ObjCTypeFormatter.swift`
-- `Sources/ClassDumpCore/ObjCMetadata/ObjC2Processor.swift`
-- `Sources/ClassDumpCore/Visitor/ClassDumpVisitor.swift`
-- `Sources/ClassDumpCore/Visitor/TextClassDumpVisitor.swift`
-- `Sources/ClassDumpCLI/main.swift`
-
----
-
-## Priority 3: Performance & Concurrency
-
-### Task T11: Concurrency & Performance Pass
-**Status**: ✅ Phase 1 Complete
-
-Implemented thread-safe caching foundation for parallel processing.
-
-**T11.1: Thread-Safe Caching Infrastructure** ✅ Complete
-- [x] Created `ThreadSafeCache<Key, Value>` with NSLock synchronization
-- [x] Created `ActorCache<Key, Value>` for async/await contexts
-- [x] Created `StringTableCache` for string table lookups
-- [x] Created `TypeEncodingCache` for parsed type caching
-- [x] Integrated caches into ObjC2Processor
-- [x] 16 tests for concurrent cache operations
-
-**T11.2: Memory-Mapped File IO** ✅ Already Implemented
-- [x] `MachOFile.swift:141` uses `Data(contentsOf:, options: .mappedIfSafe)`
-- [x] Foundation automatically memory-maps large files
-
-**T11.3: String Table Caching** ✅ Complete
-- [x] `readString(at:)` uses `stringCache.getOrRead()` for cached lookups
-- [x] Prevents repeated string parsing from binary
-
-**T11.4: Benchmarking** ✅ Complete
-- [x] Created `TestPerformanceBenchmark.swift` with performance tests
-- [x] Tests cover: string cache, type encoding cache, concurrent contention
-
-**Files**:
-- `Sources/ClassDumpCore/Utilities/ThreadSafeCache.swift` (NEW - 342 lines)
-- `Sources/ClassDumpCore/Utilities/AddressTranslator.swift` (NEW - 200 lines)
-- `Sources/ClassDumpCore/ObjCMetadata/ObjC2Processor.swift` (MODIFIED)
-- `Tests/ClassDumpCoreTests/Performance/TestConcurrentProcessing.swift` (NEW)
-- `Tests/ClassDumpCoreTests/Performance/TestPerformanceBenchmark.swift` (NEW)
-- `Tests/ClassDumpCoreTests/Performance/TestAddressTranslator.swift` (NEW - 14 tests)
-
----
-
-## Priority 3.5: Advanced Performance Optimizations (STATE OF THE ART)
-
-*Inspired by [g-cqd/SwiftStaticAnalysis](https://github.com/g-cqd/SwiftStaticAnalysis) and [g-cqd/CSVCoder](https://github.com/g-cqd/CSVCoder)*
-
-### Task T11.5: Phase 2 - Quick Wins (30-50% speedup)
-**Status**: ✅ T11.5.1-T11.5.2 Complete
-**Estimated effort**: 2-3 weeks
-
-- [x] T11.5.1: **Address-to-FileOffset Cache** - Cache segment lookups to avoid O(segments) per address
-  - Created `AddressTranslator` with binary search-based section index
-  - O(log n) lookup instead of O(segments * sections) linear scan
-  - Result caching for O(1) repeated lookups
-  - Integrated into ObjC2Processor
-  - Impact: **30-50%** for address resolution
-
-- [x] T11.5.2: **SIMD Null-Terminator Detection** - Use SWAR/NEON for string scanning
-  - Created `SIMDStringUtils.findNullTerminator()` with SWAR technique
-  - Scans 8 bytes at a time using "hasZeroByte" bit trick
-  - Zero-copy string creation via `String(cString:)`
-  - Integrated into `readString(at:)` in ObjC2Processor
-  - 14 new tests for SIMD utilities
-  - Impact: **20-30%** for string parsing
-
-- [ ] T11.5.3: **Static Chained Fixup Masks** - Pre-compute bit masks
-  - Location: `ObjC2Processor.swift:459-509`
-  - Change: `let targetMask36: UInt64 = (1 << 36) - 1` → `static let`
-  - Impact: **5-10%** for pointer decoding
-
-- [ ] T11.5.4: **Swift Field Descriptor Index** - Pre-build comprehensive lookup index
-  - Location: `ObjC2Processor.swift:113-195, 527-611`
-  - Current: O(d) linear scan in worst case
-  - Target: O(1) indexed lookup for all name formats
-  - Impact: **1000x** for Swift-heavy binaries
-
-- [ ] T11.5.5: **Type Encoding Parse Cache** - Cache ObjCType parse results
-  - Location: `ObjCTypeParser.swift` + `ObjCType.parseMethodType()`
-  - Pattern: Use `TypeEncodingCache.getOrParse()`
-  - Impact: **40-60%** for type parsing
-
-### Task T11.6: Phase 3 - Parallel Processing (40-60% additional speedup)
-**Status**: Not started
-**Estimated effort**: 3-4 weeks
-
-- [ ] T11.6.1: **Convert ObjC2Processor to Actor** - Full async/await refactor
-  - Pattern: `actor ObjC2ProcessorActor` with async `process()` method
-  - Enables structured concurrency throughout
-
-- [ ] T11.6.2: **Parallel Class Loading with TaskGroup**
-  - Location: `ObjC2Processor.swift:835-868`
-  - Pattern:
-    ```swift
-    await withTaskGroup(of: ObjCClass?.self) { group in
-      for address in classAddresses {
-        group.addTask { try? await self.loadClass(at: address) }
-      }
-      for await class in group { classes.append(class) }
-    }
-    ```
-  - Impact: **30-40%** (near-linear scaling with CPU cores)
-
-- [ ] T11.6.3: **Parallel Protocol Loading**
-  - Location: `ObjC2Processor.swift:697-730`
-  - Pattern: Same TaskGroup approach after address collection
-  - Impact: **20-30%**
-
-- [ ] T11.6.4: **Lock-Free String Cache for Readers**
-  - Pattern: Use atomic operations for cache reads, locks only for writes
-  - Alternative: Use per-thread thread-local caches (TLS)
-  - Impact: **15-25%** reduction in lock contention
-
-- [ ] T11.6.5: **Direction-Optimizing BFS for Reachability** (from SwiftStaticAnalysis)
-  - Pattern: Bidirectional traversal for superclass/protocol chains
-  - Impact: Minor but reduces graph traversal time
-
-### Task T11.7: Phase 4 - Memory Optimization (20-30% additional)
-**Status**: Not started
-**Estimated effort**: 2-3 weeks
-
-- [ ] T11.7.1: **Zero-Copy String Creation**
-  - Current: `data.subdata(in: offset..<end)` → String (2 allocations)
-  - Target: `String(cString: ptr)` from direct pointer (0 allocations)
-  - Location: `ObjC2Processor.swift:403`
-  - Impact: **50%** allocation reduction
-
-- [ ] T11.7.2: **String Interning Table**
-  - Pattern: Global intern table `[String: String]` for selector names
-  - Many selectors appear in 100s of classes
-  - Impact: **60-80%** memory reduction for strings
-
-- [ ] T11.7.3: **Streaming Architecture for Large Binaries** (from CSVCoder)
-  - Pattern: Process classes/protocols in chunks with O(1) memory
-  - Target: Support multi-GB binaries without loading entire metadata
-
-- [ ] T11.7.4: **Arena Allocation** (from SwiftStaticAnalysis)
-  - Pattern: Pool allocator for ObjCClass/ObjCMethod objects
-  - Reduces ARC overhead and fragmentation
+- [x] T11.7.3: **Arena Allocation** ✅ Evaluated (2026-01-09)
+  - **Finding**: Existing optimizations already provide excellent performance
+  - `DataCursor` is a struct (no ARC overhead)
+  - `Data` uses copy-on-write (minimal memory impact)
+  - Arrays use `reserveCapacity` in hot paths
+  - Added `DataCursor.reset(to:)` for cursor reuse
+  - **Decision**: Full arena allocation not needed (~0.9s, ~48MB is excellent)
 
 ### Task T11.8: Phase 5 - Algorithm Optimization
-**Status**: Not started
-**Estimated effort**: 1-2 weeks
+**Status**: ✅ Complete
 
-- [ ] T11.8.1: **Incremental Topological Sort**
-  - Location: `StructureRegistry.swift:447-484`
-  - Current: O(n²) Kahn's algorithm with set operations
-  - Target: O(n+m) linear algorithm with in-degree tracking
+- [x] T11.8.1: **Incremental Topological Sort** ✅ Complete
+  - Location: `StructureRegistry.swift:447-513`
+  - Optimized from O(n²) to O(n+m) using in-degree tracking
+  - Maintains deterministic output with sorted ready queue
   - Impact: **10-20%** for structure ordering
 
-- [ ] T11.8.2: **Memoized Type Demangling**
-  - Location: `SwiftDemangler.swift`
-  - Pattern: Cache demangled results by mangled name
+- [x] T11.8.2: **Memoized Type Demangling** ✅ Complete
+  - Location: `SwiftDemangler.swift:29-42, 316-324`
+  - Added `MutexCache<String, String>` for demangled results
+  - `demangle()` now caches results from `demangleDetailed()`
+  - Added `clearCache()` and `cacheStats` for debugging
   - Impact: **30-40%** for Swift type formatting
 
-### Task T11.9: Benchmarking Suite
-**Status**: Partially Complete
+### Task T11.9: Benchmarking Suite ✅ Complete
+**Status**: Complete
 
-- [x] Basic performance tests created
-- [ ] T11.9.1: Create comprehensive benchmark CLI
-- [ ] T11.9.2: Benchmark against IDEFoundation.framework
-- [ ] T11.9.3: Benchmark against Xcode.app (very large)
-- [ ] T11.9.4: Memory profiling with Instruments
-- [ ] T11.9.5: CPU profiling with sampling
+- [x] T11.9.1: Created `benchmark` CLI with comprehensive statistics
+  - Statistical analysis: min, max, mean, median, stddev, P95, P99
+  - Memory profiling with `--memory` flag
+  - JSON output with `--json` for automation
+  - Warmup runs with `--warmup`
+  - Verbose mode with `--verbose`
+- [x] T11.9.2: Benchmarked against IDEFoundation.framework
+  - Median: 0.912s, P95: 0.943s
+  - Peak Memory: ~48MB for 1272 classes
 
-**Benchmark Command**:
+**Benchmark Commands**:
 ```bash
-time class-dump "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation" > /dev/null
+# Quick benchmark
+.build/release/benchmark "/path/to/binary" --iterations 10
+
+# Full benchmark with memory stats
+.build/release/benchmark "/path/to/binary" --iterations 50 --warmup 5 --memory
+
+# JSON output for CI/automation
+.build/release/benchmark "/path/to/binary" --json
 ```
-
----
-
-### Performance Optimization Summary
-
-| Phase | Optimization | Impact | Status |
-|-------|--------------|--------|--------|
-| 1 | Thread-safe caches | Foundation | ✅ Complete |
-| 1 | String table caching | 30-50% | ✅ Complete |
-| 2 | Address-to-offset cache | 30-50% | ✅ Complete |
-| 2 | SIMD null-terminator | 20-30% | ✅ Complete |
-| 2 | Swift field index | 1000x | 🔲 Not started |
-| 3 | Actor-based processor | Enables parallel | 🔲 Not started |
-| 3 | Parallel class loading | 30-40% | 🔲 Not started |
-| 4 | Zero-copy strings | 50% alloc | ✅ Complete (via SIMD) |
-| 4 | String interning | 60-80% mem | 🔲 Not started |
-| 5 | Incremental topo sort | 10-20% | 🔲 Not started |
-
-**Total Expected Improvement**: 3-5x faster, 50-80% less memory
 
 ---
 
 ## Priority 4: System Integration
 
-### Task T12: System swift-demangle Integration
-**Status**: Not started
+### Task T12: System swift-demangle Integration ✅ Complete
+**Status**: Complete (2026-01-10)
 
-- [ ] T12.1: Shell out to `/usr/bin/swift-demangle` for complex cases
-- [ ] T12.2: Cache results for repeated symbols
-- [ ] T12.3: Fall back to built-in demangler if unavailable
+- [x] T12.1: **SystemDemangler actor** - Shells out to `swift-demangle` via `xcrun`
+  - Location: `Sources/ClassDumpCore/Swift/SystemDemangler.swift`
+  - Async interface for batch and single symbol demangling
+  - Automatic path resolution via `xcrun --find swift-demangle`
+- [x] T12.2: **Caching layer** - MutexCache for demangled results
+  - Results cached for repeated lookups
+  - `clearCache()` and `cacheStats` for debugging
+- [x] T12.3: **Fallback to built-in** - Falls back to SwiftDemangler if unavailable
+  - `demangleSync()` method for sync contexts
+  - `checkAvailability()` to verify swift-demangle presence
+- [x] T12.4: **CLI integration** - `--system-demangle` flag
+  - Enables system demangling for complex symbols
+  - Warning if swift-demangle not found
+- [x] T12.5: **SwiftDemangler integration**
+  - `enableSystemDemangling()` / `disableSystemDemangling()` API
+  - Built-in demangle() auto-falls back to system for unhandled symbols
+  - 14 new tests for SystemDemangler
 
-### Task T13: Optional libswiftDemangle Linking
-**Status**: Not started
+### Task T13: Dynamic libswiftDemangle Linking ✅ Complete
+**Status**: Complete (2026-01-10)
 
-- [ ] T13.1: `dlopen` the Swift runtime library
-- [ ] T13.2: Use `swift_demangle` C API for full accuracy
-- [ ] T13.3: Handle symbol versioning across Swift versions
+- [x] T13.1: **DynamicSwiftDemangler** - Uses dlopen to load Swift runtime
+  - Location: `Sources/ClassDumpCore/Swift/DynamicSwiftDemangler.swift`
+  - Searches: `/usr/lib/swift/`, Xcode toolchain, Command Line Tools
+  - Falls back to `libswiftCore.dylib (system)` search path
+- [x] T13.2: **swift_demangle C API** - Calls demangler directly in-process
+  - Zero process spawn overhead (much faster than SystemDemangler)
+  - Uses `dlsym` to find `swift_demangle` symbol
+  - Proper memory management (frees malloc'd result)
+- [x] T13.3: **SwiftDemangler integration**
+  - `enableDynamicDemangling()` / `disableDynamicDemangling()` API
+  - Preferred over SystemDemangler when both enabled
+  - 15 new tests for DynamicSwiftDemangler
+- [x] T13.4: **CLI integration** - `--dynamic-demangle` flag
+  - Enables in-process dynamic demangling
+  - Warning if Swift runtime not found
 
-### Task T14: Demangling Cache
-**Status**: Not started
+### Task T14: Demangling Cache ✅ Complete (via T11.8.2)
+**Status**: Complete - Already implemented as part of T11.8.2
 
-- [ ] T14.1: LRU cache for demangled names
-- [ ] T14.2: Thread-safe implementation
-- [ ] T14.3: Optional persistence across runs
+- [x] T14.1: **MutexCache** for demangled names in SwiftDemangler
+- [x] T14.2: **Thread-safe** via Mutex<T>
+- [x] T14.3: Session-based caching (cleared per-run, not persistent)
 
 ---
 
 ## Priority 5: Output Format Options
 
-### Task T15: Swift Output Mode
-**Status**: Not started
+### Task T15: Swift Output Mode ✅ Complete
+**Status**: Complete (2026-01-10)
 
-- [ ] T15.1: Add `--swift` output mode
-- [ ] T15.2: Output `.swiftinterface`-style declarations
-- [ ] T15.3: Include access control, attributes
-- [ ] T15.4: Format: `public class Name: SuperClass, Protocol { ... }`
+- [x] T15.1: **SwiftOutputVisitor** - New visitor for Swift-style output
+  - Location: `Sources/ClassDumpCore/Visitor/SwiftOutputVisitor.swift`
+  - Generates `.swiftinterface`-style declarations
+  - Converts ObjC type encodings to Swift types
+- [x] T15.2: **Protocol output** - `@objc public protocol Name : Inherited { }`
+  - Optional methods marked with `@objc optional`
+  - Required methods marked with `@objc`
+- [x] T15.3: **Class output** - `@objc public class Name : Super, Proto { }`
+  - Includes ivars as `private var`
+  - Properties with `{ get }` or `{ get set }`
+- [x] T15.4: **Category output** - `@objc public extension ClassName { }`
+  - MARK comment for category name
+- [x] T15.5: **CLI integration** - `--format swift` option
+  - Default is `objc` for traditional ObjC headers
+  - `--format swift` for .swiftinterface-style output
+- [x] T15.6: **Type conversion** - ObjC types to Swift equivalents
+  - int → Int32, NSString* → String?, etc.
+  - Block types → `@escaping (Params) -> Return`
+- [x] T15.7: **13 new tests** for SwiftOutputVisitor
+  - Protocol, class, category formatting
+  - Methods, properties, ivars
+  - Optional methods, demangling, addresses
 
 ### Task T16: Mixed Output Mode
 **Status**: Not started
@@ -401,84 +205,177 @@ time class-dump "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.frame
 - [ ] T16.2: Show both ObjC and Swift representations
 - [ ] T16.3: Useful for bridging header generation
 
-### Task T17: JSON Output Mode
-**Status**: Not started
+### Task T17: JSON Output Mode ✅ Complete
+**Status**: Complete (2026-01-10)
 
-- [ ] T17.1: Add `--json` structured output
-- [ ] T17.2: Machine-readable type information
-- [ ] T17.3: Include both mangled and demangled names
-- [ ] T17.4: Include source locations, offsets
+- [x] T17.1: **JSONOutputVisitor** - New visitor for machine-readable JSON output
+  - Location: `Sources/ClassDumpCore/Visitor/JSONOutputVisitor.swift`
+  - Codable structures: ClassDumpJSON, ProtocolJSON, ClassJSON, CategoryJSON, etc.
+  - Pretty-printed JSON with sorted keys
+- [x] T17.2: **Schema v1.0** - Structured metadata output
+  - Generator info (name, version, timestamp)
+  - File info (filename, uuid, architecture, OS versions)
+  - Protocols, classes, categories with full details
+- [x] T17.3: **Rich type information**
+  - Both mangled and demangled names preserved
+  - Type encodings and resolved types
+  - Property attributes (readonly, copy, nonatomic, etc.)
+- [x] T17.4: **Optional metadata**
+  - Method addresses (when `--show-imp-addr` enabled)
+  - Instance variable offsets
+  - Parameter names and types
+- [x] T17.5: **CLI integration** - `--format json` option
+  - Default is `objc` for traditional ObjC headers
+  - `--format json` for machine-readable output
+- [x] T17.6: **15 new tests** for JSONOutputVisitor
+  - Valid JSON generation
+  - Protocol, class, category formatting
+  - Demangling, addresses, Codable round-trip
 
 ---
 
-## Future: dyld_shared_cache Integration
+## dyld_shared_cache Integration
 
-### Task T18: Shared Cache Foundation
-- [ ] T18.1: Implement `MemoryMappedReader` for large file access (3+ GB)
-- [ ] T18.2: Parse `dyld_cache_header` (magic, mappings, images)
-- [ ] T18.3: Support split caches (.01, .02, etc.)
+### Task T18: Shared Cache Foundation ✅ Complete (2026-01-10)
+**Status**: Complete
 
-### Task T19: Address Translation
-- [ ] T19.1: Implement `SharedCacheAddressTranslator` for VM-to-offset
-- [ ] T19.2: Parse `dyld_cache_slide_info` for pointer rebasing
-- [ ] T19.3: Handle multiple cache mappings
+- [x] T18.1: **MemoryMappedFile** for large file access (3+ GB)
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/MemoryMappedFile.swift`
+  - Uses `mmap()` for efficient memory-mapped I/O
+  - Typed reading support (UInt32, UInt64, arrays, C strings)
+- [x] T18.2: **DyldCacheHeader** parsing (magic, mappings, images)
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheHeader.swift`
+  - Supports all architectures (arm64, arm64e, x86_64, etc.)
+  - Parses mappings, images, UUID, slide info offsets
+- [x] T18.3: **Split cache support** (.01, .02, etc.)
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldSharedCache.swift`
+  - `loadSubCaches: true` option loads all related files
+  - `MultiFileTranslator` for cross-file address resolution
 
-### Task T20: In-Cache Image Analysis
-- [ ] T20.1: List available images in shared cache
-- [ ] T20.2: Extract Mach-O data for specific image (zero-copy)
-- [ ] T20.3: Adapt `ObjC2Processor` for in-cache images
-- [ ] T20.4: Handle DSC-specific ObjC optimizations
+### Task T19: Address Translation ✅ Complete (2026-01-10)
+**Status**: Complete
 
-### Task T21: ObjC Optimization Tables
-- [ ] T21.1: Parse global class/selector/protocol tables
-- [ ] T21.2: Faster lookup via shared tables
+- [x] T19.1: **DyldCacheTranslator** for VM-to-offset
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheTranslator.swift`
+  - O(log n) binary search on sorted mappings
+  - Thread-safe caching with 100k entry limit
+- [x] T19.2: **DyldCacheMappingInfo** for mapping metadata
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheMappingInfo.swift`
+  - VMProtection flags (read/write/execute)
+  - Address containment and offset calculation
+- [x] T19.3: **MultiFileTranslator** for multiple cache files
+  - Handles addresses across main cache and sub-caches
+  - Unified `readData()` and `readCString()` APIs
+
+### Task T20: In-Cache Image Analysis ✅ Complete (2026-01-10)
+**Status**: Complete
+
+- [x] T20.1: **List available images** in shared cache
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheImageInfo.swift`
+  - Filter by public/private frameworks
+  - Find by name, path, or suffix
+- [x] T20.2: **Extract Mach-O header** for specific image
+  - `imageData(for:)` method extracts header + load commands
+  - Validates Mach-O magic
+- [x] T20.3: **DyldCacheObjCProcessor** for in-cache images
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCProcessor.swift`
+  - Processes ObjC metadata from images within DSC
+  - Handles address resolution across entire cache
+  - Resolves external class references from other frameworks
+- [x] T20.4: **DSC-specific ObjC optimizations**
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCOptimization.swift`
+  - Parses ObjC optimization header (objc_opt_t)
+  - Selector table with perfect hash lookup
+  - Class table for quick lookup
+
+### Task T21: ObjC Optimization Tables ✅ Complete (2026-01-10)
+**Status**: Complete
+
+- [x] T21.1: **Parse global class/selector/protocol tables**
+  - Location: `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCOptimization.swift`
+  - `DyldCacheObjCOptHeader` - optimization header parsing
+  - `DyldCacheSelectorTable` - shared selector table with perfect hash
+  - `DyldCacheClassTable` - class lookup table
+- [x] T21.2: **Faster lookup via shared tables**
+  - `enumerate()` for iterating all selectors
+  - `lookup()` for O(1) selector lookup
+
+### New Files Created
+- `Sources/ClassDumpCore/DyldSharedCache/MemoryMappedFile.swift` - Memory-mapped file I/O
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheHeader.swift` - DSC header parsing
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheMappingInfo.swift` - VM mapping info
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheImageInfo.swift` - Image metadata
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheTranslator.swift` - Address translation
+- `Sources/ClassDumpCore/DyldSharedCache/DyldSharedCache.swift` - Main API
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheDataProvider.swift` - Data provider abstraction
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCProcessor.swift` - ObjC processing for DSC
+- `Sources/ClassDumpCore/DyldSharedCache/DyldCacheObjCOptimization.swift` - ObjC optimization tables
+- `Tests/ClassDumpCoreTests/DyldSharedCache/TestMemoryMappedFile.swift`
+- `Tests/ClassDumpCoreTests/DyldSharedCache/TestDyldCacheHeader.swift`
+- `Tests/ClassDumpCoreTests/DyldSharedCache/TestDyldSharedCache.swift`
+- `Tests/ClassDumpCoreTests/DyldSharedCache/TestDyldCacheIntegration.swift`
+- `Tests/ClassDumpCoreTests/DyldSharedCache/TestDyldCacheObjCProcessor.swift`
+
+### 57 new tests for DSC parsing and ObjC processing
+
+**Known Limitation**: Small methods in DSC are currently skipped due to complex
+version-specific selector lookup. The `relativeMethodSelectorBaseAddressOffset`
+in the ObjC optimization header requires version-specific handling, as header
+layouts vary across macOS/iOS versions. See T22 below.
 
 ---
 
 ## Future: Quality of Life
 
-### Task T22: Inspection Command
-- [ ] T22.1: Add `class-dump info` subcommand
-- [ ] T22.2: Display Mach-O header, load commands, sections
-- [ ] T22.3: Show architecture, platform, deployment target
+### Task T22: DSC Small Methods Support
+- [ ] T22.1: Implement version-specific ObjC optimization header parsing
+- [ ] T22.2: Handle `objcOptsOffset` (new) vs `__objc_opt_ro` section (old)
+- [ ] T22.3: Properly resolve `relativeMethodSelectorBaseAddressOffset`
+- [ ] T22.4: Parse small methods using selector strings base
+- [ ] T22.5: Add tests for method name extraction from DSC
 
-### Task T23: Address Utilities
-- [ ] T23.1: Expose `a2o` / `o2a` conversion for debugging
-- [ ] T23.2: Resolve addresses to symbol names for `-A` output
+### Task T23: Inspection Command
+- [ ] T23.1: Add `class-dump info` subcommand
+- [ ] T23.2: Display Mach-O header, load commands, sections
+- [ ] T23.3: Show architecture, platform, deployment target
 
-### Task T24: Lipo Export
-- [ ] T24.1: Extract single architecture to standalone file
+### Task T24: Address Utilities
+- [ ] T24.1: Expose `a2o` / `o2a` conversion for debugging
+- [ ] T24.2: Resolve addresses to symbol names for `-A` output
 
-### Task T25: Entitlements Display
-- [ ] T25.1: Parse LC_CODE_SIGNATURE blob
-- [ ] T25.2: Extract and display XML entitlements
+### Task T25: Lipo Export
+- [ ] T25.1: Extract single architecture to standalone file
 
-### Task T26: DocC Generator
-- [ ] T26.1: Generate DocC-compatible documentation from dumps
-- [ ] T26.2: Support merging multiple framework dumps
-- [ ] T26.3: Symbol graph generation for Xcode integration
+### Task T26: Entitlements Display
+- [ ] T26.1: Parse LC_CODE_SIGNATURE blob
+- [ ] T26.2: Extract and display XML entitlements
+
+### Task T27: DocC Generator
+- [ ] T27.1: Generate DocC-compatible documentation from dumps
+- [ ] T27.2: Support merging multiple framework dumps
+- [ ] T27.3: Symbol graph generation for Xcode integration
 
 ---
 
 ## Future: Advanced Capabilities
 
-### Task T27: Full Swift Type Support
-- [ ] T27.1: Extensions
-- [ ] T27.2: Property wrappers
-- [ ] T27.3: Result builders
+### Task T28: Full Swift Type Support
+- [ ] T28.1: Extensions
+- [ ] T28.2: Property wrappers
+- [ ] T28.3: Result builders
 
-### Task T28: Recursive Framework Resolution
-- [ ] T28.1: Dependency resolution with caching
+### Task T29: Recursive Framework Resolution
+- [ ] T29.1: Dependency resolution with caching
 
-### Task T29: Watch Mode
-- [ ] T29.1: Incremental re-dumping on file changes
+### Task T30: Watch Mode
+- [ ] T30.1: Incremental re-dumping on file changes
 
-### Task T30: LSP Integration
-- [ ] T30.1: IDE support for class-dump output
+### Task T31: LSP Integration
+- [ ] T31.1: IDE support for class-dump output
 
-### Task T31: Dylib Extraction
-- [ ] T31.1: Reconstruct standalone Mach-O from cached image
-- [ ] T31.2: Handle LINKEDIT reconstruction
+### Task T32: Dylib Extraction
+- [ ] T32.1: Reconstruct standalone Mach-O from cached image
+- [ ] T32.2: Handle LINKEDIT reconstruction
 
 ---
 

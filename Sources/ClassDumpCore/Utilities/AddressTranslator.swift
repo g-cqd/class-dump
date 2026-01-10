@@ -141,9 +141,11 @@ public final class AddressTranslator: @unchecked Sendable {
 
             if address < entry.vmStart {
                 high = mid - 1
-            } else if address >= entry.vmEnd {
+            }
+            else if address >= entry.vmEnd {
                 low = mid + 1
-            } else {
+            }
+            else {
                 // address is in [vmStart, vmEnd)
                 return entry
             }
@@ -198,10 +200,8 @@ public enum SIMDStringUtils {
                         if hasZeroByte != 0 {
                             // Found a zero byte, find exact position
                             let bytePtr = ptr.advanced(by: i * 8).assumingMemoryBound(to: UInt8.self)
-                            for j in 0..<8 {
-                                if bytePtr[j] == 0 {
-                                    return start + i * 8 + j
-                                }
+                            for j in 0..<8 where bytePtr[j] == 0 {
+                                return start + i * 8 + j
                             }
                         }
                     }
@@ -211,18 +211,14 @@ public enum SIMDStringUtils {
                 // Handle remaining bytes
                 let bytePtr = ptr.advanced(by: offset).assumingMemoryBound(to: UInt8.self)
                 let remainingBytes = remaining - offset
-                for i in 0..<remainingBytes {
-                    if bytePtr[i] == 0 {
-                        return start + offset + i
-                    }
+                for i in 0..<remainingBytes where bytePtr[i] == 0 {
+                    return start + offset + i
                 }
             #else
                 // Fallback for 32-bit: simple byte scan
                 let bytePtr = ptr.assumingMemoryBound(to: UInt8.self)
-                for i in 0..<remaining {
-                    if bytePtr[i] == 0 {
-                        return start + i
-                    }
+                for i in 0..<remaining where bytePtr[i] == 0 {
+                    return start + i
                 }
             #endif
 

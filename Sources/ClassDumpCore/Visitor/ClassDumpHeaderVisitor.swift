@@ -5,13 +5,13 @@ import Foundation
 /// This extends TextClassDumpVisitor to add header comments showing file information,
 /// architecture, version info, and other metadata at the beginning of the output.
 public final class ClassDumpHeaderVisitor: TextClassDumpVisitor, @unchecked Sendable {
-    /// Header string to prepend to output
+    /// Header string to prepend to output.
     public var headerString: String = ""
 
-    /// Structure definitions to include
+    /// Structure definitions to include.
     public var structureDefinitions: String = ""
 
-    /// Whether to write to stdout when done
+    /// Whether to write to stdout when done.
     public var writeToStdoutOnCompletion: Bool = true
 
     public override init(options: ClassDumpVisitorOptions = .init()) {
@@ -99,7 +99,8 @@ public final class ClassDumpHeaderVisitor: TextClassDumpVisitor, @unchecked Send
             for (index, env) in file.dyldEnvironment.enumerated() {
                 if index == 0 {
                     append("//               dyld environment: \(env)\n")
-                } else {
+                }
+                else {
                     append("//                                 \(env)\n")
                 }
             }
@@ -117,11 +118,13 @@ public final class ClassDumpHeaderVisitor: TextClassDumpVisitor, @unchecked Send
         // Encryption info
         if file.isEncrypted {
             append("//         This file is encrypted:\n")
-        } else if file.hasProtectedSegments {
+        }
+        else if file.hasProtectedSegments {
             if file.canDecryptAllSegments {
                 append("//\n")
                 append("//     This file has protected segments, decrypting.\n")
-            } else {
+            }
+            else {
                 append("//\n")
                 append("//     This file has protected segments that can't be decrypted.\n")
             }

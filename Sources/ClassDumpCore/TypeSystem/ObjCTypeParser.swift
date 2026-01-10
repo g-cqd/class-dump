@@ -12,10 +12,10 @@ public enum ObjCTypeParserError: Error, Sendable {
 /// Parses type encodings like "i" (int), "@\"NSString\"" (NSString*),
 /// "{CGRect=\"origin\"{CGPoint=\"x\"d\"y\"d}\"size\"{CGSize=\"width\"d\"height\"d}}" (CGRect struct).
 public final class ObjCTypeParser: @unchecked Sendable {
-    /// The lexer used for tokenization
+    /// The lexer used for tokenization.
     public let lexer: ObjCTypeLexer
 
-    /// Current lookahead token
+    /// Current lookahead token.
     private var lookahead: ObjCTypeToken = .eos
 
     /// Initialize with a type encoding string.
@@ -57,11 +57,11 @@ public final class ObjCTypeParser: @unchecked Sendable {
 
     private func tokenDescription(_ token: ObjCTypeToken) -> String {
         switch token {
-        case .eos: return "EOS"
-        case .number(let n): return "NUMBER(\(n))"
-        case .identifier(let i): return "IDENTIFIER(\(i))"
-        case .quotedString(let s): return "QUOTED(\(s))"
-        case .char(let c): return "CHAR(\(c))"
+            case .eos: return "EOS"
+            case .number(let n): return "NUMBER(\(n))"
+            case .identifier(let i): return "IDENTIFIER(\(i))"
+            case .quotedString(let s): return "QUOTED(\(s))"
+            case .char(let c): return "CHAR(\(c))"
         }
     }
 
@@ -122,22 +122,26 @@ public final class ObjCTypeParser: @unchecked Sendable {
             let subtype: ObjCType?
             if isTokenInTypeStartSet(lookahead) {
                 subtype = try parseTypeInternal(inStruct: inStruct)
-            } else {
+            }
+            else {
                 subtype = nil
             }
 
             switch modifier {
-            case "j": return .complex(subtype)
-            case "r": return .const(subtype)
-            case "n": return .in(subtype)
-            case "N": return .inout(subtype)
-            case "o": return .out(subtype)
-            case "O": return .bycopy(subtype)
-            case "R": return .byref(subtype)
-            case "V": return .oneway(subtype)
-            case "A": return .atomic(subtype)
-            default:
-                throw ObjCTypeParserError.syntaxError("Unknown modifier: \(modifier)", remaining: lexer.remainingString)
+                case "j": return .complex(subtype)
+                case "r": return .const(subtype)
+                case "n": return .in(subtype)
+                case "N": return .inout(subtype)
+                case "o": return .out(subtype)
+                case "O": return .bycopy(subtype)
+                case "R": return .byref(subtype)
+                case "V": return .oneway(subtype)
+                case "A": return .atomic(subtype)
+                default:
+                    throw ObjCTypeParserError.syntaxError(
+                        "Unknown modifier: \(modifier)",
+                        remaining: lexer.remainingString
+                    )
             }
         }
 
@@ -149,14 +153,18 @@ public final class ObjCTypeParser: @unchecked Sendable {
             if case .quotedString = lookahead {
                 // Safari on 10.5 has: "m_function"{?="__pfn"^"__delta"i}
                 return .pointer(.void)
-            } else if case .char("}") = lookahead {
+            }
+            else if case .char("}") = lookahead {
                 return .pointer(.void)
-            } else if case .char(")") = lookahead {
+            }
+            else if case .char(")") = lookahead {
                 return .pointer(.void)
-            } else if case .char("?") = lookahead {
+            }
+            else if case .char("?") = lookahead {
                 lookahead = lexer.scanNextToken()
                 return .functionPointer
-            } else {
+            }
+            else {
                 let pointee = try parseTypeInternal(inStruct: inStruct)
                 return .pointer(pointee)
             }
@@ -189,9 +197,10 @@ public final class ObjCTypeParser: @unchecked Sendable {
                         let protocolEnd = str.lastIndex(of: ">")
                     {
                         let protocolRange = str.index(after: protocolStart)..<protocolEnd
-                        let protocols = str[protocolRange].split(separator: ",").map {
-                            String($0).trimmingCharacters(in: .whitespaces)
-                        }
+                        let protocols = str[protocolRange].split(separator: ",")
+                            .map {
+                                String($0).trimmingCharacters(in: .whitespaces)
+                            }
                         let typeName = String(str[..<protocolStart]).trimmingCharacters(in: .whitespaces)
 
                         if typeName.isEmpty || typeName == "id" {
@@ -240,16 +249,15 @@ public final class ObjCTypeParser: @unchecked Sendable {
             let savedState = lexer.state
             try match("(", enterState: .identifier)
 
-            if case .identifier = lookahead {
-                let typeName = try parseTypeName()
-                let members = try parseOptionalMembers()
-                try match(")", enterState: savedState)
-                return .union(name: typeName, members: members)
-            } else {
+            guard case .identifier = lookahead else {
                 let unionTypes = try parseUnionTypes()
                 try match(")", enterState: savedState)
                 return .union(name: nil, members: unionTypes)
             }
+            let typeName = try parseTypeName()
+            let members = try parseOptionalMembers()
+            try match(")", enterState: savedState)
+            return .union(name: typeName, members: members)
         }
 
         // Handle array
@@ -323,7 +331,8 @@ public final class ObjCTypeParser: @unchecked Sendable {
         while case .quotedString(let name) = lookahead {
             if variableName == nil {
                 variableName = name
-            } else if let existingName = variableName {
+            }
+            else if let existingName = variableName {
                 // Multiple quoted strings - concatenate them
                 variableName = "\(existingName)__\(name)"
             }
@@ -396,15 +405,69 @@ public final class ObjCTypeParser: @unchecked Sendable {
 // MARK: - Convenience Extensions
 
 extension ObjCType {
-    /// Parse a type encoding string.
+    // MARK: - Static Parse Caches
+
+    /// Shared cache for parsed single types.
+    ///
+    /// This eliminates redundant parsing of common type encodings like "@", "i", "v", etc.
+    private static let typeCache = TypeEncodingCache()
+
+    /// Shared cache for parsed method types.
+    ///
+    /// This eliminates redundant parsing of common method encodings like "@24@0:8@16".
+    private static let methodTypeCache = MethodTypeCache()
+
+    /// Parse a type encoding string with caching.
+    ///
+    /// Common type encodings are cached to avoid redundant parsing.
+    /// This provides significant speedup when the same types appear in many methods.
+    ///
+    /// - Parameter string: The ObjC type encoding string.
+    /// - Returns: The parsed type.
+    /// - Throws: If parsing fails.
+    /// - Complexity: O(1) for cached types, O(n) for uncached where n = encoding length.
     public static func parse(_ string: String) throws -> ObjCType {
+        // Check cache first
+        if let cached = typeCache.get(encoding: string) {
+            return cached
+        }
+
+        // Parse and cache
         let parser = ObjCTypeParser(string: string)
-        return try parser.parseType()
+        let result = try parser.parseType()
+        typeCache.set(encoding: string, type: result)
+        return result
     }
 
-    /// Parse a method type encoding string.
+    /// Parse a method type encoding string with caching.
+    ///
+    /// Method type encodings are cached to avoid redundant parsing.
+    /// Many methods share the same type signature (e.g., "-[SomeClass init]" and
+    /// "- [OtherClass init]" both have the same encoding "@16@0:8").
+    ///
+    /// - Parameter string: The ObjC method type encoding string.
+    /// - Returns: The parsed method types (return type + arguments).
+    /// - Throws: If parsing fails.
+    /// - Complexity: O(1) for cached encodings, O(n) for uncached where n = encoding length.
     public static func parseMethodType(_ string: String) throws -> [ObjCMethodType] {
-        let parser = ObjCTypeParser(string: string)
-        return try parser.parseMethodType()
+        return try methodTypeCache.getOrParse(encoding: string) {
+            let parser = ObjCTypeParser(string: string)
+            return try parser.parseMethodType()
+        }
+    }
+
+    /// Clear all type parsing caches.
+    ///
+    /// This is primarily useful for testing or when memory pressure is high.
+    public static func clearParseCaches() {
+        typeCache.clear()
+        methodTypeCache.clear()
+    }
+
+    /// Get cache statistics for debugging/profiling.
+    ///
+    /// - Returns: A tuple with (typeCount, methodTypeCount) cached entries.
+    public static var parseCacheStats: (types: Int, methodTypes: Int) {
+        (typeCache.count, methodTypeCache.count)
     }
 }

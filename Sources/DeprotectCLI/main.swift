@@ -12,7 +12,8 @@ struct DeprotectCommand {
     static func main() {
         do {
             try run()
-        } catch {
+        }
+        catch {
             fputs("Error: \(error)\n", stderr)
             Darwin.exit(1)
         }
@@ -33,27 +34,27 @@ struct DeprotectCommand {
             args = args.dropFirst()
 
             switch arg {
-            case "-a", "--arch":
-                guard let name = args.first else {
-                    fputs("Error: --arch requires an argument\n", stderr)
+                case "-a", "--arch":
+                    guard let name = args.first else {
+                        fputs("Error: --arch requires an argument\n", stderr)
+                        printUsage()
+                        Darwin.exit(64)
+                    }
+                    args = args.dropFirst()
+                    archName = name
+
+                case "-h", "--help":
+                    printUsage()
+                    Darwin.exit(0)
+
+                case "--version":
+                    print("deprotect 4.0.3 (Swift)")
+                    Darwin.exit(0)
+
+                default:
+                    fputs("Error: Unknown option: \(arg)\n", stderr)
                     printUsage()
                     Darwin.exit(64)
-                }
-                args = args.dropFirst()
-                archName = name
-
-            case "-h", "--help":
-                printUsage()
-                Darwin.exit(0)
-
-            case "--version":
-                print("deprotect 4.0.3 (Swift)")
-                Darwin.exit(0)
-
-            default:
-                fputs("Error: Unknown option: \(arg)\n", stderr)
-                printUsage()
-                Darwin.exit(64)
             }
         }
 
@@ -84,7 +85,8 @@ struct DeprotectCommand {
                 Darwin.exit(64)
             }
             machOFile = try binary.machOFile(for: arch)
-        } else {
+        }
+        else {
             machOFile = try binary.bestMatchForLocal()
         }
 
@@ -111,7 +113,9 @@ struct DeprotectCommand {
                     -h, --help         show this help message
                     --version          show version
 
-            """, stderr)
+            """,
+            stderr
+        )
     }
 
     struct DeprotectResult {
@@ -150,18 +154,18 @@ struct DeprotectCommand {
                     if segment.is64Bit {
                         // segment_command_64: cmd(4) + cmdsize(4) + segname(16) + vmaddr(8) + vmsize(8) + fileoff(8) + filesize(8) + maxprot(4) + initprot(4) + nsects(4) = 64 bytes to flags
                         flagsOffset = commandOffset + 4 + 4 + 16 + 8 + 8 + 8 + 8 + 4 + 4 + 4
-                    } else {
+                    }
+                    else {
                         // segment_command: cmd(4) + cmdsize(4) + segname(16) + vmaddr(4) + vmsize(4) + fileoff(4) + filesize(4) + maxprot(4) + initprot(4) + nsects(4) = 52 bytes to flags
                         flagsOffset = commandOffset + 4 + 4 + 16 + 4 + 4 + 4 + 4 + 4 + 4 + 4
                     }
 
                     // Read current flags and clear the protection bit
                     let currentFlags = mutableData.withUnsafeBytes { buffer -> UInt32 in
-                        if machOFile.byteOrder == .little {
-                            return buffer.load(fromByteOffset: flagsOffset, as: UInt32.self)
-                        } else {
+                        guard machOFile.byteOrder == .little else {
                             return UInt32(bigEndian: buffer.load(fromByteOffset: flagsOffset, as: UInt32.self))
                         }
+                        return buffer.load(fromByteOffset: flagsOffset, as: UInt32.self)
                     }
 
                     let newFlags = currentFlags & ~UInt32(SG_PROTECTED_VERSION_1)
@@ -169,7 +173,8 @@ struct DeprotectCommand {
                     mutableData.withUnsafeMutableBytes { buffer in
                         if machOFile.byteOrder == .little {
                             buffer.storeBytes(of: newFlags, toByteOffset: flagsOffset, as: UInt32.self)
-                        } else {
+                        }
+                        else {
                             buffer.storeBytes(of: newFlags.bigEndian, toByteOffset: flagsOffset, as: UInt32.self)
                         }
                     }
@@ -196,10 +201,10 @@ enum DeprotectError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .invalidSegmentRange:
-            return "Invalid segment range in file"
-        case .decryptionFailed(let reason):
-            return "Decryption failed: \(reason)"
+            case .invalidSegmentRange:
+                return "Invalid segment range in file"
+            case .decryptionFailed(let reason):
+                return "Decryption failed: \(reason)"
         }
     }
 }

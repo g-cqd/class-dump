@@ -17,7 +17,8 @@ struct ConformanceTypeReferenceKindTests {
             (ConformanceTypeReferenceKind.indirectTypeDescriptor, UInt8(1)),
             (ConformanceTypeReferenceKind.directObjCClass, UInt8(2)),
             (ConformanceTypeReferenceKind.indirectObjCClass, UInt8(3)),
-        ])
+        ]
+    )
     func kindRawValues(kind: ConformanceTypeReferenceKind, expectedRaw: UInt8) {
         #expect(kind.rawValue == expectedRaw)
     }
@@ -301,14 +302,23 @@ struct SwiftMetadataConformanceLookupTests {
     func retroactiveConformancesFilter() {
         let conformances = [
             SwiftConformance(
-                typeAddress: 0, typeName: "String", protocolName: "MyProtocol",
-                flags: ConformanceFlags(rawValue: 0x8)),
+                typeAddress: 0,
+                typeName: "String",
+                protocolName: "MyProtocol",
+                flags: ConformanceFlags(rawValue: 0x8)
+            ),
             SwiftConformance(
-                typeAddress: 0, typeName: "MyType", protocolName: "Equatable",
-                flags: ConformanceFlags(rawValue: 0)),
+                typeAddress: 0,
+                typeName: "MyType",
+                protocolName: "Equatable",
+                flags: ConformanceFlags(rawValue: 0)
+            ),
             SwiftConformance(
-                typeAddress: 0, typeName: "Int", protocolName: "OtherProtocol",
-                flags: ConformanceFlags(rawValue: 0x8)),
+                typeAddress: 0,
+                typeName: "Int",
+                protocolName: "OtherProtocol",
+                flags: ConformanceFlags(rawValue: 0x8)
+            ),
         ]
         let metadata = SwiftMetadata(conformances: conformances)
 
@@ -322,14 +332,23 @@ struct SwiftMetadataConformanceLookupTests {
     func conditionalConformancesFilter() {
         let conformances = [
             SwiftConformance(
-                typeAddress: 0, typeName: "Array", protocolName: "Equatable",
-                flags: ConformanceFlags(rawValue: 0x0100)),  // 1 conditional
+                typeAddress: 0,
+                typeName: "Array",
+                protocolName: "Equatable",
+                flags: ConformanceFlags(rawValue: 0x0100)
+            ),  // 1 conditional
             SwiftConformance(
-                typeAddress: 0, typeName: "Int", protocolName: "Equatable",
-                flags: ConformanceFlags(rawValue: 0)),
+                typeAddress: 0,
+                typeName: "Int",
+                protocolName: "Equatable",
+                flags: ConformanceFlags(rawValue: 0)
+            ),
             SwiftConformance(
-                typeAddress: 0, typeName: "Optional", protocolName: "Hashable",
-                flags: ConformanceFlags(rawValue: 0x0200)),  // 2 conditionals
+                typeAddress: 0,
+                typeName: "Optional",
+                protocolName: "Hashable",
+                flags: ConformanceFlags(rawValue: 0x0200)
+            ),  // 2 conditionals
         ]
         let metadata = SwiftMetadata(conformances: conformances)
 

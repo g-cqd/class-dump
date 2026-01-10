@@ -8,78 +8,71 @@ import Foundation
 /// This registry accumulates structure definitions from type encodings and provides
 /// resolution services to convert forward-declared structures to their full definitions.
 ///
+/// ## Thread Safety
+///
+/// This registry is implemented as an actor for explicit, compiler-verified thread safety.
+/// All access is automatically isolated, eliminating data races by design.
+///
 /// ## Usage
 /// ```swift
 /// let registry = StructureRegistry()
 ///
 /// // Register structures as they're encountered
-/// registry.register(structureType)
+/// await registry.register(structureType)
 ///
 /// // Resolve forward declarations to full definitions
-/// let resolved = registry.resolve(forwardDeclaredType)
+/// let resolved = await registry.resolve(forwardDeclaredType)
 ///
 /// // Generate CDStructures.h content
-/// let header = registry.generateStructureDefinitions()
+/// let header = await registry.generateStructureDefinitions()
 /// ```
-public final class StructureRegistry: @unchecked Sendable {
-    /// Lock for thread-safe access
-    private let lock = NSLock()
-
-    /// Maps structure/union name -> full definition (with members)
+public actor StructureRegistry {
+    /// Maps structure/union name -> full definition (with members).
     private var definitions: [String: ObjCType] = [:]
 
     /// Maps typedef alias -> underlying type name
-    private var typedefMappings: [String: String] = [:]
-
-    /// Structures that were only seen as forward declarations
-    private var unresolvedNames: Set<String> = []
-
-    /// All structure names that have been encountered (resolved or not)
-    private var allNames: Set<String> = []
-
-    public init() {
-        // Initialize with common typedef mappings
-        initializeBuiltinTypedefs()
-    }
-
-    // MARK: - Builtin Typedefs
-
-    private func initializeBuiltinTypedefs() {
-        // Common CoreGraphics/Foundation typedefs
-        // These mappings are platform-aware (assuming 64-bit)
-        // Note: These map typedef alias → underlying type name
-
+    /// Pre-populated with common CoreGraphics/Foundation typedefs (64-bit platform).
+    private var typedefMappings: [String: String] = [
         // CoreGraphics scalar types
-        typedefMappings["CGFloat"] = "double"
+        "CGFloat": "double",
 
         // Foundation scalar types (64-bit)
-        typedefMappings["NSInteger"] = "long"
-        typedefMappings["NSUInteger"] = "unsigned long"
+        "NSInteger": "long",
+        "NSUInteger": "unsigned long",
 
         // Size/offset types
-        typedefMappings["CGGlyph"] = "unsigned short"
-        typedefMappings["UniChar"] = "unsigned short"
-        typedefMappings["UTF32Char"] = "unsigned int"
+        "CGGlyph": "unsigned short",
+        "UniChar": "unsigned short",
+        "UTF32Char": "unsigned int",
 
         // Boolean types
-        typedefMappings["Boolean"] = "unsigned char"
+        "Boolean": "unsigned char",
 
         // Time types
-        typedefMappings["CFTimeInterval"] = "double"
-        typedefMappings["CFAbsoluteTime"] = "double"
-        typedefMappings["NSTimeInterval"] = "double"
+        "CFTimeInterval": "double",
+        "CFAbsoluteTime": "double",
+        "NSTimeInterval": "double",
 
         // Index types
-        typedefMappings["CFIndex"] = "long"
-        typedefMappings["CFOptionFlags"] = "unsigned long"
-        typedefMappings["CFTypeID"] = "unsigned long"
-        typedefMappings["CFHashCode"] = "unsigned long"
+        "CFIndex": "long",
+        "CFOptionFlags": "unsigned long",
+        "CFTypeID": "unsigned long",
+        "CFHashCode": "unsigned long",
 
         // OSStatus and related
-        typedefMappings["OSStatus"] = "int"
-        typedefMappings["OSType"] = "unsigned int"
-        typedefMappings["FourCharCode"] = "unsigned int"
-    }
+        "OSStatus": "int",
+        "OSType": "unsigned int",
+        "FourCharCode": "unsigned int",
+    ]
+
+    /// Structures that were only seen as forward declarations.
+    private var unresolvedNames: Set<String> = []
+
+    /// All structure names that have been encountered (resolved or not).
+    private var allNames: Set<String> = []
+
+    /// Initialize an empty registry.
+    public init() {}
 
     // MARK: - Registration
 
@@ -87,9 +80,6 @@ public final class StructureRegistry: @unchecked Sendable {
     ///
     /// - Parameter type: The type to register.
     public func register(_ type: ObjCType) {
-        lock.lock()
-        defer { lock.unlock() }
-
         registerInternal(type)
     }
 
@@ -97,9 +87,6 @@ public final class StructureRegistry: @unchecked Sendable {
     ///
     /// - Parameter types: The types to register.
     public func registerAll(_ types: [ObjCType]) {
-        lock.lock()
-        defer { lock.unlock() }
-
         for type in types {
             registerInternal(type)
         }
@@ -107,86 +94,90 @@ public final class StructureRegistry: @unchecked Sendable {
 
     private func registerInternal(_ type: ObjCType) {
         switch type {
-        case .structure(let typeName, let members):
-            guard let name = typeName?.description, name != "?" else { return }
+            case .structure(let typeName, let members):
+                guard let name = typeName?.description, name != "?" else { return }
 
-            allNames.insert(name)
+                allNames.insert(name)
 
-            if members.isEmpty {
-                // Forward declaration - mark as unresolved if we don't have a definition
-                if definitions[name] == nil {
-                    unresolvedNames.insert(name)
+                if members.isEmpty {
+                    // Forward declaration - mark as unresolved if we don't have a definition
+                    if definitions[name] == nil {
+                        unresolvedNames.insert(name)
+                    }
                 }
-            } else {
-                // Full definition - store it
-                unresolvedNames.remove(name)
+                else {
+                    // Full definition - store it
+                    unresolvedNames.remove(name)
 
-                // Keep the definition with the most members
-                if let existing = definitions[name] {
-                    if case .structure(_, let existingMembers) = existing,
-                        members.count > existingMembers.count
-                    {
+                    // Keep the definition with the most members
+                    if let existing = definitions[name] {
+                        if case .structure(_, let existingMembers) = existing,
+                            members.count > existingMembers.count
+                        {
+                            definitions[name] = type
+                        }
+                    }
+                    else {
                         definitions[name] = type
                     }
-                } else {
-                    definitions[name] = type
+
+                    // Recursively register nested structures
+                    for member in members {
+                        registerInternal(member.type)
+                    }
                 }
 
-                // Recursively register nested structures
-                for member in members {
-                    registerInternal(member.type)
+            case .union(let typeName, let members):
+                guard let name = typeName?.description, name != "?" else { return }
+
+                allNames.insert(name)
+
+                if members.isEmpty {
+                    if definitions[name] == nil {
+                        unresolvedNames.insert(name)
+                    }
                 }
-            }
+                else {
+                    unresolvedNames.remove(name)
 
-        case .union(let typeName, let members):
-            guard let name = typeName?.description, name != "?" else { return }
-
-            allNames.insert(name)
-
-            if members.isEmpty {
-                if definitions[name] == nil {
-                    unresolvedNames.insert(name)
-                }
-            } else {
-                unresolvedNames.remove(name)
-
-                if let existing = definitions[name] {
-                    if case .union(_, let existingMembers) = existing,
-                        members.count > existingMembers.count
-                    {
+                    if let existing = definitions[name] {
+                        if case .union(_, let existingMembers) = existing,
+                            members.count > existingMembers.count
+                        {
+                            definitions[name] = type
+                        }
+                    }
+                    else {
                         definitions[name] = type
                     }
-                } else {
-                    definitions[name] = type
+
+                    for member in members {
+                        registerInternal(member.type)
+                    }
                 }
 
-                for member in members {
-                    registerInternal(member.type)
+            case .pointer(let pointee):
+                registerInternal(pointee)
+
+            case .array(_, let elementType):
+                registerInternal(elementType)
+
+            case .const(let subtype), .in(let subtype), .inout(let subtype),
+                .out(let subtype), .bycopy(let subtype), .byref(let subtype),
+                .oneway(let subtype), .complex(let subtype), .atomic(let subtype):
+                if let sub = subtype {
+                    registerInternal(sub)
                 }
-            }
 
-        case .pointer(let pointee):
-            registerInternal(pointee)
-
-        case .array(_, let elementType):
-            registerInternal(elementType)
-
-        case .const(let subtype), .in(let subtype), .inout(let subtype),
-            .out(let subtype), .bycopy(let subtype), .byref(let subtype),
-            .oneway(let subtype), .complex(let subtype), .atomic(let subtype):
-            if let sub = subtype {
-                registerInternal(sub)
-            }
-
-        case .block(let types):
-            if let types = types {
-                for t in types {
-                    registerInternal(t)
+            case .block(let types):
+                if let types = types {
+                    for t in types {
+                        registerInternal(t)
+                    }
                 }
-            }
 
-        default:
-            break
+            default:
+                break
         }
     }
 
@@ -200,102 +191,99 @@ public final class StructureRegistry: @unchecked Sendable {
     /// - Parameter type: The type to resolve.
     /// - Returns: The resolved type.
     public func resolve(_ type: ObjCType) -> ObjCType {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return resolveInternal(type, visited: [])
+        resolveInternal(type, visited: [])
     }
 
     private func resolveInternal(_ type: ObjCType, visited: Set<String>) -> ObjCType {
         switch type {
-        case .structure(let typeName, let members):
-            guard let name = typeName?.description, name != "?" else { return type }
+            case .structure(let typeName, let members):
+                guard let name = typeName?.description, name != "?" else { return type }
 
-            // Check for circular reference
-            if visited.contains(name) {
-                return type
-            }
-
-            // If this is a forward declaration and we have a definition, resolve it
-            if members.isEmpty, let definition = definitions[name] {
-                return definition
-            }
-
-            // If it has members, resolve nested structures
-            if !members.isEmpty {
-                var newVisited = visited
-                newVisited.insert(name)
-
-                let resolvedMembers = members.map { member in
-                    ObjCTypedMember(
-                        type: resolveInternal(member.type, visited: newVisited),
-                        name: member.name
-                    )
+                // Check for circular reference
+                if visited.contains(name) {
+                    return type
                 }
-                return .structure(name: typeName, members: resolvedMembers)
-            }
 
-            return type
-
-        case .union(let typeName, let members):
-            guard let name = typeName?.description, name != "?" else { return type }
-
-            if visited.contains(name) {
-                return type
-            }
-
-            if members.isEmpty, let definition = definitions[name] {
-                return definition
-            }
-
-            if !members.isEmpty {
-                var newVisited = visited
-                newVisited.insert(name)
-
-                let resolvedMembers = members.map { member in
-                    ObjCTypedMember(
-                        type: resolveInternal(member.type, visited: newVisited),
-                        name: member.name
-                    )
+                // If this is a forward declaration and we have a definition, resolve it
+                if members.isEmpty, let definition = definitions[name] {
+                    return definition
                 }
-                return .union(name: typeName, members: resolvedMembers)
-            }
 
-            return type
+                // If it has members, resolve nested structures
+                if !members.isEmpty {
+                    var newVisited = visited
+                    newVisited.insert(name)
 
-        case .pointer(let pointee):
-            return .pointer(resolveInternal(pointee, visited: visited))
+                    let resolvedMembers = members.map { member in
+                        ObjCTypedMember(
+                            type: resolveInternal(member.type, visited: newVisited),
+                            name: member.name
+                        )
+                    }
+                    return .structure(name: typeName, members: resolvedMembers)
+                }
 
-        case .array(let count, let elementType):
-            return .array(count: count, elementType: resolveInternal(elementType, visited: visited))
+                return type
 
-        case .const(let subtype):
-            return .const(subtype.map { resolveInternal($0, visited: visited) })
-        case .in(let subtype):
-            return .in(subtype.map { resolveInternal($0, visited: visited) })
-        case .inout(let subtype):
-            return .inout(subtype.map { resolveInternal($0, visited: visited) })
-        case .out(let subtype):
-            return .out(subtype.map { resolveInternal($0, visited: visited) })
-        case .bycopy(let subtype):
-            return .bycopy(subtype.map { resolveInternal($0, visited: visited) })
-        case .byref(let subtype):
-            return .byref(subtype.map { resolveInternal($0, visited: visited) })
-        case .oneway(let subtype):
-            return .oneway(subtype.map { resolveInternal($0, visited: visited) })
-        case .complex(let subtype):
-            return .complex(subtype.map { resolveInternal($0, visited: visited) })
-        case .atomic(let subtype):
-            return .atomic(subtype.map { resolveInternal($0, visited: visited) })
+            case .union(let typeName, let members):
+                guard let name = typeName?.description, name != "?" else { return type }
 
-        case .block(let types):
-            if let types = types {
-                return .block(types: types.map { resolveInternal($0, visited: visited) })
-            }
-            return type
+                if visited.contains(name) {
+                    return type
+                }
 
-        default:
-            return type
+                if members.isEmpty, let definition = definitions[name] {
+                    return definition
+                }
+
+                if !members.isEmpty {
+                    var newVisited = visited
+                    newVisited.insert(name)
+
+                    let resolvedMembers = members.map { member in
+                        ObjCTypedMember(
+                            type: resolveInternal(member.type, visited: newVisited),
+                            name: member.name
+                        )
+                    }
+                    return .union(name: typeName, members: resolvedMembers)
+                }
+
+                return type
+
+            case .pointer(let pointee):
+                return .pointer(resolveInternal(pointee, visited: visited))
+
+            case .array(let count, let elementType):
+                return .array(count: count, elementType: resolveInternal(elementType, visited: visited))
+
+            case .const(let subtype):
+                return .const(subtype.map { resolveInternal($0, visited: visited) })
+            case .in(let subtype):
+                return .in(subtype.map { resolveInternal($0, visited: visited) })
+            case .inout(let subtype):
+                return .inout(subtype.map { resolveInternal($0, visited: visited) })
+            case .out(let subtype):
+                return .out(subtype.map { resolveInternal($0, visited: visited) })
+            case .bycopy(let subtype):
+                return .bycopy(subtype.map { resolveInternal($0, visited: visited) })
+            case .byref(let subtype):
+                return .byref(subtype.map { resolveInternal($0, visited: visited) })
+            case .oneway(let subtype):
+                return .oneway(subtype.map { resolveInternal($0, visited: visited) })
+            case .complex(let subtype):
+                return .complex(subtype.map { resolveInternal($0, visited: visited) })
+            case .atomic(let subtype):
+                return .atomic(subtype.map { resolveInternal($0, visited: visited) })
+
+            case .block(let types):
+                if let types = types {
+                    return .block(types: types.map { resolveInternal($0, visited: visited) })
+                }
+                return type
+
+            default:
+                return type
         }
     }
 
@@ -306,10 +294,7 @@ public final class StructureRegistry: @unchecked Sendable {
     /// - Parameter name: The structure name to check.
     /// - Returns: `true` if a full definition is available.
     public func hasDefinition(for name: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return definitions[name] != nil
+        definitions[name] != nil
     }
 
     /// Get the full definition for a structure name.
@@ -317,42 +302,27 @@ public final class StructureRegistry: @unchecked Sendable {
     /// - Parameter name: The structure name.
     /// - Returns: The full definition, or `nil` if not available.
     public func definition(for name: String) -> ObjCType? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return definitions[name]
+        definitions[name]
     }
 
     /// Get all structure names that remain unresolved (forward declarations only).
     public var unresolvedStructureNames: Set<String> {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return unresolvedNames
+        unresolvedNames
     }
 
     /// Get all structure names that have full definitions.
     public var resolvedStructureNames: Set<String> {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return Set(definitions.keys)
+        Set(definitions.keys)
     }
 
     /// Get the total number of structures registered.
     public var count: Int {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return allNames.count
+        allNames.count
     }
 
     /// Get the number of fully defined structures.
     public var definedCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return definitions.count
+        definitions.count
     }
 
     // MARK: - Typedef Support
@@ -363,9 +333,6 @@ public final class StructureRegistry: @unchecked Sendable {
     ///   - alias: The typedef alias name.
     ///   - underlyingType: The underlying type name.
     public func registerTypedef(alias: String, underlyingType: String) {
-        lock.lock()
-        defer { lock.unlock() }
-
         typedefMappings[alias] = underlyingType
     }
 
@@ -374,18 +341,12 @@ public final class StructureRegistry: @unchecked Sendable {
     /// - Parameter alias: The typedef alias.
     /// - Returns: The underlying type name, or `nil` if not found.
     public func resolveTypedef(_ alias: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return typedefMappings[alias]
+        typedefMappings[alias]
     }
 
     /// Get all registered typedef mappings.
     public var allTypedefs: [String: String] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return typedefMappings
+        typedefMappings
     }
 
     /// Check if a typedef is a builtin (platform-provided) typedef.
@@ -411,9 +372,6 @@ public final class StructureRegistry: @unchecked Sendable {
     /// - Parameter formatter: Optional formatter for customizing output.
     /// - Returns: The header file content as a string.
     public func generateStructureDefinitions(formatter: ObjCTypeFormatter? = nil) -> String {
-        lock.lock()
-        defer { lock.unlock() }
-
         guard !definitions.isEmpty else { return "" }
 
         var result = ""
@@ -445,39 +403,69 @@ public final class StructureRegistry: @unchecked Sendable {
     }
 
     /// Topologically sort structure names based on dependencies.
+    ///
+    /// Uses optimized Kahn's algorithm with in-degree tracking for O(n+m) complexity
+    /// where n = number of structures and m = number of dependency edges.
     private func topologicalSort(_ names: [String]) -> [String] {
-        // Build dependency graph
+        guard !names.isEmpty else { return [] }
+
+        let nameSet = Set(names)
+
+        // Build dependency graph and compute in-degrees
+        // dependencies[A] = {B, C} means A depends on B and C
+        // dependents[B] = {A, ...} means A (and others) depend on B
         var dependencies: [String: Set<String>] = [:]
+        var dependents: [String: [String]] = [:]  // Reverse graph
+        var inDegree: [String: Int] = [:]
+
         for name in names {
-            dependencies[name] = getDependencies(for: name)
+            let deps = getDependencies(for: name).intersection(nameSet)
+            dependencies[name] = deps
+            inDegree[name] = deps.count
+
+            for dep in deps {
+                dependents[dep, default: []].append(name)
+            }
         }
 
-        // Kahn's algorithm
-        var result: [String] = []
-        var remaining = Set(names)
-        var processed = Set<String>()
+        // Initialize ready queue with nodes that have no dependencies
+        var ready: [String] = []
+        for name in names where inDegree[name] == 0 {
+            ready.append(name)
+        }
 
-        while !remaining.isEmpty {
-            // Find nodes with no unprocessed dependencies
-            var batch: [String] = []
-            for name in remaining {
-                let deps = dependencies[name] ?? []
-                let unprocessedDeps = deps.intersection(remaining)
-                if unprocessedDeps.isEmpty || unprocessedDeps == [name] {
-                    batch.append(name)
+        // Sort initially for deterministic output
+        ready.sort()
+
+        var result: [String] = []
+        result.reserveCapacity(names.count)
+
+        // Process ready queue
+        while !ready.isEmpty {
+            let name = ready.removeFirst()
+            result.append(name)
+
+            // Decrement in-degree of all dependents
+            if let deps = dependents[name] {
+                for dependent in deps {
+                    let currentDegree = inDegree[dependent] ?? 0
+                    if currentDegree > 0 {
+                        inDegree[dependent] = currentDegree - 1
+                        if currentDegree - 1 == 0 {
+                            // Insert in sorted position for deterministic output
+                            let insertIndex = ready.firstIndex { $0 > dependent } ?? ready.endIndex
+                            ready.insert(dependent, at: insertIndex)
+                        }
+                    }
                 }
             }
+        }
 
-            // If no progress, break cycles by picking one
-            if batch.isEmpty {
-                batch.append(remaining.first!)
-            }
-
-            for name in batch.sorted() {
-                result.append(name)
-                remaining.remove(name)
-                processed.insert(name)
-            }
+        // Handle cycles: add any remaining nodes
+        if result.count < names.count {
+            let processed = Set(result)
+            let remaining = names.filter { !processed.contains($0) }.sorted()
+            result.append(contentsOf: remaining)
         }
 
         return result
@@ -495,64 +483,70 @@ public final class StructureRegistry: @unchecked Sendable {
 
     private func collectDependencies(from type: ObjCType, into deps: inout Set<String>) {
         switch type {
-        case .structure(let typeName, let members):
-            if let name = typeName?.description, name != "?" {
-                deps.insert(name)
-            }
-            for member in members {
-                collectDependencies(from: member.type, into: &deps)
-            }
+            case .structure(let typeName, let members):
+                if let name = typeName?.description, name != "?" {
+                    deps.insert(name)
+                }
+                for member in members {
+                    collectDependencies(from: member.type, into: &deps)
+                }
 
-        case .union(let typeName, let members):
-            if let name = typeName?.description, name != "?" {
-                deps.insert(name)
-            }
-            for member in members {
-                collectDependencies(from: member.type, into: &deps)
-            }
+            case .union(let typeName, let members):
+                if let name = typeName?.description, name != "?" {
+                    deps.insert(name)
+                }
+                for member in members {
+                    collectDependencies(from: member.type, into: &deps)
+                }
 
-        case .pointer(let pointee):
-            // Pointers create weak dependencies (forward declaration sufficient)
-            // But we still track them for ordering
-            if case .structure(let typeName, _) = pointee,
-                let name = typeName?.description, name != "?"
-            {
-                deps.insert(name)
-            }
-            if case .union(let typeName, _) = pointee,
-                let name = typeName?.description, name != "?"
-            {
-                deps.insert(name)
-            }
+            case .pointer(let pointee):
+                // Pointers create weak dependencies (forward declaration sufficient)
+                // But we still track them for ordering
+                if case .structure(let typeName, _) = pointee,
+                    let name = typeName?.description, name != "?"
+                {
+                    deps.insert(name)
+                }
+                if case .union(let typeName, _) = pointee,
+                    let name = typeName?.description, name != "?"
+                {
+                    deps.insert(name)
+                }
 
-        case .array(_, let elementType):
-            collectDependencies(from: elementType, into: &deps)
+            case .array(_, let elementType):
+                collectDependencies(from: elementType, into: &deps)
 
-        case .const(let sub), .in(let sub), .inout(let sub),
-            .out(let sub), .bycopy(let sub), .byref(let sub),
-            .oneway(let sub), .complex(let sub), .atomic(let sub):
-            if let s = sub {
-                collectDependencies(from: s, into: &deps)
-            }
+            case .const(let sub), .in(let sub), .inout(let sub),
+                .out(let sub), .bycopy(let sub), .byref(let sub),
+                .oneway(let sub), .complex(let sub), .atomic(let sub):
+                if let s = sub {
+                    collectDependencies(from: s, into: &deps)
+                }
 
-        default:
-            break
+            default:
+                break
         }
     }
 
     // MARK: - Merging
 
-    /// Merge another registry into this one.
+    /// Merge another registry's data into this one.
     ///
-    /// - Parameter other: The registry to merge.
-    public func merge(_ other: StructureRegistry) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        other.lock.lock()
-        defer { other.lock.unlock() }
-
-        for (name, type) in other.definitions {
+    /// This method takes snapshots of the other registry's data to merge.
+    /// For actor-to-actor merging, use `mergeAsync` instead.
+    ///
+    /// - Parameters:
+    ///   - otherDefinitions: The definitions from the other registry.
+    ///   - otherAllNames: All names from the other registry.
+    ///   - otherUnresolvedNames: Unresolved names from the other registry.
+    ///   - otherTypedefMappings: Typedef mappings from the other registry.
+    public func merge(
+        definitions otherDefinitions: [String: ObjCType],
+        allNames otherAllNames: Set<String>,
+        unresolvedNames otherUnresolvedNames: Set<String>,
+        typedefMappings otherTypedefMappings: [String: String]
+    ) {
+        for (name, type) in otherDefinitions {
             if let existing = definitions[name] {
                 // Keep the one with more members
                 if case .structure(_, let existingMembers) = existing,
@@ -560,38 +554,55 @@ public final class StructureRegistry: @unchecked Sendable {
                     newMembers.count > existingMembers.count
                 {
                     definitions[name] = type
-                } else if case .union(_, let existingMembers) = existing,
+                }
+                else if case .union(_, let existingMembers) = existing,
                     case .union(_, let newMembers) = type,
                     newMembers.count > existingMembers.count
                 {
                     definitions[name] = type
                 }
-            } else {
+            }
+            else {
                 definitions[name] = type
             }
         }
 
-        allNames.formUnion(other.allNames)
+        allNames.formUnion(otherAllNames)
 
         // Update unresolved: only unresolved if we still don't have a definition
-        for name in other.unresolvedNames {
-            if definitions[name] == nil {
-                unresolvedNames.insert(name)
-            }
+        for name in otherUnresolvedNames where definitions[name] == nil {
+            unresolvedNames.insert(name)
         }
 
-        for (alias, underlying) in other.typedefMappings {
+        for (alias, underlying) in otherTypedefMappings {
             typedefMappings[alias] = underlying
         }
+    }
+
+    /// Get a snapshot of this registry's definitions for merging.
+    public var definitionsSnapshot: [String: ObjCType] {
+        definitions
+    }
+
+    /// Get a snapshot of this registry's all names for merging.
+    public var allNamesSnapshot: Set<String> {
+        allNames
+    }
+
+    /// Get a snapshot of this registry's unresolved names for merging.
+    public var unresolvedNamesSnapshot: Set<String> {
+        unresolvedNames
+    }
+
+    /// Get a snapshot of this registry's typedef mappings for merging.
+    public var typedefMappingsSnapshot: [String: String] {
+        typedefMappings
     }
 
     // MARK: - Debug
 
     /// Get a debug description of the registry contents.
     public var debugDescription: String {
-        lock.lock()
-        defer { lock.unlock() }
-
         var result = "StructureRegistry:\n"
         result += "  Defined: \(definitions.count)\n"
         result += "  Unresolved: \(unresolvedNames.count)\n"
@@ -620,36 +631,36 @@ extension ObjCType {
     /// Whether this is a forward-declared structure (has name but no members).
     public var isForwardDeclaredStructure: Bool {
         switch self {
-        case .structure(let name, let members):
-            return name != nil && members.isEmpty
-        case .union(let name, let members):
-            return name != nil && members.isEmpty
-        default:
-            return false
+            case .structure(let name, let members):
+                return name != nil && members.isEmpty
+            case .union(let name, let members):
+                return name != nil && members.isEmpty
+            default:
+                return false
         }
     }
 
     /// The structure/union name, if this is a structure or union type.
     public var structureName: String? {
         switch self {
-        case .structure(let name, _):
-            return name?.description
-        case .union(let name, _):
-            return name?.description
-        default:
-            return nil
+            case .structure(let name, _):
+                return name?.description
+            case .union(let name, _):
+                return name?.description
+            default:
+                return nil
         }
     }
 
     /// Whether this structure/union has a complete definition (has members).
     public var hasCompleteDefinition: Bool {
         switch self {
-        case .structure(_, let members):
-            return !members.isEmpty
-        case .union(_, let members):
-            return !members.isEmpty
-        default:
-            return false
+            case .structure(_, let members):
+                return !members.isEmpty
+            case .union(_, let members):
+                return !members.isEmpty
+            default:
+                return false
         }
     }
 
@@ -657,7 +668,7 @@ extension ObjCType {
     ///
     /// - Parameter registry: The registry to use for resolution.
     /// - Returns: A new type with forward declarations resolved.
-    public func resolved(using registry: StructureRegistry) -> ObjCType {
-        registry.resolve(self)
+    public func resolved(using registry: StructureRegistry) async -> ObjCType {
+        await registry.resolve(self)
     }
 }

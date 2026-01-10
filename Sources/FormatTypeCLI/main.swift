@@ -17,7 +17,8 @@ struct FormatTypeCommand {
     static func main() {
         do {
             try run()
-        } catch {
+        }
+        catch {
             fputs("Error: \(error)\n", stderr)
             Darwin.exit(1)
         }
@@ -38,27 +39,27 @@ struct FormatTypeCommand {
             args = args.dropFirst()
 
             switch arg {
-            case "-m", "--method":
-                formatType = .method
+                case "-m", "--method":
+                    formatType = .method
 
-            case "-b", "--balance":
-                formatType = .balance
+                case "-b", "--balance":
+                    formatType = .balance
 
-            case "-i", "--ivar":
-                formatType = .ivar
+                case "-i", "--ivar":
+                    formatType = .ivar
 
-            case "-h", "--help":
-                printUsage()
-                Darwin.exit(0)
+                case "-h", "--help":
+                    printUsage()
+                    Darwin.exit(0)
 
-            case "--version":
-                print("formatType 4.0.3 (Swift)")
-                Darwin.exit(0)
+                case "--version":
+                    print("formatType 4.0.3 (Swift)")
+                    Darwin.exit(0)
 
-            default:
-                fputs("Error: Unknown option: \(arg)\n", stderr)
-                printUsage()
-                Darwin.exit(64)
+                default:
+                    fputs("Error: Unknown option: \(arg)\n", stderr)
+                    printUsage()
+                    Darwin.exit(64)
             }
         }
 
@@ -71,9 +72,9 @@ struct FormatTypeCommand {
 
         // Print format mode
         switch formatType {
-        case .ivar: print("Format as ivars")
-        case .method: print("Format as methods")
-        case .balance: print("Format as balance")
+            case .ivar: print("Format as ivars")
+            case .method: print("Format as methods")
+            case .balance: print("Format as balance")
         }
 
         // Process each input file
@@ -85,7 +86,8 @@ struct FormatTypeCommand {
             let content: String
             do {
                 content = try String(contentsOfFile: filePath, encoding: .utf8)
-            } catch {
+            }
+            catch {
                 fputs("Error reading file: \(error)\n", stderr)
                 continue
             }
@@ -115,7 +117,9 @@ struct FormatTypeCommand {
                 Lines starting with // are treated as comments and passed through.
                 Empty lines are also passed through.
 
-            """, stderr)
+            """,
+            stderr
+        )
     }
 
     static func processFile(content: String, formatType: FormatType) {
@@ -132,22 +136,24 @@ struct FormatTypeCommand {
 
             if name == nil {
                 name = line
-            } else {
+            }
+            else {
                 let typeString = line
 
                 let result: String?
                 switch formatType {
-                case .ivar:
-                    result = formatAsIvar(name: name ?? "", typeString: typeString)
-                case .method:
-                    result = formatAsMethod(name: name ?? "", typeString: typeString)
-                case .balance:
-                    result = formatAsBalance(typeString: typeString)
+                    case .ivar:
+                        result = formatAsIvar(name: name ?? "", typeString: typeString)
+                    case .method:
+                        result = formatAsMethod(name: name ?? "", typeString: typeString)
+                    case .balance:
+                        result = formatAsBalance(typeString: typeString)
                 }
 
                 if let str = result {
                     print(str)
-                } else {
+                }
+                else {
                     print("Error formatting type.")
                 }
                 print("----------------------------------------------------------------------")
@@ -162,7 +168,8 @@ struct FormatTypeCommand {
         let type: ObjCType
         do {
             type = try ObjCType.parse(typeString)
-        } catch {
+        }
+        catch {
             return nil
         }
 
@@ -171,7 +178,8 @@ struct FormatTypeCommand {
             options: ObjCTypeFormatterOptions(
                 shouldExpand: true,
                 shouldAutoExpand: true
-            ))
+            )
+        )
 
         return formatter.formatVariable(name: name, type: type)
     }
@@ -181,7 +189,8 @@ struct FormatTypeCommand {
             options: ObjCTypeFormatterOptions(
                 shouldExpand: false,
                 shouldAutoExpand: false
-            ))
+            )
+        )
 
         return formatter.formatMethodName(name, typeString: typeString)
     }
@@ -246,16 +255,15 @@ struct BalanceFormatter {
 
             // Check for close brackets
             if let closeIndex = Self.closeBrackets.firstIndex(of: char) {
-                if let open = open, Self.openBrackets.firstIndex(of: open) == closeIndex {
-                    // Matching close - return to parent
-                    index = string.index(after: index)
-                    return
-                } else {
+                guard let open = open, Self.openBrackets.firstIndex(of: open) == closeIndex else {
                     // Unmatched close - error but continue
                     result += "ERROR: Unmatched \(char)\n"
                     index = string.index(after: index)
                     return
                 }
+                // Matching close - return to parent
+                index = string.index(after: index)
+                return
             }
 
             // Unknown character at bracket position - shouldn't happen

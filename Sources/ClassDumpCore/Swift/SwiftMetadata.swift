@@ -34,6 +34,7 @@ public struct SwiftMetadata: Sendable {
     /// Lookup table for conformances by protocol name.
     private let conformancesByProtocolName: [String: [SwiftConformance]]
 
+    /// Initialize metadata results.
     public init(
         types: [SwiftType] = [],
         protocols: [SwiftProtocol] = [],
@@ -183,6 +184,7 @@ public enum SwiftContextDescriptorKind: UInt8, Sendable {
     case `struct` = 17
     case `enum` = 18
 
+    /// Check if this kind represents a type (class, struct, or enum).
     public var isType: Bool {
         rawValue >= 16 && rawValue <= 31
     }
@@ -192,8 +194,10 @@ public enum SwiftContextDescriptorKind: UInt8, Sendable {
 
 /// Flags parsed from a type context descriptor.
 public struct TypeContextDescriptorFlags: Sendable, Equatable {
+    /// The raw integer value of the flags.
     public let rawValue: UInt32
 
+    /// Initialize flags from a raw value.
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
     }
@@ -240,8 +244,7 @@ public struct TypeContextDescriptorFlags: Sendable, Equatable {
         (rawValue & 0x1000) != 0
     }
 
-    /// Metadata initialization kind (bits 8-9).
-    /// 0 = none, 1 = singleton, 2 = foreign
+    /// Metadata initialization kind (bits 8-9). 0 = none, 1 = singleton, 2 = foreign.
     public var metadataInitializationKind: Int {
         Int((rawValue >> 8) & 0x3)
     }
@@ -285,6 +288,7 @@ public struct SwiftGenericRequirement: Sendable {
     /// Raw flags from the requirement descriptor.
     public let flags: UInt32
 
+    /// Initialize a generic requirement.
     public init(kind: GenericRequirementKind, param: String, constraint: String, flags: UInt32 = 0) {
         self.kind = kind
         self.param = param
@@ -305,19 +309,19 @@ public struct SwiftGenericRequirement: Sendable {
     /// Format as a Swift-style constraint string.
     public var description: String {
         switch kind {
-        case .protocol:
-            return "\(param): \(constraint)"
-        case .sameType:
-            return "\(param) == \(constraint)"
-        case .baseClass:
-            return "\(param): \(constraint)"
-        case .sameConformance:
-            return "\(param): \(constraint)"
-        case .layout:
-            if constraint == "AnyObject" || constraint == "class" {
-                return "\(param): AnyObject"
-            }
-            return "\(param): \(constraint)"
+            case .protocol:
+                return "\(param): \(constraint)"
+            case .sameType:
+                return "\(param) == \(constraint)"
+            case .baseClass:
+                return "\(param): \(constraint)"
+            case .sameConformance:
+                return "\(param): \(constraint)"
+            case .layout:
+                if constraint == "AnyObject" || constraint == "class" {
+                    return "\(param): AnyObject"
+                }
+                return "\(param): \(constraint)"
         }
     }
 }
@@ -364,9 +368,11 @@ public struct SwiftType: Sendable {
     public var isGeneric: Bool { genericParamCount > 0 }
 
     /// ObjC class metadata address (for Swift classes exposed to ObjC).
+    ///
     /// This allows linking Swift type descriptors to ObjC class metadata.
     public let objcClassAddress: UInt64?
 
+    /// Initialize a Swift type.
     public init(
         address: UInt64,
         kind: SwiftContextDescriptorKind,
@@ -454,12 +460,22 @@ public struct SwiftType: Sendable {
 
 /// A Swift field (property or enum case).
 public struct SwiftField: Sendable {
+    /// The field name.
     public let name: String
+
+    /// The mangled type name.
     public let mangledTypeName: String
+
+    /// The human-readable type name.
     public let typeName: String
+
+    /// Whether this is a variable (vs let).
     public let isVar: Bool
+
+    /// Whether this is an indirect field (enum case).
     public let isIndirect: Bool
 
+    /// Initialize a Swift field.
     public init(
         name: String,
         mangledTypeName: String = "",
@@ -477,18 +493,28 @@ public struct SwiftField: Sendable {
 
 /// A Swift protocol.
 public struct SwiftProtocol: Sendable {
+    /// Address of the protocol descriptor.
     public let address: UInt64
+
+    /// Protocol name.
     public let name: String
+
+    /// Mangled protocol name.
     public let mangledName: String
+
     /// Parent module or namespace name.
     public let parentName: String?
+
     /// Associated type names declared by this protocol.
     public let associatedTypeNames: [String]
+
     /// Protocols that this protocol inherits from.
     public let inheritedProtocols: [String]
+
     /// All requirements of this protocol.
     public let requirements: [SwiftProtocolRequirement]
 
+    /// Initialize a Swift protocol.
     public init(
         address: UInt64,
         name: String,
@@ -533,6 +559,7 @@ public struct SwiftProtocol: Sendable {
 
 /// A Swift protocol requirement.
 public struct SwiftProtocolRequirement: Sendable {
+    /// Kind of requirement.
     public enum Kind: UInt8, Sendable {
         case baseProtocol = 0
         case method = 1
@@ -547,28 +574,35 @@ public struct SwiftProtocolRequirement: Sendable {
         /// Human-readable description of this requirement kind.
         public var description: String {
             switch self {
-            case .baseProtocol: return "base protocol"
-            case .method: return "method"
-            case .initializer: return "initializer"
-            case .getter: return "getter"
-            case .setter: return "setter"
-            case .readCoroutine: return "read coroutine"
-            case .modifyCoroutine: return "modify coroutine"
-            case .associatedTypeAccessFunction: return "associated type"
-            case .associatedConformanceAccessFunction: return "associated conformance"
+                case .baseProtocol: return "base protocol"
+                case .method: return "method"
+                case .initializer: return "initializer"
+                case .getter: return "getter"
+                case .setter: return "setter"
+                case .readCoroutine: return "read coroutine"
+                case .modifyCoroutine: return "modify coroutine"
+                case .associatedTypeAccessFunction: return "associated type"
+                case .associatedConformanceAccessFunction: return "associated conformance"
             }
         }
     }
 
+    /// The kind of requirement.
     public let kind: Kind
+
+    /// The requirement name.
     public let name: String
+
     /// Whether this is an instance requirement (vs static/class).
     public let isInstance: Bool
+
     /// Whether this is an async requirement.
     public let isAsync: Bool
+
     /// Whether this requirement has a default implementation.
     public let hasDefaultImplementation: Bool
 
+    /// Initialize a protocol requirement.
     public init(
         kind: Kind,
         name: String,
@@ -598,8 +632,10 @@ public enum ConformanceTypeReferenceKind: UInt8, Sendable {
 
 /// Flags describing a protocol conformance.
 public struct ConformanceFlags: Sendable, Equatable {
+    /// The raw integer value of the flags.
     public let rawValue: UInt32
 
+    /// Initialize flags from a raw value.
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
     }
@@ -673,6 +709,7 @@ public struct SwiftConformance: Sendable {
         flags.numConditionalRequirements
     }
 
+    /// Initialize a Swift conformance.
     public init(
         address: UInt64 = 0,
         typeAddress: UInt64,
@@ -720,14 +757,25 @@ public enum SwiftFieldDescriptorKind: UInt16, Sendable {
 
 /// A Swift field descriptor from __swift5_fieldmd section.
 public struct SwiftFieldDescriptor: Sendable {
+    /// Address of the field descriptor.
     public let address: UInt64
+
+    /// Kind of descriptor.
     public let kind: SwiftFieldDescriptorKind
+
+    /// Mangled type name.
     public let mangledTypeName: String
+
     /// Raw bytes of the mangled type name (for symbolic reference resolution).
     public let mangledTypeNameData: Data
+
     /// File offset where the mangled type name was read (for symbolic resolution).
     public let mangledTypeNameOffset: Int
+
+    /// Mangled name of the superclass (if any).
     public let superclassMangledName: String?
+
+    /// Field records.
     public let records: [SwiftFieldRecord]
 
     /// Check if the owning type uses a symbolic reference.
@@ -737,6 +785,7 @@ public struct SwiftFieldDescriptor: Sendable {
         return SwiftSymbolicReferenceKind.isSymbolicMarker(firstByte)
     }
 
+    /// Initialize a field descriptor.
     public init(
         address: UInt64,
         kind: SwiftFieldDescriptorKind,
@@ -758,15 +807,25 @@ public struct SwiftFieldDescriptor: Sendable {
 
 /// A field record within a field descriptor.
 public struct SwiftFieldRecord: Sendable {
+    /// Field flags.
     public let flags: UInt32
+
+    /// Field name.
     public let name: String
+
+    /// Mangled type name of the field.
     public let mangledTypeName: String
+
     /// Raw bytes of the mangled type name (for symbolic reference resolution).
     public let mangledTypeData: Data
+
     /// File offset where the mangled type name was read (for symbolic resolution).
     public let mangledTypeNameOffset: Int
 
+    /// Whether this is a variable (vs let).
     public var isVar: Bool { (flags & 0x2) != 0 }
+
+    /// Whether this is an indirect field (enum case).
     public var isIndirect: Bool { (flags & 0x1) != 0 }
 
     /// Check if the type uses a symbolic reference at the start.
@@ -777,6 +836,7 @@ public struct SwiftFieldRecord: Sendable {
     }
 
     /// Check if the type contains any embedded symbolic references.
+    ///
     /// Swift mangled names can have symbolic refs embedded anywhere, not just at the start.
     public var hasEmbeddedSymbolicReference: Bool {
         guard mangledTypeData.count >= 6 else { return false }
@@ -792,6 +852,7 @@ public struct SwiftFieldRecord: Sendable {
         return false
     }
 
+    /// Initialize a field record.
     public init(
         flags: UInt32,
         name: String,

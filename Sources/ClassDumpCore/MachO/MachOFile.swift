@@ -3,8 +3,13 @@ import MachO
 
 /// Represents a parsed Mach-O file (single architecture).
 public struct MachOFile: Sendable {
+    /// The raw data of the file.
     public let data: Data
+
+    /// The parsed Mach-O header.
     public let header: MachOHeader
+
+    /// The filename (if known).
     public let filename: String?
 
     /// Parsed load commands (lazily computed).
@@ -59,7 +64,8 @@ public struct MachOFile: Sendable {
                 byteOrder: header.byteOrder,
                 is64Bit: header.uses64BitABI
             )
-        } catch {
+        }
+        catch {
             // Convert LoadCommandError to MachOError
             throw .invalidLoadCommand
         }
@@ -96,6 +102,7 @@ public struct MachOFile: Sendable {
 }
 
 extension MachOFile: CustomStringConvertible {
+    /// A textual description of the Mach-O file.
     public var description: String {
         var desc = "MachOFile(\(header.magicDescription), \(archName), \(header.filetypeDescription)"
         if let filename = filename {
@@ -125,14 +132,14 @@ public enum MachOBinary: Sendable {
         }
 
         switch magic {
-        case FAT_MAGIC, FAT_MAGIC_64:
-            let fatFile = try FatFile(data: data)
-            self = .fat(fatFile, data)
-        case MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64:
-            let machOFile = try MachOFile(data: data, filename: filename)
-            self = .thin(machOFile)
-        default:
-            throw .invalidMagic(magic)
+            case FAT_MAGIC, FAT_MAGIC_64:
+                let fatFile = try FatFile(data: data)
+                self = .fat(fatFile, data)
+            case MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64:
+                let machOFile = try MachOFile(data: data, filename: filename)
+                self = .thin(machOFile)
+            default:
+                throw .invalidMagic(magic)
         }
     }
 
@@ -151,10 +158,10 @@ public enum MachOBinary: Sendable {
     /// The available architectures.
     public var architectures: [Arch] {
         switch self {
-        case .fat(let fatFile, _):
-            return fatFile.arches.map(\.arch)
-        case .thin(let machOFile):
-            return [machOFile.arch]
+            case .fat(let fatFile, _):
+                return fatFile.arches.map(\.arch)
+            case .thin(let machOFile):
+                return [machOFile.arch]
         }
     }
 
@@ -175,54 +182,55 @@ public enum MachOBinary: Sendable {
     /// Get the best matching Mach-O file for the given architecture.
     public func bestMatch(for arch: Arch) throws(MachOError) -> MachOFile {
         switch self {
-        case .fat(let fatFile, let data):
-            guard let fatArch = fatFile.bestMatch(for: arch) else {
-                throw .architectureNotFound(arch)
-            }
-            let start = Int(fatArch.offset)
-            let end = start + Int(fatArch.size)
-            guard end <= data.count else {
-                throw .dataTooSmall(expected: end, actual: data.count)
-            }
-            let sliceData = data[start..<end]
-            return try MachOFile(data: Data(sliceData))
+            case .fat(let fatFile, let data):
+                guard let fatArch = fatFile.bestMatch(for: arch) else {
+                    throw .architectureNotFound(arch)
+                }
+                let start = Int(fatArch.offset)
+                let end = start + Int(fatArch.size)
+                guard end <= data.count else {
+                    throw .dataTooSmall(expected: end, actual: data.count)
+                }
+                let sliceData = data[start..<end]
+                return try MachOFile(data: Data(sliceData))
 
-        case .thin(let machOFile):
-            return machOFile
+            case .thin(let machOFile):
+                return machOFile
         }
     }
 
     /// Get a Mach-O file for a specific architecture.
     public func machOFile(for arch: Arch) throws(MachOError) -> MachOFile {
         switch self {
-        case .fat(let fatFile, let data):
-            guard let fatArch = fatFile.arch(matching: arch) else {
-                throw .architectureNotFound(arch)
-            }
-            let start = Int(fatArch.offset)
-            let end = start + Int(fatArch.size)
-            guard end <= data.count else {
-                throw .dataTooSmall(expected: end, actual: data.count)
-            }
-            let sliceData = data[start..<end]
-            return try MachOFile(data: Data(sliceData))
+            case .fat(let fatFile, let data):
+                guard let fatArch = fatFile.arch(matching: arch) else {
+                    throw .architectureNotFound(arch)
+                }
+                let start = Int(fatArch.offset)
+                let end = start + Int(fatArch.size)
+                guard end <= data.count else {
+                    throw .dataTooSmall(expected: end, actual: data.count)
+                }
+                let sliceData = data[start..<end]
+                return try MachOFile(data: Data(sliceData))
 
-        case .thin(let machOFile):
-            if machOFile.arch.matches(arch) {
-                return machOFile
-            }
-            throw .architectureNotFound(arch)
+            case .thin(let machOFile):
+                if machOFile.arch.matches(arch) {
+                    return machOFile
+                }
+                throw .architectureNotFound(arch)
         }
     }
 }
 
 extension MachOBinary: CustomStringConvertible {
+    /// A textual description of the binary.
     public var description: String {
         switch self {
-        case .fat(let fatFile, _):
-            return "MachOBinary(fat: \(fatFile.archNames.joined(separator: ", ")))"
-        case .thin(let machOFile):
-            return "MachOBinary(thin: \(machOFile.archName))"
+            case .fat(let fatFile, _):
+                return "MachOBinary(fat: \(fatFile.archNames.joined(separator: ", ")))"
+            case .thin(let machOFile):
+                return "MachOBinary(thin: \(machOFile.archName))"
         }
     }
 }

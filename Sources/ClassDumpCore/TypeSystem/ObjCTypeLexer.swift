@@ -2,40 +2,40 @@ import Foundation
 
 /// Tokens produced by the type lexer.
 public enum ObjCTypeToken: Sendable, Equatable {
-    /// End of string
+    /// End of string.
     case eos
-    /// A number (e.g., array size, bitfield size, stack offset)
+    /// A number (e.g., array size, bitfield size, stack offset).
     case number(String)
-    /// An identifier (e.g., struct name, variable name)
+    /// An identifier (e.g., struct name, variable name).
     case identifier(String)
-    /// A quoted string (e.g., class name, variable name in struct)
+    /// A quoted string (e.g., class name, variable name in struct).
     case quotedString(String)
-    /// A single character token (e.g., type codes, delimiters)
+    /// A single character token (e.g., type codes, delimiters).
     case char(Character)
 }
 
 /// Lexer states for context-sensitive tokenization.
 public enum ObjCTypeLexerState: Sendable {
-    /// Normal scanning mode
+    /// Normal scanning mode.
     case normal
-    /// Scanning identifiers (after { or ()
+    /// Scanning identifiers (after { or ().
     case identifier
-    /// Scanning template types
+    /// Scanning template types.
     case templateTypes
 }
 
 /// Tokenizer for Objective-C type encoding strings.
 public final class ObjCTypeLexer: @unchecked Sendable {
-    /// The input string being tokenized
+    /// The input string being tokenized.
     public let string: String
 
-    /// Current position in the string
+    /// Current position in the string.
     private var index: String.Index
 
-    /// Current lexer state
+    /// Current lexer state.
     public var state: ObjCTypeLexerState = .normal
 
-    /// The text of the last token scanned
+    /// The text of the last token scanned.
     public private(set) var lexText: String = ""
 
     /// Initialize with a type encoding string.

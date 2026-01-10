@@ -7,7 +7,7 @@ import Foundation
 ///
 /// Swift uses symbolic references (0x01-0x17) to point to type metadata
 /// via relative offsets. This allows compact encoding of type information.
-public enum SwiftSymbolicReferenceKind: UInt8 {
+public enum SwiftSymbolicReferenceKind: UInt8, Sendable {
     /// Direct reference to a context descriptor.
     case directContext = 0x01
 
@@ -20,12 +20,13 @@ public enum SwiftSymbolicReferenceKind: UInt8 {
     /// Unknown/invalid reference.
     case unknown = 0xFF
 
+    /// Initialize from a marker byte.
     public init(marker: UInt8) {
         switch marker {
-        case 0x01: self = .directContext
-        case 0x02: self = .indirectContext
-        case 0x09: self = .directObjCProtocol
-        default: self = .unknown
+            case 0x01: self = .directContext
+            case 0x02: self = .indirectContext
+            case 0x09: self = .directObjCProtocol
+            default: self = .unknown
         }
     }
 
@@ -41,16 +42,14 @@ public enum SwiftSymbolicReferenceKind: UInt8 {
 /// - A 1-byte marker (0x01-0x17) indicating the reference kind
 /// - A 4-byte signed relative offset to the actual type descriptor
 ///
-/// This class resolves those references to actual type names.
+/// This actor resolves those references to actual type names.
 ///
 /// ## Thread Safety
 ///
-/// This class is **not thread-safe** for concurrent access. It maintains internal caches
-/// (`resolvedTypes`, `moduleNames`) that are mutated during resolution.
-///
-/// **Usage Pattern**: Create an instance per processing task and use it from a single thread.
-/// The resolved type names can then be safely shared as they are plain `String` values.
-public final class SwiftSymbolicResolver {
+/// This actor is thread-safe for concurrent access via Swift's actor model.
+/// It maintains internal caches (`resolvedTypes`, `moduleNames`) that are
+/// protected by actor isolation. Use `await` to access methods from any context.
+public actor SwiftSymbolicResolver {
     private let data: Data
     private let segments: [SegmentCommand]
     private let byteOrder: ByteOrder
@@ -62,6 +61,7 @@ public final class SwiftSymbolicResolver {
     /// Cache of module names by their descriptor address.
     private var moduleNames: [Int: String] = [:]
 
+    /// Initialize a symbolic resolver with binary data.
     public init(data: Data, segments: [SegmentCommand], byteOrder: ByteOrder, chainedFixups: ChainedFixups? = nil) {
         self.data = data
         self.segments = segments
@@ -147,8 +147,10 @@ public final class SwiftSymbolicResolver {
         if bytes.count >= 4, bytes[0] == 0x53, bytes[1] == 0x61, bytes[2] == 0x79 {  // "Say"
             var index = 3
             if let (element, newIndex) = parseTypeArgWithRefs(
-                bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
-            {
+                bytes: bytes,
+                startIndex: index,
+                sourceOffset: sourceOffset
+            ) {
                 index = newIndex
                 // Check for closing 'G'
                 if index < bytes.count && bytes[index] == 0x47 {  // 'G'
@@ -170,14 +172,17 @@ public final class SwiftSymbolicResolver {
 
             // Parse key and value types
             while typeArgs.count < 2 && index < bytes.count {
-                if let (arg, newIndex) = parseTypeArgWithRefs(
-                    bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
-                {
-                    typeArgs.append(arg)
-                    index = newIndex
-                } else {
+                guard
+                    let (arg, newIndex) = parseTypeArgWithRefs(
+                        bytes: bytes,
+                        startIndex: index,
+                        sourceOffset: sourceOffset
+                    )
+                else {
                     break
                 }
+                typeArgs.append(arg)
+                index = newIndex
             }
 
             // Check for closing 'G'
@@ -196,8 +201,10 @@ public final class SwiftSymbolicResolver {
         if bytes.count >= 4, bytes[0] == 0x53, bytes[1] == 0x68, bytes[2] == 0x79 {  // "Shy"
             var index = 3
             if let (element, newIndex) = parseTypeArgWithRefs(
-                bytes: bytes, startIndex: index, sourceOffset: sourceOffset)
-            {
+                bytes: bytes,
+                startIndex: index,
+                sourceOffset: sourceOffset
+            ) {
                 index = newIndex
                 // Check for closing 'G'
                 if index < bytes.count && bytes[index] == 0x47 {  // 'G'
@@ -239,7 +246,12 @@ public final class SwiftSymbolicResolver {
     /// Parse a single type argument which may be a symbolic reference or standard mangled type.
     ///
     /// - Returns: Tuple of (resolved type name, new index after parsing) or nil.
-    private func parseTypeArgWithRefs(bytes: [UInt8], startIndex: Int, sourceOffset: Int, depth: Int = 0) -> (
+    private func parseTypeArgWithRefs(
+        bytes: [UInt8],
+        startIndex: Int,
+        sourceOffset: Int,
+        depth: Int = 0
+    ) -> (
         String, Int
     )? {
         guard startIndex < bytes.count else { return nil }
@@ -270,8 +282,11 @@ public final class SwiftSymbolicResolver {
         if index + 3 < bytes.count && byte == 0x53 && bytes[index + 1] == 0x61 && bytes[index + 2] == 0x79 {  // "Say"
             var innerIndex = index + 3
             if let (element, newIndex) = parseTypeArgWithRefs(
-                bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
-            {
+                bytes: bytes,
+                startIndex: innerIndex,
+                sourceOffset: sourceOffset,
+                depth: depth + 1
+            ) {
                 innerIndex = newIndex
                 // Check for closing 'G'
                 if innerIndex < bytes.count && bytes[innerIndex] == 0x47 {  // 'G'
@@ -294,14 +309,18 @@ public final class SwiftSymbolicResolver {
 
             // Parse key and value types
             while typeArgs.count < 2 && innerIndex < bytes.count {
-                if let (arg, newIndex) = parseTypeArgWithRefs(
-                    bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
-                {
-                    typeArgs.append(arg)
-                    innerIndex = newIndex
-                } else {
+                guard
+                    let (arg, newIndex) = parseTypeArgWithRefs(
+                        bytes: bytes,
+                        startIndex: innerIndex,
+                        sourceOffset: sourceOffset,
+                        depth: depth + 1
+                    )
+                else {
                     break
                 }
+                typeArgs.append(arg)
+                innerIndex = newIndex
             }
 
             // Check for closing 'G'
@@ -321,8 +340,11 @@ public final class SwiftSymbolicResolver {
         if index + 3 < bytes.count && byte == 0x53 && bytes[index + 1] == 0x68 && bytes[index + 2] == 0x79 {  // "Shy"
             var innerIndex = index + 3
             if let (element, newIndex) = parseTypeArgWithRefs(
-                bytes: bytes, startIndex: innerIndex, sourceOffset: sourceOffset, depth: depth + 1)
-            {
+                bytes: bytes,
+                startIndex: innerIndex,
+                sourceOffset: sourceOffset,
+                depth: depth + 1
+            ) {
                 innerIndex = newIndex
                 // Check for closing 'G'
                 if innerIndex < bytes.count && bytes[innerIndex] == 0x47 {  // 'G'
@@ -385,29 +407,29 @@ public final class SwiftSymbolicResolver {
     /// Resolve a standard two-character type shortcut.
     private func resolveStandardTypeShortcut(_ chars: String) -> String? {
         switch chars {
-        case "SS": return "String"
-        case "Si": return "Int"
-        case "Su": return "UInt"
-        case "Sb": return "Bool"
-        case "Sd": return "Double"
-        case "Sf": return "Float"
-        case "Sg": return nil  // This is Optional suffix, not a type
-        default: return nil
+            case "SS": return "String"
+            case "Si": return "Int"
+            case "Su": return "UInt"
+            case "Sb": return "Bool"
+            case "Sd": return "Double"
+            case "Sf": return "Float"
+            case "Sg": return nil  // This is Optional suffix, not a type
+            default: return nil
         }
     }
 
     /// Resolve a single-character type shortcut (lowercase letters mostly).
     private func resolveSingleCharTypeShortcut(_ byte: UInt8) -> String? {
         switch byte {
-        case 0x61: return "Array"  // 'a'
-        case 0x62: return "Bool"  // 'b'
-        case 0x44: return "Dictionary"  // 'D'
-        case 0x64: return "Double"  // 'd'
-        case 0x66: return "Float"  // 'f'
-        case 0x68: return "Set"  // 'h'
-        case 0x69: return "Int"  // 'i'
-        case 0x75: return "UInt"  // 'u'
-        default: return nil
+            case 0x61: return "Array"  // 'a'
+            case 0x62: return "Bool"  // 'b'
+            case 0x44: return "Dictionary"  // 'D'
+            case 0x64: return "Double"  // 'd'
+            case 0x66: return "Float"  // 'f'
+            case 0x68: return "Set"  // 'h'
+            case 0x69: return "Int"  // 'i'
+            case 0x75: return "UInt"  // 'u'
+            default: return nil
         }
     }
 
@@ -419,12 +441,11 @@ public final class SwiftSymbolicResolver {
         // Collect digits for length
         while index < bytes.count {
             let byte = bytes[index]
-            if byte >= 0x30 && byte <= 0x39 {  // '0'-'9'
-                lengthStr.append(Character(UnicodeScalar(byte)))
-                index += 1
-            } else {
+            guard byte >= 0x30 && byte <= 0x39 else {
                 break
             }
+            lengthStr.append(Character(UnicodeScalar(byte)))
+            index += 1
         }
 
         guard let length = Int(lengthStr), length > 0, index + length <= bytes.count else {
@@ -442,11 +463,10 @@ public final class SwiftSymbolicResolver {
         // Skip type suffix markers (C, V, O, P)
         while index < bytes.count {
             let byte = bytes[index]
-            if byte == 0x43 || byte == 0x56 || byte == 0x4F || byte == 0x50 {  // C, V, O, P
-                index += 1
-            } else {
+            guard byte == 0x43 || byte == 0x56 || byte == 0x4F || byte == 0x50 else {
                 break
             }
+            index += 1
         }
 
         return (name, index)
@@ -476,16 +496,19 @@ public final class SwiftSymbolicResolver {
                 // If we got a useful resolution, use it
                 if !resolved.isEmpty && !resolved.hasPrefix("/*") {
                     result += resolved
-                } else {
+                }
+                else {
                     result += "?"
                 }
 
                 // Skip the 5-byte symbolic reference
                 i += 5
-            } else if byte == 0 {
+            }
+            else if byte == 0 {
                 // Null terminator - stop
                 break
-            } else {
+            }
+            else {
                 // Regular character - only add if it's a valid ASCII character
                 if byte >= 0x20 && byte < 0x7F {
                     result.append(Character(UnicodeScalar(byte)))
@@ -502,7 +525,7 @@ public final class SwiftSymbolicResolver {
     ///
     /// - Parameters:
     ///   - kind: The kind of symbolic reference.
-    ///   - data: The full mangled data (including marker byte).
+    ///   - mangledData: The full mangled data (including marker byte).
     ///   - sourceOffset: The file offset where the mangled data starts.
     /// - Returns: The resolved type name.
     public func resolveSymbolicReference(
@@ -530,14 +553,14 @@ public final class SwiftSymbolicResolver {
         // Resolve based on kind
         let result: String
         switch kind {
-        case .directContext:
-            result = resolveContextDescriptor(at: targetOffset, mangledData: mangledData)
-        case .indirectContext:
-            result = resolveIndirectContextDescriptor(at: targetOffset, mangledData: mangledData)
-        case .directObjCProtocol:
-            result = resolveObjCProtocol(at: targetOffset)
-        case .unknown:
-            result = "/* unknown ref 0x\(String(format: "%02x", mangledData[mangledData.startIndex])) */"
+            case .directContext:
+                result = resolveContextDescriptor(at: targetOffset, mangledData: mangledData)
+            case .indirectContext:
+                result = resolveIndirectContextDescriptor(at: targetOffset, mangledData: mangledData)
+            case .directObjCProtocol:
+                result = resolveObjCProtocol(at: targetOffset)
+            case .unknown:
+                result = "/* unknown ref 0x\(String(format: "%02x", mangledData[mangledData.startIndex])) */"
         }
 
         resolvedTypes[targetOffset] = result
@@ -573,7 +596,8 @@ public final class SwiftSymbolicResolver {
         let fullName: String
         if let parent = parentName, !parent.isEmpty, parent != "Swift" {
             fullName = "\(parent).\(name)"
-        } else {
+        }
+        else {
             fullName = name
         }
 
@@ -606,20 +630,20 @@ public final class SwiftSymbolicResolver {
         if let fixups = chainedFixups {
             let result = fixups.decodePointer(targetPointer)
             switch result {
-            case .bind(let ordinal, _):
-                // It's bound to an external symbol
-                if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
-                    // Symbol name like _$s10Foundation4DateV...
-                    // We can demangle this directly
-                    return SwiftDemangler.extractTypeName(symbolName)
-                }
-            case .rebase(let target):
-                // It's a rebase to a local address
-                if let fileOff = self.fileOffset(for: target) {
-                    return resolveContextDescriptor(at: fileOff, mangledData: mangledData)
-                }
-            case .notFixup:
-                break  // Fall through to standard handling
+                case .bind(let ordinal, _):
+                    // It's bound to an external symbol
+                    if let symbolName = fixups.symbolName(forOrdinal: ordinal) {
+                        // Symbol name like _$s10Foundation4DateV...
+                        // We can demangle this directly
+                        return SwiftDemangler.extractTypeName(symbolName)
+                    }
+                case .rebase(let target):
+                    // It's a rebase to a local address
+                    if let fileOff = self.fileOffset(for: target) {
+                        return resolveContextDescriptor(at: fileOff, mangledData: mangledData)
+                    }
+                case .notFixup:
+                    break  // Fall through to standard handling
             }
         }
 
@@ -849,6 +873,3 @@ public final class SwiftSymbolicResolver {
         return nil
     }
 }
-
-// Note: SwiftMetadataProcessor extension moved to SwiftMetadataProcessor.swift
-// to access private properties.

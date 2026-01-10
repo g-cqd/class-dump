@@ -2,24 +2,25 @@ import Foundation
 
 /// Represents an Objective-C instance variable (ivar).
 public struct ObjCInstanceVariable: Sendable, Hashable {
-    /// The ivar name
+    /// The ivar name.
     public let name: String
 
-    /// The encoded type string (ObjC encoding)
+    /// The encoded type string (ObjC encoding).
     public let typeEncoding: String
 
-    /// The resolved Swift type string (if available)
+    /// The resolved Swift type string (if available).
     public let typeString: String
 
-    /// The offset of this ivar within the object
+    /// The offset of this ivar within the object.
     public let offset: UInt64
 
-    /// The size of this ivar (if known)
+    /// The size of this ivar (if known).
     public let size: UInt64?
 
-    /// The alignment of this ivar (if known)
+    /// The alignment of this ivar (if known).
     public let alignment: UInt32?
 
+    /// Initialize an instance variable.
     public init(
         name: String,
         typeEncoding: String,
@@ -36,19 +37,21 @@ public struct ObjCInstanceVariable: Sendable, Hashable {
         self.alignment = alignment
     }
 
-    /// Whether this appears to be a synthesized ivar (starts with underscore)
+    /// Whether this appears to be a synthesized ivar (starts with underscore).
     public var isSynthesized: Bool {
         name.hasPrefix("_")
     }
 }
 
 extension ObjCInstanceVariable: Comparable {
+    /// Compare two ivars by offset.
     public static func < (lhs: ObjCInstanceVariable, rhs: ObjCInstanceVariable) -> Bool {
         lhs.offset < rhs.offset
     }
 }
 
 extension ObjCInstanceVariable: CustomStringConvertible {
+    /// A textual description of the ivar.
     public var description: String {
         "ObjCInstanceVariable(\(name), offset: \(offset))"
     }

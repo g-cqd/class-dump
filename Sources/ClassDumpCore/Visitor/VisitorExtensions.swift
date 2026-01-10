@@ -1,22 +1,33 @@
+// SPDX-License-Identifier: MIT
+// Copyright © 2026 class-dump contributors. All rights reserved.
+
 import Foundation
+
+// MARK: - Visitor Extensions
+
+extension ClassDumpVisitor {
+    /// Helper to convert protocol names to strings.
+    internal func protocolNames(_ protocols: [ObjCProtocol]) -> [String] {
+        protocols.map(\.name)
+    }
+}
 
 // MARK: - ObjCClass Extensions for Visitors
 
 extension ObjCClass {
-    /// Protocol names as strings (for visitor use)
-    /// Includes both ObjC adopted protocols and Swift conformances
+    /// Protocol names as strings (for visitor use).
+    ///
+    /// Includes both ObjC adopted protocols and Swift conformances.
     public var protocols: [String] {
         var all = adoptedProtocolNames
         // Add Swift conformances (avoiding duplicates)
-        for conformance in swiftConformances {
-            if !all.contains(conformance) {
-                all.append(conformance)
-            }
+        for conformance in swiftConformances where !all.contains(conformance) {
+            all.append(conformance)
         }
         return all
     }
 
-    /// All protocol/conformance info for display
+    /// All protocol/conformance info for display.
     public var allConformances: [String] {
         protocols
     }
@@ -25,12 +36,12 @@ extension ObjCClass {
 // MARK: - ObjCCategory Extensions for Visitors
 
 extension ObjCCategory {
-    /// Protocol names as strings (for visitor use)
+    /// Protocol names as strings (for visitor use).
     public var protocols: [String] {
         adoptedProtocolNames
     }
 
-    /// The class name (non-optional for visitor use)
+    /// The class name (non-optional for visitor use).
     public var classNameForVisitor: String {
         className ?? ""
     }
@@ -39,7 +50,7 @@ extension ObjCCategory {
 // MARK: - ObjCProtocol Extensions for Visitors
 
 extension ObjCProtocol {
-    /// Protocol names as strings (for visitor use)
+    /// Protocol names as strings (for visitor use).
     public var protocols: [String] {
         adoptedProtocolNames
     }
@@ -48,13 +59,13 @@ extension ObjCProtocol {
 // MARK: - ObjCProperty Extensions for Visitors
 
 extension ObjCProperty {
-    /// Parse the type encoding to get the ObjCType
+    /// Parse the type encoding to get the ObjCType.
     public var parsedType: ObjCType? {
         guard !encodedType.isEmpty else { return nil }
         return try? ObjCType.parse(encodedType)
     }
 
-    /// Get the raw attribute components as strings (for visitor formatting)
+    /// Get the raw attribute components as strings (for visitor formatting).
     public var attributeComponents: [String] {
         attributeString.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
     }
@@ -65,7 +76,7 @@ extension ObjCProperty {
 extension ObjCInstanceVariable {
     // typeEncoding is now a stored property
 
-    /// Parse the type encoding to get the ObjCType
+    /// Parse the type encoding to get the ObjCType.
     public var parsedType: ObjCType? {
         guard !typeEncoding.isEmpty else { return nil }
         return try? ObjCType.parse(typeEncoding)
@@ -75,22 +86,22 @@ extension ObjCInstanceVariable {
 // MARK: - ObjCMethod Extensions for Visitors
 
 extension ObjCMethod {
-    /// The type encoding string (alias for typeString for visitor use)
+    /// The type encoding string (alias for typeString for visitor use).
     public var typeEncoding: String {
         typeString
     }
 
-    /// Parse the type encoding to get the method types
+    /// Parse the type encoding to get the method types.
     public var parsedTypes: [ObjCMethodType]? {
         try? ObjCType.parseMethodType(typeString)
     }
 
-    /// The return type
+    /// The return type.
     public var returnType: ObjCType? {
         parsedTypes?.first?.type
     }
 
-    /// The argument types (excluding self and _cmd)
+    /// The argument types (excluding self and _cmd).
     public var argumentTypes: [ObjCType] {
         guard let types = parsedTypes, types.count > 3 else { return [] }
         return types.dropFirst(3).map(\.type)

@@ -2,32 +2,33 @@ import Foundation
 
 /// Represents an Objective-C category (@interface ClassName (CategoryName)).
 public final class ObjCCategory: ObjCDeclarationContainer, @unchecked Sendable {
-    /// The category name (e.g., "Private" in @interface NSObject (Private))
+    /// The category name (e.g., "Private" in @interface NSObject (Private)).
     public let name: String
 
-    /// Address where this category was found
+    /// Address where this category was found.
     public let address: UInt64
 
-    /// Reference to the class this category extends
+    /// Reference to the class this category extends.
     public var classRef: ObjCClassReference?
 
-    /// The name of the class being extended
+    /// The name of the class being extended.
     public var className: String? {
         classRef?.name
     }
 
-    /// Adopted protocols
+    /// Adopted protocols.
     public private(set) var adoptedProtocols: [ObjCProtocol] = []
 
-    /// Class methods added by this category
+    /// Class methods added by this category.
     public private(set) var classMethods: [ObjCMethod] = []
 
-    /// Instance methods added by this category
+    /// Instance methods added by this category.
     public private(set) var instanceMethods: [ObjCMethod] = []
 
-    /// Properties added by this category
+    /// Properties added by this category.
     public private(set) var properties: [ObjCProperty] = []
 
+    /// Initialize a category.
     public init(name: String, address: UInt64 = 0) {
         self.name = name
         self.address = address
@@ -35,47 +36,52 @@ public final class ObjCCategory: ObjCDeclarationContainer, @unchecked Sendable {
 
     // MARK: - Adding members
 
+    /// Add an adopted protocol to the category.
     public func addAdoptedProtocol(_ proto: ObjCProtocol) {
         adoptedProtocols.append(proto)
     }
 
+    /// Add a class method to the category.
     public func addClassMethod(_ method: ObjCMethod) {
         classMethods.append(method)
     }
 
+    /// Add an instance method to the category.
     public func addInstanceMethod(_ method: ObjCMethod) {
         instanceMethods.append(method)
     }
 
+    /// Add a property to the category.
     public func addProperty(_ property: ObjCProperty) {
         properties.append(property)
     }
 
     // MARK: - Queries
 
-    /// Names of all adopted protocols
+    /// Names of all adopted protocols.
     public var adoptedProtocolNames: [String] {
         adoptedProtocols.map(\.name)
     }
 
-    /// Formatted string of adopted protocols
+    /// Formatted string of adopted protocols.
     public var adoptedProtocolsString: String {
         guard !adoptedProtocols.isEmpty else { return "" }
         return "<\(adoptedProtocolNames.joined(separator: ", "))>"
     }
 
-    /// Whether this category has any methods
+    /// Whether this category has any methods.
     public var hasMethods: Bool {
         !classMethods.isEmpty || !instanceMethods.isEmpty
     }
 
-    /// All methods (class and instance)
+    /// All methods (class and instance).
     public var allMethods: [ObjCMethod] {
         classMethods + instanceMethods
     }
 
     // MARK: - Sorting
 
+    /// Sort all members (methods, properties, protocols).
     public func sortMembers() {
         classMethods.sort()
         instanceMethods.sort()
@@ -85,10 +91,12 @@ public final class ObjCCategory: ObjCDeclarationContainer, @unchecked Sendable {
 }
 
 extension ObjCCategory: Hashable {
+    /// Check if two categories are equal.
     public static func == (lhs: ObjCCategory, rhs: ObjCCategory) -> Bool {
         lhs.name == rhs.name && lhs.className == rhs.className && lhs.address == rhs.address
     }
 
+    /// Hash the category.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(name)
         hasher.combine(className)
@@ -97,6 +105,7 @@ extension ObjCCategory: Hashable {
 }
 
 extension ObjCCategory: Comparable {
+    /// Compare two categories by class name, then category name.
     public static func < (lhs: ObjCCategory, rhs: ObjCCategory) -> Bool {
         // Sort by class name first, then category name
         if let lhsClass = lhs.className, let rhsClass = rhs.className {
@@ -109,6 +118,7 @@ extension ObjCCategory: Comparable {
 }
 
 extension ObjCCategory: CustomStringConvertible {
+    /// A textual description of the category.
     public var description: String {
         var str = "@interface "
         str += className ?? "?"

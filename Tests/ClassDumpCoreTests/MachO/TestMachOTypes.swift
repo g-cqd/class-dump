@@ -50,7 +50,9 @@ struct TestArch {
     func testArchMatching() {
         let arch1 = Arch(cputype: CPU_TYPE_ARM64, cpusubtype: CPU_SUBTYPE_ARM_ALL)
         let arch2 = Arch(
-            cputype: CPU_TYPE_ARM64, cpusubtype: CPU_SUBTYPE_ARM_ALL | Int32(bitPattern: CPU_SUBTYPE_LIB64))
+            cputype: CPU_TYPE_ARM64,
+            cpusubtype: CPU_SUBTYPE_ARM_ALL | Int32(bitPattern: CPU_SUBTYPE_LIB64)
+        )
         #expect(arch1.matches(arch2))
     }
 }

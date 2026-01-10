@@ -5,27 +5,28 @@ import Foundation
 /// This visitor filters output to only show methods containing the search string,
 /// along with their containing context (class, category, or protocol).
 public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
-    /// The string to search for in method names
+    /// The string to search for in method names.
     public var searchString: String = ""
 
-    /// The accumulated result string
+    /// The accumulated result string.
     public private(set) var resultString: String = ""
 
-    /// Header string to prepend to output
+    /// Header string to prepend to output.
     public var headerString: String = ""
 
-    /// Visitor options
+    /// Visitor options.
     public var options: ClassDumpVisitorOptions
 
-    /// Type formatter for method strings
+    /// Type formatter for method strings.
     public var typeFormatter: ObjCTypeFormatter
 
-    /// Current context (class, category, or protocol)
+    /// Current context (class, category, or protocol).
     private var context: MethodSearchContext?
 
-    /// Whether we've shown the current context
+    /// Whether we've shown the current context.
     private var hasShownContext: Bool = false
 
+    /// Initialize a find method visitor.
     public init(options: ClassDumpVisitorOptions = .init()) {
         self.options = options
         self.typeFormatter = ObjCTypeFormatter()
@@ -46,14 +47,17 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
+    /// Begin visiting - write the header.
     public func willBeginVisiting() {
         append(headerString)
     }
 
+    /// End visiting - write output to stdout.
     public func didEndVisiting() {
         writeResultToStandardOutput()
     }
 
+    /// Visit a processor to check for ObjC runtime info.
     public func visitProcessor(_ processor: ObjCProcessorInfo) {
         if !processor.hasObjectiveCRuntimeInfo {
             append("//\n")
@@ -64,10 +68,12 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Protocol Visits
 
+    /// Begin visiting a protocol - set context.
     public func willVisitProtocol(_ proto: ObjCProtocol) {
         setContext(.protocol(proto))
     }
 
+    /// End visiting a protocol.
     public func didVisitProtocol(_ proto: ObjCProtocol) {
         if hasShownContext {
             append("\n")
@@ -76,10 +82,12 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Class Visits
 
+    /// Begin visiting a class - set context.
     public func willVisitClass(_ objcClass: ObjCClass) {
         setContext(.class(objcClass))
     }
 
+    /// End visiting a class.
     public func didVisitClass(_ objcClass: ObjCClass) {
         if hasShownContext {
             append("\n")
@@ -88,10 +96,12 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Category Visits
 
+    /// Begin visiting a category - set context.
     public func willVisitCategory(_ category: ObjCCategory) {
         setContext(.category(category))
     }
 
+    /// End visiting a category.
     public func didVisitCategory(_ category: ObjCCategory) {
         if hasShownContext {
             append("\n")
@@ -100,6 +110,7 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     // MARK: - Method Visits
 
+    /// Visit a class method - output if it matches the search string.
     public func visitClassMethod(_ method: ObjCMethod) {
         guard method.name.contains(searchString) else { return }
 
@@ -110,6 +121,7 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
         append("\n")
     }
 
+    /// Visit an instance method - output if it matches the search string.
     public func visitInstanceMethod(_ method: ObjCMethod, propertyState: VisitorPropertyState) {
         guard method.name.contains(searchString) else { return }
 
@@ -141,7 +153,8 @@ public final class FindMethodVisitor: ClassDumpVisitor, @unchecked Sendable {
         if let formatted = typeFormatter.formatMethodName(method.name, typeString: method.typeEncoding) {
             append(formatted)
             append(";")
-        } else {
+        }
+        else {
             append("(\(method.typeEncoding))\(method.name);")
         }
     }
@@ -157,15 +170,15 @@ private enum MethodSearchContext {
 
     var description: String {
         switch self {
-        case .protocol(let proto):
-            return "@protocol \(proto.name)"
-        case .class(let cls):
-            if let superName = cls.superclassName {
-                return "@interface \(cls.name) : \(superName)"
-            }
-            return "@interface \(cls.name)"
-        case .category(let cat):
-            return "@interface \(cat.classNameForVisitor) (\(cat.name))"
+            case .protocol(let proto):
+                return "@protocol \(proto.name)"
+            case .class(let cls):
+                if let superName = cls.superclassName {
+                    return "@interface \(cls.name) : \(superName)"
+                }
+                return "@interface \(cls.name)"
+            case .category(let cat):
+                return "@interface \(cat.classNameForVisitor) (\(cat.name))"
         }
     }
 }

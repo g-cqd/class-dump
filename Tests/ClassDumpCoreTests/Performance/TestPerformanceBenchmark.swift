@@ -65,7 +65,8 @@ struct TestPerformanceBenchmark {
                     for i in 0..<1000 {
                         if i % 10 == 0 {
                             cache.set(i + taskIndex * 1000, value: "new_\(i)")
-                        } else {
+                        }
+                        else {
                             _ = cache.get(i)
                         }
                     }

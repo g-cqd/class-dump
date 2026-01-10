@@ -253,7 +253,8 @@ struct TypePropertiesTests {
 struct RoundTripTests {
     @Test(
         "Round-trip primitives",
-        arguments: ["c", "i", "s", "l", "q", "C", "I", "S", "L", "Q", "f", "d", "D", "B", "v", "#", ":", "?", "%"])
+        arguments: ["c", "i", "s", "l", "q", "C", "I", "S", "L", "Q", "f", "d", "D", "B", "v", "#", ":", "?", "%"]
+    )
     func roundTripPrimitives(encoding: String) throws {
         let type = try ObjCType.parse(encoding)
         #expect(type.typeString == encoding)

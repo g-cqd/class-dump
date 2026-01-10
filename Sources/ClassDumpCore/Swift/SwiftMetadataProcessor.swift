@@ -34,6 +34,7 @@ public final class SwiftMetadataProcessor {
     /// Cache of type names by address (for resolving type refs).
     private var typeNamesByAddress: [UInt64: String] = [:]
 
+    /// Initialize the Swift metadata processor.
     public init(
         data: Data,
         segments: [SegmentCommand],
@@ -108,7 +109,7 @@ public final class SwiftMetadataProcessor {
     ///   - mangledTypeName: The mangled type name (may contain symbolic refs).
     ///   - sourceOffset: The file offset where this name was read.
     /// - Returns: A human-readable type name.
-    public func resolveFieldType(_ mangledTypeName: String, at sourceOffset: Int) -> String {
+    public func resolveFieldType(_ mangledTypeName: String, at sourceOffset: Int) async -> String {
         guard !mangledTypeName.isEmpty else { return "" }
 
         // Check if it starts with a symbolic reference marker
@@ -123,7 +124,7 @@ public final class SwiftMetadataProcessor {
             )
 
             if let mangledData = mangledTypeName.data(using: .utf8) {
-                return resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
+                return await resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
             }
         }
 
@@ -139,7 +140,7 @@ public final class SwiftMetadataProcessor {
     ///   - mangledData: Raw bytes of the mangled type name.
     ///   - sourceOffset: The file offset where this data was read.
     /// - Returns: A human-readable type name.
-    public func resolveFieldTypeFromData(_ mangledData: Data, at sourceOffset: Int) -> String {
+    public func resolveFieldTypeFromData(_ mangledData: Data, at sourceOffset: Int) async -> String {
         guard !mangledData.isEmpty else { return "" }
 
         let firstByte = mangledData[mangledData.startIndex]
@@ -152,7 +153,7 @@ public final class SwiftMetadataProcessor {
                 byteOrder: byteOrder,
                 chainedFixups: chainedFixups
             )
-            return resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
+            return await resolver.resolveType(mangledData: mangledData, sourceOffset: sourceOffset)
         }
 
         // Fall back to regular demangling
@@ -216,7 +217,8 @@ public final class SwiftMetadataProcessor {
             relOffset = data.withUnsafeBytes { ptr in
                 ptr.loadUnaligned(fromByteOffset: fileOffset, as: Int32.self).littleEndian
             }
-        } else {
+        }
+        else {
             relOffset = data.withUnsafeBytes { ptr in
                 ptr.loadUnaligned(fromByteOffset: fileOffset, as: Int32.self).bigEndian
             }
@@ -354,7 +356,8 @@ public final class SwiftMetadataProcessor {
                 kindRaw = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: kindOffset, as: UInt16.self).littleEndian
                 }
-            } else {
+            }
+            else {
                 kindRaw = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: kindOffset, as: UInt16.self).bigEndian
                 }
@@ -365,7 +368,8 @@ public final class SwiftMetadataProcessor {
                 fieldRecordSize = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: fieldRecordSizeOffset, as: UInt16.self).littleEndian
                 }
-            } else {
+            }
+            else {
                 fieldRecordSize = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: fieldRecordSizeOffset, as: UInt16.self).bigEndian
                 }
@@ -376,7 +380,8 @@ public final class SwiftMetadataProcessor {
                 numFields = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: numFieldsOffset, as: UInt32.self).littleEndian
                 }
-            } else {
+            }
+            else {
                 numFields = data.withUnsafeBytes { ptr in
                     ptr.loadUnaligned(fromByteOffset: numFieldsOffset, as: UInt32.self).bigEndian
                 }
@@ -401,7 +406,8 @@ public final class SwiftMetadataProcessor {
                     flags = data.withUnsafeBytes { ptr in
                         ptr.loadUnaligned(fromByteOffset: recordOffset, as: UInt32.self).littleEndian
                     }
-                } else {
+                }
+                else {
                     flags = data.withUnsafeBytes { ptr in
                         ptr.loadUnaligned(fromByteOffset: recordOffset, as: UInt32.self).bigEndian
                     }
@@ -427,7 +433,8 @@ public final class SwiftMetadataProcessor {
                         mangledTypeName: fieldTypeName,
                         mangledTypeData: fieldTypeData,
                         mangledTypeNameOffset: typeNameDataOffset
-                    ))
+                    )
+                )
             }
 
             let kind = SwiftFieldDescriptorKind(rawValue: kindRaw) ?? .struct
@@ -441,7 +448,8 @@ public final class SwiftMetadataProcessor {
                     mangledTypeNameOffset: mangledTypeNameDataOffset,
                     superclassMangledName: superclassMangledName,
                     records: records
-                ))
+                )
+            )
 
             // Move to next descriptor
             offset += 16 + Int(numFields) * Int(fieldRecordSize)
@@ -572,7 +580,8 @@ public final class SwiftMetadataProcessor {
             if typeFlags.hasResilientSuperclass {
                 // With resilient superclass, layout is shifted
                 genericHeaderOffset = fileOffset + 48
-            } else {
+            }
+            else {
                 // Standard layout: GenericContextDescriptorHeader is at +44 for classes
                 genericHeaderOffset = fileOffset + 44
             }
@@ -601,17 +610,20 @@ public final class SwiftMetadataProcessor {
                             paramNames: genericParameters
                         )
                     }
-                } else if isGeneric {
+                }
+                else if isGeneric {
                     // If marked generic but we couldn't parse count, assume at least 1 param
                     genericParamCount = 1
                     genericParameters = ["T"]
                 }
-            } else if isGeneric {
+            }
+            else if isGeneric {
                 // Type is generic but we don't have enough data - assume 1 param
                 genericParamCount = 1
                 genericParameters = ["T"]
             }
-        } else if kind == .struct || kind == .enum {
+        }
+        else if kind == .struct || kind == .enum {
             // Struct/Enum have similar layout but without superclass
             // GenericContextDescriptorHeader is at +20 for non-class types
             let genericHeaderOffset = fileOffset + 20
@@ -634,11 +646,13 @@ public final class SwiftMetadataProcessor {
                             paramNames: genericParameters
                         )
                     }
-                } else if isGeneric {
+                }
+                else if isGeneric {
                     genericParamCount = 1
                     genericParameters = ["T"]
                 }
-            } else if isGeneric {
+            }
+            else if isGeneric {
                 genericParamCount = 1
                 genericParameters = ["T"]
             }
@@ -673,9 +687,11 @@ public final class SwiftMetadataProcessor {
     private func generateGenericParamNames(count: Int) -> [String] {
         if count == 1 {
             return ["T"]
-        } else if count <= 4 {
+        }
+        else if count <= 4 {
             return Array(["T", "U", "V", "W"].prefix(count))
-        } else {
+        }
+        else {
             return (0..<count).map { "T\($0)" }
         }
     }
@@ -721,7 +737,8 @@ public final class SwiftMetadataProcessor {
                 let paramIndex = Int((flags >> 16) & 0xFF)
                 if paramIndex < paramNames.count {
                     paramName = paramNames[paramIndex]
-                } else {
+                }
+                else {
                     paramName = "T\(paramIndex)"
                 }
             }
@@ -744,7 +761,8 @@ public final class SwiftMetadataProcessor {
                     param: paramName,
                     constraint: constraint,
                     flags: flags
-                ))
+                )
+            )
 
             currentOffset += 12
         }
@@ -885,42 +903,42 @@ public final class SwiftMetadataProcessor {
                     var requirementName = ""
 
                     switch kind {
-                    case .baseProtocol:
-                        // The DefaultImpl pointer actually points to the protocol descriptor
-                        if let protoDescOffset = readRelativePointer(at: currentOffset + 4),
-                            protoDescOffset > 0, Int(protoDescOffset) + 12 < data.count,
-                            let protoName = readRelativeString(at: Int(protoDescOffset) + 8),
-                            !protoName.isEmpty
-                        {
-                            requirementName = protoName
-                            inheritedProtocols.append(protoName)
-                        }
-                        // Don't count this as having a "default impl" since it's actually a protocol reference
-                        hasDefaultImpl = false
+                        case .baseProtocol:
+                            // The DefaultImpl pointer actually points to the protocol descriptor
+                            if let protoDescOffset = readRelativePointer(at: currentOffset + 4),
+                                protoDescOffset > 0, Int(protoDescOffset) + 12 < data.count,
+                                let protoName = readRelativeString(at: Int(protoDescOffset) + 8),
+                                !protoName.isEmpty
+                            {
+                                requirementName = protoName
+                                inheritedProtocols.append(protoName)
+                            }
+                            // Don't count this as having a "default impl" since it's actually a protocol reference
+                            hasDefaultImpl = false
 
-                    case .associatedTypeAccessFunction:
-                        // Consume the next associated type name
-                        if !remainingAssociatedTypes.isEmpty {
-                            requirementName = remainingAssociatedTypes.removeFirst()
-                        }
+                        case .associatedTypeAccessFunction:
+                            // Consume the next associated type name
+                            if !remainingAssociatedTypes.isEmpty {
+                                requirementName = remainingAssociatedTypes.removeFirst()
+                            }
 
-                    case .associatedConformanceAccessFunction:
-                        // Associated conformances don't have explicit names in the descriptor
-                        break
+                        case .associatedConformanceAccessFunction:
+                            // Associated conformances don't have explicit names in the descriptor
+                            break
 
-                    case .method, .initializer:
-                        // Method/initializer names are not stored directly in the descriptor
-                        // They would need to be resolved from symbol table or witness tables
-                        break
+                        case .method, .initializer:
+                            // Method/initializer names are not stored directly in the descriptor
+                            // They would need to be resolved from symbol table or witness tables
+                            break
 
-                    case .getter, .setter:
-                        // Property names are not stored directly in the descriptor
-                        // The getter and setter share the same property, so we could track pairs
-                        break
+                        case .getter, .setter:
+                            // Property names are not stored directly in the descriptor
+                            // The getter and setter share the same property, so we could track pairs
+                            break
 
-                    case .readCoroutine, .modifyCoroutine:
-                        // Coroutine accessors for properties
-                        break
+                        case .readCoroutine, .modifyCoroutine:
+                            // Coroutine accessors for properties
+                            break
                     }
 
                     requirements.append(
@@ -930,7 +948,8 @@ public final class SwiftMetadataProcessor {
                             isInstance: isInstance,
                             isAsync: isAsync,
                             hasDefaultImplementation: hasDefaultImpl
-                        ))
+                        )
+                    )
                 }
 
                 currentOffset += 8
@@ -1001,31 +1020,31 @@ public final class SwiftMetadataProcessor {
             var typeAddress: UInt64 = 0
 
             switch flags.typeReferenceKind {
-            case .directTypeDescriptor, .indirectTypeDescriptor:
-                // For type descriptors, read the mangled name
-                if let typeDescOffset = readRelativePointer(at: typeRefOffset),
-                    typeDescOffset > 0
-                {
-                    typeAddress = UInt64(typeDescOffset)
-                    // Type name is at offset +8 in the type descriptor
-                    let typeNameOffset = Int(typeDescOffset) + 8
-                    if let name = readRelativeString(at: typeNameOffset) {
-                        typeName = name
+                case .directTypeDescriptor, .indirectTypeDescriptor:
+                    // For type descriptors, read the mangled name
+                    if let typeDescOffset = readRelativePointer(at: typeRefOffset),
+                        typeDescOffset > 0
+                    {
+                        typeAddress = UInt64(typeDescOffset)
+                        // Type name is at offset +8 in the type descriptor
+                        let typeNameOffset = Int(typeDescOffset) + 8
+                        if let name = readRelativeString(at: typeNameOffset) {
+                            typeName = name
+                        }
+                        // Try to read mangled name at offset +16
+                        let mangledOffset = Int(typeDescOffset) + 16
+                        if let mangled = readRelativeString(at: mangledOffset) {
+                            mangledTypeName = mangled
+                        }
                     }
-                    // Try to read mangled name at offset +16
-                    let mangledOffset = Int(typeDescOffset) + 16
-                    if let mangled = readRelativeString(at: mangledOffset) {
-                        mangledTypeName = mangled
-                    }
-                }
 
-            case .directObjCClass, .indirectObjCClass:
-                // For ObjC classes, try to read the class name
-                if let typeRefValue = readRelativePointer(at: typeRefOffset) {
-                    typeAddress = UInt64(typeRefValue)
-                    // Try to demangle if it's a Swift-exposed ObjC name
-                    typeName = readRelativeString(at: typeRefOffset) ?? ""
-                }
+                case .directObjCClass, .indirectObjCClass:
+                    // For ObjC classes, try to read the class name
+                    if let typeRefValue = readRelativePointer(at: typeRefOffset) {
+                        typeAddress = UInt64(typeRefValue)
+                        // Try to demangle if it's a Swift-exposed ObjC name
+                        typeName = readRelativeString(at: typeRefOffset) ?? ""
+                    }
             }
 
             // If we still don't have a type name, try reading directly
@@ -1043,7 +1062,8 @@ public final class SwiftMetadataProcessor {
                         protocolName: protocolName,
                         protocolAddress: protocolAddress,
                         flags: flags
-                    ))
+                    )
+                )
             }
 
             offset += 16
@@ -1060,10 +1080,8 @@ extension MachOFile {
     public var hasSwiftMetadata: Bool {
         // Check for __swift5_types or __swift5_fieldmd sections
         for segment in segments where segment.name == "__TEXT" || segment.name == "__DATA_CONST" {
-            for section in segment.sections {
-                if section.sectionName.hasPrefix("__swift5_") {
-                    return true
-                }
+            for section in segment.sections where section.sectionName.hasPrefix("__swift5_") {
+                return true
             }
         }
         return false

@@ -1,6 +1,6 @@
 # class-dump - Completed Work
 
-**697 tests passing** | Swift 6.2 | Version 4.0.2 | Full CLI feature parity
+**840 tests passing** | Swift 6.2 | Version 4.0.3 | Full CLI feature parity
 
 ---
 
@@ -21,66 +21,14 @@
 
 ## Completed Tasks
 
-### Task T01: Split Test Files into Suites ✅
-Reorganized test files for better maintainability and parallel execution.
-
-**Final Structure**:
-```
-Tests/ClassDumpCoreTests/
-├── Arch/                 # Architecture tests (3 files)
-├── Demangling/           # Swift demangling tests (10 files)
-├── MachO/                # Mach-O parsing tests (6 files)
-├── ObjCMetadata/         # ObjC metadata tests (2 files)
-├── Swift/                # Swift metadata tests (2 files)
-├── TypeSystem/           # Type encoding tests (5 files)
-├── Visitor/              # Output generation tests (4 files)
-└── TestSupport.swift
-```
-
-### Task T02: Complete Protocol Descriptor Parsing ✅
-Enhanced protocol descriptor parsing with:
-- `SwiftProtocolRequirement.Kind` as `UInt8` raw value enum
-- `isInstance`, `isAsync`, `hasDefaultImplementation` flags
-- Parent module name extraction
-- Associated type names parsing
-- Inherited protocols list
-- 28 new tests
-
-### Task T03: Complete Protocol Conformance Resolution ✅
-Enhanced `SwiftConformance` struct with:
-- `ConformanceTypeReferenceKind` enum
-- `ConformanceFlags` struct with retroactive, conditional, resilient witnesses flags
-- Type and protocol address tracking
-- Mangled type name storage
-- Lookup tables in `SwiftMetadata`
-- Linked conformances to ObjC classes
-- 34 new tests
-
-### Task T04: Nominal Type Descriptor Enhancement ✅
-Enhanced nominal type descriptor parsing with:
-- `TypeContextDescriptorFlags` struct
-- `GenericRequirementKind` enum matching Swift ABI
-- `SwiftGenericRequirement` struct
-- `SwiftType` enhanced with parentKind, genericRequirements, flags
-- Type lookup by descriptor address
-- 30 new tests
-
-### Task T05: Generic Constraint Parsing ✅
-Enhanced SwiftDemangler with:
-- `ConstraintKind` enum (conformance, sameType, layout, baseClass)
-- `DemangledConstraint` struct with constraint description formatting
-- `GenericSignature` struct with whereClause output
-- Protocol shortcuts dictionary (SH=Hashable, SE=Equatable, etc.)
-- `demangleGenericSignature()` method
-- 35 new tests
-
-### Task T06: Complete ObjC Type Encoding Coverage ✅
-Enhanced ObjC type encoding with:
-- Added `int128` and `unsignedInt128` for __int128 types (t/T encoding)
-- Verified complex nested struct handling
-- Verified union types with named members, anonymous unions
-- Verified SIMD/vector types
-- 56 new edge case tests
+| Task | Status | Description |
+|------|--------|-------------|
+| [T00](completed/T00_SWIFT_TYPE_RESOLUTION.md) | ✅ Complete | Swift type resolution regressions (34 tests) |
+| [T07](completed/T07_SWIFT_STDLIB_DEMANGLING.md) | ✅ Complete | Swift stdlib type demangling (15 tests) |
+| [T08](completed/T08_OUTPUT_MODE_CONSISTENCY.md) | ✅ Complete | Output mode consistency (14 tests) |
+| [T09](completed/T09_FORWARD_DECLARATIONS.md) | ✅ Complete | Forward-declared types (24 tests) |
+| [T10](completed/T10_BLOCK_TYPE_RESOLUTION.md) | ✅ Complete | Block type resolution (26 tests) |
+| [T11](completed/T11_CONCURRENCY_PERFORMANCE.md) | ✅ Complete | Concurrency & performance (Phases 1-3) |
 
 ---
 
@@ -93,6 +41,15 @@ Enhanced ObjC type encoding with:
 - Swift metadata parsing (`__swift5_*` sections)
 - Comprehensive type encoding parsing and formatting
 - 128-bit integer support (__int128, unsigned __int128)
+- Actor-based thread-safe symbolic resolution
+
+### Performance
+- ~700% CPU utilization on multi-core systems
+- ~0.94s for IDEFoundation.framework (74,493 lines)
+- Parallel class/protocol loading with TaskGroup
+- SIMD-accelerated string scanning
+- O(1) Swift field descriptor lookups
+- Type encoding parse cache
 
 ### Swift Demangling
 - Class names: `_TtC...` → `Module.ClassName`
@@ -120,6 +77,8 @@ class-dump [file]
   --demangle/--no-demangle
   --demangle-style=swift|objc
   --method-style=swift|objc
+  --output-style=objc|swift
+  --show-raw-types
   --sdk-ios/--sdk-mac/--sdk-root
 ```
 
@@ -134,6 +93,7 @@ Sources/
 │   ├── ObjCMetadata/       # Runtime metadata
 │   ├── Swift/              # Swift metadata & demangling
 │   ├── TypeSystem/         # Type encoding
+│   ├── Utilities/          # Caches, address translation
 │   └── Visitor/            # Output generation
 ├── ClassDumpCLI/           # class-dump executable
 ├── DeprotectCLI/           # deprotect executable
@@ -144,37 +104,12 @@ Tests/ClassDumpCoreTests/
 ├── Demangling/             # Swift demangling tests
 ├── MachO/                  # Mach-O parsing tests
 ├── ObjCMetadata/           # ObjC metadata tests
+├── Performance/            # Benchmarks & concurrency tests
 ├── Swift/                  # Swift metadata tests
 ├── TypeSystem/             # Type encoding tests
 └── Visitor/                # Output generation tests
-                            # 697 tests across 142 suites
+                            # 840 tests across 161 suites
 ```
-
----
-
-## Progress Timeline
-
-| Date | Milestone |
-|------|-----------|
-| 2026-01-07 | Project started, branch created |
-| 2026-01-07 | Test scaffolding and conversion |
-| 2026-01-08 | Full Swift 6 core (265 tests) |
-| 2026-01-08 | CLI feature parity (277 tests) |
-| 2026-01-08 | Chained fixups & Swift metadata |
-| 2026-01-08 | Swift demangling in output (337 tests) |
-| 2026-01-09 | Protocol & concurrency demangling (353 tests) |
-| 2026-01-09 | Generic types & nesting (405 tests) |
-| 2026-01-09 | Block formatting improvements (417 tests) |
-| 2026-01-09 | Function & closure demangling (472 tests) |
-| 2026-01-09 | Field type resolution (492 tests) |
-| 2026-01-09 | Method style formatting (514 tests) |
-| 2026-01-09 | Test file reorganization (Task T01) |
-| 2026-01-09 | Protocol descriptor parsing enhancement (Task T02, 542 tests) |
-| 2026-01-09 | Protocol conformance resolution (Task T03, 576 tests) |
-| 2026-01-09 | Nominal type descriptor enhancement (Task T04, 606 tests) |
-| 2026-01-09 | Generic constraint parsing in demangler (Task T05, 641 tests) |
-| 2026-01-09 | ObjC type encoding enhancement (Task T06, 697 tests) |
-| 2026-01-09 | Version 4.0.2 release preparation |
 
 ---
 
@@ -183,11 +118,11 @@ Tests/ClassDumpCoreTests/
 | Category | Tests | Suites |
 |----------|-------|--------|
 | Architecture | 15 | 3 |
-| Demangling | 250+ | 35 |
-| MachO Parsing | 50+ | 10 |
-| ObjC Metadata | 80+ | 8 |
-| Swift Metadata | 100+ | 15 |
-| Type System | 120+ | 20 |
-| Visitor/Output | 80+ | 15 |
-| Edge Cases | 56 | 10 |
-| **Total** | **697** | **142** |
+| Demangling | 280+ | 40 |
+| MachO Parsing | 60+ | 12 |
+| ObjC Metadata | 90+ | 10 |
+| Performance | 30+ | 5 |
+| Swift Metadata | 110+ | 18 |
+| Type System | 150+ | 25 |
+| Visitor/Output | 100+ | 20 |
+| **Total** | **840** | **161** |

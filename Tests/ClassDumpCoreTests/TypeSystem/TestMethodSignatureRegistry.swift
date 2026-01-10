@@ -8,7 +8,7 @@ struct MethodSignatureRegistryTests {
     // MARK: - Basic Registration
 
     @Test("Register and lookup method by selector")
-    func registerAndLookup() {
+    func registerAndLookup() async {
         let registry = MethodSignatureRegistry()
 
         let method = ObjCMethod(
@@ -17,48 +17,48 @@ struct MethodSignatureRegistryTests {
             address: 0
         )
 
-        registry.registerMethod(method, source: .protocol("TestProtocol"))
+        await registry.registerMethod(method, source: .protocol("TestProtocol"))
 
-        #expect(registry.hasSelector("fetchWithCompletion:"))
-        #expect(!registry.hasSelector("nonExistentMethod"))
+        #expect(await registry.hasSelector("fetchWithCompletion:"))
+        #expect(await !registry.hasSelector("nonExistentMethod"))
     }
 
     @Test("Get all selectors")
-    func getAllSelectors() {
+    func getAllSelectors() async {
         let registry = MethodSignatureRegistry()
 
         let method1 = ObjCMethod(name: "method1:", typeString: "@24@0:8@16", address: 0)
         let method2 = ObjCMethod(name: "method2:", typeString: "@24@0:8@16", address: 0)
 
-        registry.registerMethod(method1, source: .protocol("P"))
-        registry.registerMethod(method2, source: .class("C"))
+        await registry.registerMethod(method1, source: .protocol("P"))
+        await registry.registerMethod(method2, source: .class("C"))
 
-        let selectors = registry.allSelectors
+        let selectors = await registry.allSelectors
         #expect(selectors.contains("method1:"))
         #expect(selectors.contains("method2:"))
         #expect(selectors.count == 2)
     }
 
     @Test("Method count reflects total registrations")
-    func methodCount() {
+    func methodCount() async {
         let registry = MethodSignatureRegistry()
 
-        #expect(registry.methodCount == 0)
+        #expect(await registry.methodCount == 0)
 
         let method = ObjCMethod(name: "test", typeString: "v16@0:8", address: 0)
-        registry.registerMethod(method, source: .protocol("P"))
+        await registry.registerMethod(method, source: .protocol("P"))
 
-        #expect(registry.methodCount == 1)
+        #expect(await registry.methodCount == 1)
 
         // Registering same selector from different source adds another entry
-        registry.registerMethod(method, source: .class("C"))
-        #expect(registry.methodCount == 2)
+        await registry.registerMethod(method, source: .class("C"))
+        #expect(await registry.methodCount == 2)
     }
 
     // MARK: - Block Signature Resolution
 
     @Test("Look up block signature for selector at argument position")
-    func blockSignatureLookup() {
+    func blockSignatureLookup() async {
         let registry = MethodSignatureRegistry()
 
         // Method with block at argument position 0: void (^)(id)
@@ -73,9 +73,9 @@ struct MethodSignatureRegistryTests {
             address: 0
         )
 
-        registry.registerMethod(method, source: .protocol("DataFetching"))
+        await registry.registerMethod(method, source: .protocol("DataFetching"))
 
-        let blockTypes = registry.blockSignature(forSelector: "fetchWithCompletion:", argumentIndex: 0)
+        let blockTypes = await registry.blockSignature(forSelector: "fetchWithCompletion:", argumentIndex: 0)
         #expect(blockTypes != nil)
         #expect(blockTypes?.count == 3)  // void, @?, @
 
@@ -88,7 +88,7 @@ struct MethodSignatureRegistryTests {
     }
 
     @Test("Block signature returns nil for non-block argument")
-    func blockSignatureNonBlock() {
+    func blockSignatureNonBlock() async {
         let registry = MethodSignatureRegistry()
 
         // Method with id argument (not block)
@@ -98,22 +98,22 @@ struct MethodSignatureRegistryTests {
             address: 0
         )
 
-        registry.registerMethod(method, source: .protocol("P"))
+        await registry.registerMethod(method, source: .protocol("P"))
 
-        let blockTypes = registry.blockSignature(forSelector: "processObject:", argumentIndex: 0)
+        let blockTypes = await registry.blockSignature(forSelector: "processObject:", argumentIndex: 0)
         #expect(blockTypes == nil)
     }
 
     @Test("Block signature returns nil for unknown selector")
-    func blockSignatureUnknownSelector() {
+    func blockSignatureUnknownSelector() async {
         let registry = MethodSignatureRegistry()
 
-        let blockTypes = registry.blockSignature(forSelector: "unknownSelector:", argumentIndex: 0)
+        let blockTypes = await registry.blockSignature(forSelector: "unknownSelector:", argumentIndex: 0)
         #expect(blockTypes == nil)
     }
 
     @Test("Block signature returns nil for block without signature in registry")
-    func blockSignatureEmptyBlockInRegistry() {
+    func blockSignatureEmptyBlockInRegistry() async {
         let registry = MethodSignatureRegistry()
 
         // Method with block but no signature: @?
@@ -123,17 +123,17 @@ struct MethodSignatureRegistryTests {
             address: 0
         )
 
-        registry.registerMethod(method, source: .protocol("P"))
+        await registry.registerMethod(method, source: .protocol("P"))
 
         // Registry has the selector but the block has no signature
-        let blockTypes = registry.blockSignature(forSelector: "doSomething:", argumentIndex: 0)
+        let blockTypes = await registry.blockSignature(forSelector: "doSomething:", argumentIndex: 0)
         #expect(blockTypes == nil)
     }
 
     // MARK: - Protocol Registration
 
     @Test("Register protocol registers all methods")
-    func registerProtocol() {
+    func registerProtocol() async {
         let registry = MethodSignatureRegistry()
 
         let proto = ObjCProtocol(name: "TestProtocol")
@@ -142,19 +142,19 @@ struct MethodSignatureRegistryTests {
         proto.addOptionalClassMethod(ObjCMethod(name: "optionalClass", typeString: "v16@0:8", address: 0))
         proto.addOptionalInstanceMethod(ObjCMethod(name: "optionalInstance:", typeString: "@24@0:8@16", address: 0))
 
-        registry.registerProtocol(proto)
+        await registry.registerProtocol(proto)
 
-        #expect(registry.hasSelector("classMethod"))
-        #expect(registry.hasSelector("instanceMethod:"))
-        #expect(registry.hasSelector("optionalClass"))
-        #expect(registry.hasSelector("optionalInstance:"))
-        #expect(registry.methodCount == 4)
+        #expect(await registry.hasSelector("classMethod"))
+        #expect(await registry.hasSelector("instanceMethod:"))
+        #expect(await registry.hasSelector("optionalClass"))
+        #expect(await registry.hasSelector("optionalInstance:"))
+        #expect(await registry.methodCount == 4)
     }
 
     // MARK: - Source Priority
 
     @Test("Protocol sources are preferred over class sources")
-    func protocolSourcePriority() {
+    func protocolSourcePriority() async {
         let registry = MethodSignatureRegistry()
 
         // Class has block without signature
@@ -163,7 +163,7 @@ struct MethodSignatureRegistryTests {
             typeString: "@24@0:8@?16",  // @? without signature
             address: 0
         )
-        registry.registerMethod(classMethod, source: .class("DataManager"))
+        await registry.registerMethod(classMethod, source: .class("DataManager"))
 
         // Protocol has block with signature
         let protoMethod = ObjCMethod(
@@ -171,10 +171,10 @@ struct MethodSignatureRegistryTests {
             typeString: "@24@0:8@?<v@?@\"NSData\">16",  // Block with NSData param
             address: 0
         )
-        registry.registerMethod(protoMethod, source: .protocol("DataFetching"))
+        await registry.registerMethod(protoMethod, source: .protocol("DataFetching"))
 
         // Should return the protocol's richer signature
-        let blockTypes = registry.blockSignature(forSelector: "fetchData:", argumentIndex: 0)
+        let blockTypes = await registry.blockSignature(forSelector: "fetchData:", argumentIndex: 0)
         #expect(blockTypes != nil)
         #expect(blockTypes?.count == 3)
     }
@@ -182,7 +182,7 @@ struct MethodSignatureRegistryTests {
     // MARK: - Method Types Lookup
 
     @Test("Lookup full method types for selector")
-    func methodTypesLookup() {
+    func methodTypesLookup() async {
         let registry = MethodSignatureRegistry()
 
         let method = ObjCMethod(
@@ -191,25 +191,29 @@ struct MethodSignatureRegistryTests {
             address: 0
         )
 
-        registry.registerMethod(method, source: .protocol("UIView"))
+        await registry.registerMethod(method, source: .protocol("UIView"))
 
-        let types = registry.methodTypes(forSelector: "initWithFrame:")
+        let types = await registry.methodTypes(forSelector: "initWithFrame:")
         #expect(types != nil)
         #expect(types?.count == 4)  // return (@), self (@), _cmd (:), arg1 ({CGRect})
     }
 
     @Test("Method types returns nil for unknown selector")
-    func methodTypesUnknown() {
+    func methodTypesUnknown() async {
         let registry = MethodSignatureRegistry()
 
-        let types = registry.methodTypes(forSelector: "unknownMethod:")
+        let types = await registry.methodTypes(forSelector: "unknownMethod:")
         #expect(types == nil)
     }
 
     // MARK: - Formatter Integration
 
-    @Test("Formatter enhances empty block type using registry")
-    func formatterEnhancesBlockType() {
+    @Test("Pre-resolved block signature displays correctly")
+    func preResolvedBlockSignature() async {
+        // With actor-based registries, the workflow is:
+        // 1. Pre-resolve block signatures from registry (async)
+        // 2. Format the pre-resolved type (sync)
+
         let registry = MethodSignatureRegistry()
 
         // Protocol has rich block signature
@@ -218,44 +222,37 @@ struct MethodSignatureRegistryTests {
             typeString: "@24@0:8@?<v@?@>16",  // Block: void (^)(id)
             address: 0
         )
-        registry.registerMethod(protoMethod, source: .protocol("DataFetching"))
+        await registry.registerMethod(protoMethod, source: .protocol("DataFetching"))
 
-        // Formatter with registry
-        var formatter = ObjCTypeFormatter()
-        formatter.methodSignatureRegistry = registry
+        // Pre-resolve the block signature asynchronously
+        let blockTypes = await registry.blockSignature(forSelector: "fetchWithCompletion:", argumentIndex: 0)
+        #expect(blockTypes != nil)
+        #expect(blockTypes?.count == 3)
 
-        // Method with empty block signature
-        let classTypeString = "@24@0:8@?16"  // @? without <...>
+        // Create the enhanced block type with the resolved signature
+        let enhancedBlockType = ObjCType.block(types: blockTypes)
 
-        let result = formatter.formatMethodName("fetchWithCompletion:", typeString: classTypeString)
-        #expect(result != nil)
+        // Format the enhanced type
+        let formatter = ObjCTypeFormatter()
+        let formatted = formatter.formatVariable(name: "completion", type: enhancedBlockType)
 
-        // The enhanced output should have the full block signature, not just "id /* block */"
-        #expect(result!.contains("void (^)(id)"))
+        // The enhanced output should have the full block signature
+        #expect(formatted.contains("void (^completion)(id)"))
     }
 
     @Test("Formatter preserves existing block signature")
     func formatterPreservesExistingSignature() {
-        let registry = MethodSignatureRegistry()
+        // When a block already has a full signature, the formatter should use it
+        // No registry needed for this case
 
-        // Protocol has one signature
-        let protoMethod = ObjCMethod(
-            name: "doWork:",
-            typeString: "@24@0:8@?<v@?@>16",  // Block: void (^)(id)
-            address: 0
-        )
-        registry.registerMethod(protoMethod, source: .protocol("P"))
-
-        var formatter = ObjCTypeFormatter()
-        formatter.methodSignatureRegistry = registry
-
-        // Class method already has a (different) full block signature
+        // Class method already has a full block signature
         let classTypeString = "@24@0:8@?<v@?@@>16"  // Block: void (^)(id, id)
 
+        let formatter = ObjCTypeFormatter()
         let result = formatter.formatMethodName("doWork:", typeString: classTypeString)
         #expect(result != nil)
 
-        // Should use the class's own signature, not the protocol's
+        // Should use the class's own signature
         #expect(result!.contains("void (^)(id, id)"))
     }
 
@@ -269,7 +266,7 @@ struct MethodSignatureRegistryTests {
         let result = formatter.formatMethodName("fetchWithCompletion:", typeString: typeString)
         #expect(result != nil)
 
-        // Without registry, should show "id /* block */"
+        // Without pre-resolved signatures, empty blocks show as "id /* block */"
         #expect(result!.contains("id /* block */"))
     }
 }

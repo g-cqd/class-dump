@@ -8,6 +8,7 @@ import Testing
 // MARK: - T00: Swift Type Resolution Regression Tests
 
 /// Comprehensive tests for Swift type demangling fixes.
+///
 /// See .plan/TODO.md Task T00 for full details.
 @Suite("T00: Swift Type Resolution")
 struct SwiftTypeResolutionTests {
@@ -115,7 +116,8 @@ struct SwiftTypeResolutionTests {
 
             // Swift mode should preserve Swift.AnyObject or just AnyObject
             #expect(
-                visitor.resultString.contains("AnyObject") || visitor.resultString.contains("Swift.AnyObject"))
+                visitor.resultString.contains("AnyObject") || visitor.resultString.contains("Swift.AnyObject")
+            )
         }
 
         @Test("ObjC type formatter handles Swift.AnyObject")
@@ -148,7 +150,8 @@ struct SwiftTypeResolutionTests {
             // Swift syntax uses "any" for existential types
             #expect(
                 result == "[any IDETestingSpecifier]" || result == "[IDETestingSpecifier]"
-                    || result == "[IDEFoundation.IDETestingSpecifier]")
+                    || result == "[IDEFoundation.IDETestingSpecifier]"
+            )
         }
 
         @Test("Module-qualified protocol existential demangles correctly")
@@ -158,7 +161,8 @@ struct SwiftTypeResolutionTests {
             // Should return just the protocol name or module.protocol
             #expect(
                 result.contains("IDETestingSpecifier") && !result.contains("_p")
-                    || result == "13IDEFoundation19IDETestingSpecifier_p")
+                    || result == "13IDEFoundation19IDETestingSpecifier_p"
+            )
         }
 
         @Test("Protocol suffix _p stripped from type names")
@@ -278,7 +282,8 @@ struct SwiftTypeResolutionTests {
             // Accept either /* actor storage */ or Builtin.DefaultActorStorage *
             #expect(
                 visitor.resultString.contains("$defaultActor")
-                    && (visitor.resultString.contains("actor") || visitor.resultString.contains("Builtin")))
+                    && (visitor.resultString.contains("actor") || visitor.resultString.contains("Builtin"))
+            )
         }
     }
 
@@ -349,7 +354,8 @@ struct SwiftTypeResolutionTests {
             #expect(
                 !result.contains("<") && !result.contains(">")
                     || result == "ScXySomethingWeird"
-                    || result.hasPrefix("Sc"))
+                    || result.hasPrefix("Sc")
+            )
         }
 
         @Test("isValidDemangledOutput helper identifies bad output")

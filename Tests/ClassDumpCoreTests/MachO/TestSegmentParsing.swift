@@ -57,7 +57,9 @@ struct TestChainedFixups {
 
         // There should be at least some classes with external superclasses (like NSObject)
         #expect(
-            classesWithExternalSuperclass.count > 0, "Should have classes with external superclasses resolved via bind")
+            classesWithExternalSuperclass.count > 0,
+            "Should have classes with external superclasses resolved via bind"
+        )
     }
 }
 
@@ -96,11 +98,9 @@ struct TestSwiftMetadata {
         // Check that field records have valid names
         var foundValidRecord = false
         for fd in swiftMetadata.fieldDescriptors.prefix(50) {
-            for record in fd.records {
-                if !record.name.isEmpty {
-                    foundValidRecord = true
-                    break
-                }
+            for record in fd.records where !record.name.isEmpty {
+                foundValidRecord = true
+                break
             }
             if foundValidRecord { break }
         }
@@ -130,7 +130,7 @@ struct TestSwiftMetadata {
     }
 
     @Test("Resolve symbolic type references")
-    func testResolveSymbolicReferences() throws {
+    func testResolveSymbolicReferences() async throws {
         let path = "/Applications/Xcode.app/Contents/Frameworks/IDEFoundation.framework/Versions/A/IDEFoundation"
         guard FileManager.default.fileExists(atPath: path) else {
             return
@@ -148,16 +148,14 @@ struct TestSwiftMetadata {
         var symbolicCount = 0
 
         for fd in metadata.fieldDescriptors.prefix(100) {
-            for record in fd.records {
-                // Use raw data to check for symbolic references
-                guard !record.mangledTypeData.isEmpty else { continue }
+            for record in fd.records where !record.mangledTypeData.isEmpty {
 
                 // Check if it's a symbolic reference using raw data
                 if record.hasSymbolicReference {
                     symbolicCount += 1
 
                     // Try to resolve it using raw data
-                    let resolved = processor.resolveFieldTypeFromData(
+                    let resolved = await processor.resolveFieldTypeFromData(
                         record.mangledTypeData,
                         at: record.mangledTypeNameOffset
                     )
@@ -262,7 +260,8 @@ struct TestSwiftMetadata {
         // Verify we can classify types
         #expect(
             classes.count + structs.count + enums.count == swiftMetadata.types.count,
-            "All types should be classified as class, struct, or enum")
+            "All types should be classified as class, struct, or enum"
+        )
 
         // IDEFoundation should have a mix of types
         #expect(classes.count > 0, "Should have Swift classes")
@@ -302,7 +301,8 @@ struct TestSwiftMetadata {
                 let isDemangled = !superclass.hasPrefix("_Tt") && !superclass.hasPrefix("$s")
                 #expect(
                     isDemangled || superclass.count < 100,
-                    "Superclass should be demangled or reasonably short")
+                    "Superclass should be demangled or reasonably short"
+                )
                 break
             }
         }

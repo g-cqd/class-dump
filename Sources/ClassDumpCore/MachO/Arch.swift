@@ -3,9 +3,13 @@ import MachO
 
 /// Represents a CPU architecture (cputype + cpusubtype pair).
 public struct Arch: Equatable, Hashable, Sendable {
+    /// The CPU type.
     public var cputype: cpu_type_t
+
+    /// The CPU subtype.
     public var cpusubtype: cpu_subtype_t
 
+    /// Create an architecture from CPU type and subtype.
     public init(cputype: cpu_type_t = CPU_TYPE_ANY, cpusubtype: cpu_subtype_t = 0) {
         self.cputype = cputype
         self.cpusubtype = cpusubtype
@@ -104,48 +108,50 @@ public struct Arch: Equatable, Hashable, Sendable {
     // MARK: - Built-in Architecture Tables
 
     /// Built-in table mapping CPU type/subtype to names.
+    ///
     /// This avoids using deprecated NXGetArchInfoFromCpuType for common architectures.
     private static func nameForCPUType(_ cputype: cpu_type_t, _ cpusubtype: cpu_subtype_t) -> String? {
         let masked = cpusubtype & ~Int32(bitPattern: CPU_SUBTYPE_MASK)
 
         switch cputype {
-        case CPU_TYPE_I386:
-            return "i386"
-        case CPU_TYPE_X86_64:
-            if (cpusubtype & Int32(bitPattern: CPU_SUBTYPE_LIB64)) != 0 {
+            case CPU_TYPE_I386:
+                return "i386"
+            case CPU_TYPE_X86_64:
+                if (cpusubtype & Int32(bitPattern: CPU_SUBTYPE_LIB64)) != 0 {
+                    return "x86_64"
+                }
                 return "x86_64"
-            }
-            return "x86_64"
-        case CPU_TYPE_ARM:
-            switch masked {
-            case CPU_SUBTYPE_ARM_V6: return "armv6"
-            case CPU_SUBTYPE_ARM_V7: return "armv7"
-            case 11: return "armv7s"
-            default: return nil
-            }
-        case CPU_TYPE_ARM64:
-            switch masked {
-            case CPU_SUBTYPE_ARM_ALL: return "arm64"
-            case 2: return "arm64e"
-            default: return nil
-            }
-        default:
-            return nil
+            case CPU_TYPE_ARM:
+                switch masked {
+                    case CPU_SUBTYPE_ARM_V6: return "armv6"
+                    case CPU_SUBTYPE_ARM_V7: return "armv7"
+                    case 11: return "armv7s"
+                    default: return nil
+                }
+            case CPU_TYPE_ARM64:
+                switch masked {
+                    case CPU_SUBTYPE_ARM_ALL: return "arm64"
+                    case 2: return "arm64e"
+                    default: return nil
+                }
+            default:
+                return nil
         }
     }
 
     /// Built-in table mapping names to CPU type/subtype.
+    ///
     /// This avoids using deprecated NXGetArchInfoFromName for common architectures.
     private static func cpuTypeForName(_ name: String) -> Arch? {
         switch name {
-        case "i386": return .i386
-        case "x86_64": return .x86_64
-        case "armv6": return Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V6)
-        case "armv7": return .armv7
-        case "armv7s": return .armv7s
-        case "arm64": return .arm64
-        case "arm64e": return .arm64e
-        default: return nil
+            case "i386": return .i386
+            case "x86_64": return .x86_64
+            case "armv6": return Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V6)
+            case "armv7": return .armv7
+            case "armv7s": return .armv7s
+            case "arm64": return .arm64
+            case "arm64e": return .arm64e
+            default: return nil
         }
     }
 
@@ -156,6 +162,7 @@ public struct Arch: Equatable, Hashable, Sendable {
 }
 
 extension Arch: CustomStringConvertible {
+    /// A textual description of the architecture.
     public var description: String {
         name
     }
@@ -165,12 +172,18 @@ extension Arch: CustomStringConvertible {
 
 extension Arch {
     // CPU_SUBTYPE_I386_ALL = CPU_SUBTYPE_INTEL(3, 0) = 3
+    /// Intel 386 (32-bit).
     public static let i386 = Arch(cputype: CPU_TYPE_I386, cpusubtype: 3)
     // CPU_SUBTYPE_X86_64_ALL = 3
     // swift-format-ignore: AlwaysUseLowerCamelCase
+    /// Intel x86_64 (64-bit).
     public static let x86_64 = Arch(cputype: CPU_TYPE_X86_64, cpusubtype: 3)
+    /// ARM64.
     public static let arm64 = Arch(cputype: CPU_TYPE_ARM64, cpusubtype: CPU_SUBTYPE_ARM_ALL)
+    /// ARM64e.
     public static let arm64e = Arch(cputype: CPU_TYPE_ARM64, cpusubtype: 2)
+    /// ARMv7.
     public static let armv7 = Arch(cputype: CPU_TYPE_ARM, cpusubtype: CPU_SUBTYPE_ARM_V7)
+    /// ARMv7s.
     public static let armv7s = Arch(cputype: CPU_TYPE_ARM, cpusubtype: 11)
 }

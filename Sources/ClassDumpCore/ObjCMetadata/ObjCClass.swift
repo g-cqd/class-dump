@@ -2,17 +2,18 @@ import Foundation
 
 /// Reference to an Objective-C class (may be resolved or unresolved).
 public struct ObjCClassReference: Sendable, Hashable {
-    /// The class name
+    /// The class name.
     public let name: String
 
-    /// The address of the class (0 if external/unresolved)
+    /// The address of the class (0 if external/unresolved).
     public let address: UInt64
 
-    /// Whether this is an external class reference
+    /// Whether this is an external class reference.
     public var isExternal: Bool {
         address == 0
     }
 
+    /// Initialize a class reference.
     public init(name: String, address: UInt64 = 0) {
         self.name = name
         self.address = address
@@ -20,6 +21,7 @@ public struct ObjCClassReference: Sendable, Hashable {
 }
 
 extension ObjCClassReference: CustomStringConvertible {
+    /// A textual description of the reference.
     public var description: String {
         if address != 0 {
             return "\(name) (0x\(String(address, radix: 16)))"
@@ -30,49 +32,51 @@ extension ObjCClassReference: CustomStringConvertible {
 
 /// Represents an Objective-C class (@interface).
 public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
+    /// The class name.
     public let name: String
 
-    /// Address where this class was found
+    /// Address where this class was found.
     public let address: UInt64
 
-    /// Reference to the superclass (nil for root classes like NSObject)
+    /// Reference to the superclass (nil for root classes like NSObject).
     public var superclassRef: ObjCClassReference?
 
-    /// The superclass name (convenience)
+    /// The superclass name (convenience).
     public var superclassName: String? {
         superclassRef?.name
     }
 
-    /// Instance variables declared by this class
+    /// Instance variables declared by this class.
     public private(set) var instanceVariables: [ObjCInstanceVariable] = []
 
-    /// Adopted protocols
+    /// Adopted protocols.
     public private(set) var adoptedProtocols: [ObjCProtocol] = []
 
-    /// Class methods
+    /// Class methods.
     public private(set) var classMethods: [ObjCMethod] = []
 
-    /// Instance methods
+    /// Instance methods.
     public private(set) var instanceMethods: [ObjCMethod] = []
 
-    /// Properties
+    /// Properties.
     public private(set) var properties: [ObjCProperty] = []
 
-    /// Whether this class is exported (visible to other binaries)
+    /// Whether this class is exported (visible to other binaries).
     public var isExported: Bool = true
 
-    /// Whether this is a Swift class exposed to Objective-C
+    /// Whether this is a Swift class exposed to Objective-C.
     public var isSwiftClass: Bool = false
 
-    /// Swift protocol conformances (for Swift classes)
+    /// Swift protocol conformances (for Swift classes).
     public private(set) var swiftConformances: [String] = []
 
-    /// Class data from the runtime (for ObjC 2.0)
+    /// Class data from the runtime (for ObjC 2.0).
     public var classDataAddress: UInt64 = 0
 
-    /// Metaclass address (for ObjC 2.0)
+    /// Metaclass address (for ObjC 2.0).
     public var metaclassAddress: UInt64 = 0
 
+    /// Initialize a class.
     public init(name: String, address: UInt64 = 0) {
         self.name = name
         self.address = address
@@ -80,72 +84,80 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
 
     // MARK: - Adding members
 
+    /// Add an instance variable to the class.
     public func addInstanceVariable(_ ivar: ObjCInstanceVariable) {
         instanceVariables.append(ivar)
     }
 
+    /// Add an adopted protocol to the class.
     public func addAdoptedProtocol(_ proto: ObjCProtocol) {
         adoptedProtocols.append(proto)
     }
 
+    /// Add a class method to the class.
     public func addClassMethod(_ method: ObjCMethod) {
         classMethods.append(method)
     }
 
+    /// Add an instance method to the class.
     public func addInstanceMethod(_ method: ObjCMethod) {
         instanceMethods.append(method)
     }
 
+    /// Add a property to the class.
     public func addProperty(_ property: ObjCProperty) {
         properties.append(property)
     }
 
+    /// Add a Swift protocol conformance.
     public func addSwiftConformance(_ protocolName: String) {
         if !swiftConformances.contains(protocolName) {
             swiftConformances.append(protocolName)
         }
     }
 
+    /// Set all Swift protocol conformances.
     public func setSwiftConformances(_ conformances: [String]) {
         swiftConformances = conformances
     }
 
     // MARK: - Queries
 
-    /// Names of all adopted protocols
+    /// Names of all adopted protocols.
     public var adoptedProtocolNames: [String] {
         adoptedProtocols.map(\.name)
     }
 
-    /// Formatted string of adopted protocols
+    /// Formatted string of adopted protocols.
     public var adoptedProtocolsString: String {
         guard !adoptedProtocols.isEmpty else { return "" }
         return "<\(adoptedProtocolNames.joined(separator: ", "))>"
     }
 
-    /// Whether this class has Swift protocol conformances
+    /// Whether this class has Swift protocol conformances.
     public var hasSwiftConformances: Bool {
         !swiftConformances.isEmpty
     }
 
-    /// Formatted string of Swift conformances
+    /// Formatted string of Swift conformances.
     public var swiftConformancesString: String {
         guard !swiftConformances.isEmpty else { return "" }
         return "<\(swiftConformances.joined(separator: ", "))>"
     }
 
-    /// Whether this class has any methods
+    /// Whether this class has any methods.
     public var hasMethods: Bool {
         !classMethods.isEmpty || !instanceMethods.isEmpty
     }
 
-    /// All methods (class and instance)
+    /// All methods (class and instance).
     public var allMethods: [ObjCMethod] {
         classMethods + instanceMethods
     }
 
     // MARK: - Sorting
 
+    /// Sort all members (ivars, methods, properties, protocols).
     public func sortMembers() {
         instanceVariables.sort()
         classMethods.sort()
@@ -157,10 +169,12 @@ public final class ObjCClass: ObjCDeclarationContainer, @unchecked Sendable {
 }
 
 extension ObjCClass: Hashable {
+    /// Check if two classes are equal.
     public static func == (lhs: ObjCClass, rhs: ObjCClass) -> Bool {
         lhs.name == rhs.name && lhs.address == rhs.address
     }
 
+    /// Hash the class.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(name)
         hasher.combine(address)
@@ -168,12 +182,14 @@ extension ObjCClass: Hashable {
 }
 
 extension ObjCClass: Comparable {
+    /// Compare two classes by name.
     public static func < (lhs: ObjCClass, rhs: ObjCClass) -> Bool {
         lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
     }
 }
 
 extension ObjCClass: CustomStringConvertible {
+    /// A textual description of the class.
     public var description: String {
         var str = "@interface \(name)"
         if let superName = superclassName {

@@ -6,10 +6,10 @@ import Foundation
 /// to emit properties when their accessor methods are encountered, and track which
 /// properties have been emitted.
 public final class VisitorPropertyState: @unchecked Sendable {
-    /// Properties indexed by accessor name (getter or setter)
+    /// Properties indexed by accessor name (getter or setter).
     private var propertiesByAccessor: [String: ObjCProperty]
 
-    /// Properties indexed by property name (tracks which haven't been emitted)
+    /// Properties indexed by property name (tracks which haven't been emitted).
     private var propertiesByName: [String: ObjCProperty]
 
     /// Initialize with a list of properties.

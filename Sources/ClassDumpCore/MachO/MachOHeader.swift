@@ -13,16 +13,34 @@ public enum MachOError: Error, Equatable {
 
 /// Parsed Mach-O header information.
 public struct MachOHeader: Sendable {
+    /// The magic number identifying the file format.
     public let magic: UInt32
+
+    /// The CPU type.
     public let cputype: cpu_type_t
+
+    /// The CPU subtype.
     public let cpusubtype: cpu_subtype_t
+
+    /// The file type (executable, dylib, etc.).
     public let filetype: UInt32
+
+    /// The number of load commands.
     public let ncmds: UInt32
+
+    /// The size of all load commands in bytes.
     public let sizeofcmds: UInt32
+
+    /// Flags describing the file.
     public let flags: UInt32
+
+    /// Reserved field (64-bit only).
     public let reserved: UInt32  // Only used in 64-bit
 
+    /// The byte order of the file.
     public let byteOrder: ByteOrder
+
+    /// Whether this file uses the 64-bit ABI.
     public let uses64BitABI: Bool
 
     /// The size of the header in bytes.
@@ -61,14 +79,14 @@ public struct MachOHeader: Sendable {
         let parsedMagic: UInt32
 
         switch magicBE {
-        case MH_MAGIC, MH_MAGIC_64:
-            parsedByteOrder = .big
-            parsedMagic = magicBE
-        case MH_CIGAM, MH_CIGAM_64:
-            parsedByteOrder = .little
-            parsedMagic = magicBE.byteSwapped
-        default:
-            throw .invalidMagic(magicBE)
+            case MH_MAGIC, MH_MAGIC_64:
+                parsedByteOrder = .big
+                parsedMagic = magicBE
+            case MH_CIGAM, MH_CIGAM_64:
+                parsedByteOrder = .little
+                parsedMagic = magicBE.byteSwapped
+            default:
+                throw .invalidMagic(magicBE)
         }
 
         let is64Bit = (parsedMagic == MH_MAGIC_64)
@@ -84,42 +102,9 @@ public struct MachOHeader: Sendable {
                 cpu: cpu_type_t, sub: cpu_subtype_t, ftype: UInt32, ncmds: UInt32, sizeofcmds: UInt32, flags: UInt32,
                 reserved: UInt32
             ) in
-            if is64Bit {
-                let header = buffer.loadUnaligned(as: mach_header_64.self)
-                if parsedByteOrder == .little {
-                    return (
-                        cpu_type_t(littleEndian: header.cputype),
-                        cpu_subtype_t(littleEndian: header.cpusubtype),
-                        UInt32(littleEndian: header.filetype),
-                        UInt32(littleEndian: header.ncmds),
-                        UInt32(littleEndian: header.sizeofcmds),
-                        UInt32(littleEndian: header.flags),
-                        UInt32(littleEndian: header.reserved)
-                    )
-                } else {
-                    return (
-                        cpu_type_t(bigEndian: header.cputype),
-                        cpu_subtype_t(bigEndian: header.cpusubtype),
-                        UInt32(bigEndian: header.filetype),
-                        UInt32(bigEndian: header.ncmds),
-                        UInt32(bigEndian: header.sizeofcmds),
-                        UInt32(bigEndian: header.flags),
-                        UInt32(bigEndian: header.reserved)
-                    )
-                }
-            } else {
+            guard is64Bit else {
                 let header = buffer.loadUnaligned(as: mach_header.self)
-                if parsedByteOrder == .little {
-                    return (
-                        cpu_type_t(littleEndian: header.cputype),
-                        cpu_subtype_t(littleEndian: header.cpusubtype),
-                        UInt32(littleEndian: header.filetype),
-                        UInt32(littleEndian: header.ncmds),
-                        UInt32(littleEndian: header.sizeofcmds),
-                        UInt32(littleEndian: header.flags),
-                        0
-                    )
-                } else {
+                guard parsedByteOrder == .little else {
                     return (
                         cpu_type_t(bigEndian: header.cputype),
                         cpu_subtype_t(bigEndian: header.cpusubtype),
@@ -130,7 +115,37 @@ public struct MachOHeader: Sendable {
                         0
                     )
                 }
+                return (
+                    cpu_type_t(littleEndian: header.cputype),
+                    cpu_subtype_t(littleEndian: header.cpusubtype),
+                    UInt32(littleEndian: header.filetype),
+                    UInt32(littleEndian: header.ncmds),
+                    UInt32(littleEndian: header.sizeofcmds),
+                    UInt32(littleEndian: header.flags),
+                    0
+                )
             }
+            let header = buffer.loadUnaligned(as: mach_header_64.self)
+            guard parsedByteOrder == .little else {
+                return (
+                    cpu_type_t(bigEndian: header.cputype),
+                    cpu_subtype_t(bigEndian: header.cpusubtype),
+                    UInt32(bigEndian: header.filetype),
+                    UInt32(bigEndian: header.ncmds),
+                    UInt32(bigEndian: header.sizeofcmds),
+                    UInt32(bigEndian: header.flags),
+                    UInt32(bigEndian: header.reserved)
+                )
+            }
+            return (
+                cpu_type_t(littleEndian: header.cputype),
+                cpu_subtype_t(littleEndian: header.cpusubtype),
+                UInt32(littleEndian: header.filetype),
+                UInt32(littleEndian: header.ncmds),
+                UInt32(littleEndian: header.sizeofcmds),
+                UInt32(littleEndian: header.flags),
+                UInt32(littleEndian: header.reserved)
+            )
         }
 
         self.magic = parsedMagic
@@ -152,18 +167,18 @@ extension MachOHeader {
     /// Human-readable description of the file type.
     public var filetypeDescription: String {
         switch filetype {
-        case UInt32(MH_OBJECT): return "OBJECT"
-        case UInt32(MH_EXECUTE): return "EXECUTE"
-        case UInt32(MH_FVMLIB): return "FVMLIB"
-        case UInt32(MH_CORE): return "CORE"
-        case UInt32(MH_PRELOAD): return "PRELOAD"
-        case UInt32(MH_DYLIB): return "DYLIB"
-        case UInt32(MH_DYLINKER): return "DYLINKER"
-        case UInt32(MH_BUNDLE): return "BUNDLE"
-        case UInt32(MH_DYLIB_STUB): return "DYLIB_STUB"
-        case UInt32(MH_DSYM): return "DSYM"
-        case UInt32(MH_KEXT_BUNDLE): return "KEXT_BUNDLE"
-        default: return "UNKNOWN(\(filetype))"
+            case UInt32(MH_OBJECT): return "OBJECT"
+            case UInt32(MH_EXECUTE): return "EXECUTE"
+            case UInt32(MH_FVMLIB): return "FVMLIB"
+            case UInt32(MH_CORE): return "CORE"
+            case UInt32(MH_PRELOAD): return "PRELOAD"
+            case UInt32(MH_DYLIB): return "DYLIB"
+            case UInt32(MH_DYLINKER): return "DYLINKER"
+            case UInt32(MH_BUNDLE): return "BUNDLE"
+            case UInt32(MH_DYLIB_STUB): return "DYLIB_STUB"
+            case UInt32(MH_DSYM): return "DSYM"
+            case UInt32(MH_KEXT_BUNDLE): return "KEXT_BUNDLE"
+            default: return "UNKNOWN(\(filetype))"
         }
     }
 
@@ -197,14 +212,15 @@ extension MachOHeader {
     /// Magic number description.
     public var magicDescription: String {
         switch magic {
-        case MH_MAGIC: return "MH_MAGIC"
-        case MH_MAGIC_64: return "MH_MAGIC_64"
-        default: return String(format: "0x%08x", magic)
+            case MH_MAGIC: return "MH_MAGIC"
+            case MH_MAGIC_64: return "MH_MAGIC_64"
+            default: return String(format: "0x%08x", magic)
         }
     }
 }
 
 extension MachOHeader: CustomStringConvertible {
+    /// A textual description of the header.
     public var description: String {
         "MachOHeader(magic: \(magicDescription), arch: \(arch.name), filetype: \(filetypeDescription), ncmds: \(ncmds), flags: \(flagDescription))"
     }

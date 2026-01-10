@@ -5,21 +5,22 @@ import Foundation
 /// This visitor traverses the ObjC metadata tree and builds a string representation
 /// of classes, protocols, categories, methods, properties, and ivars.
 open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
-    /// The accumulated result string
+    /// The accumulated result string.
     public var resultString: String = ""
 
-    /// Visitor options
+    /// Visitor options.
     public var options: ClassDumpVisitorOptions
 
-    /// Type formatter for generating type strings
+    /// Type formatter for generating type strings.
     public var typeFormatter: ObjCTypeFormatter
 
-    /// Callback when a class name is referenced
+    /// Callback when a class name is referenced.
     public var onClassNameReferenced: ((String) -> Void)?
 
-    /// Callback when protocol names are referenced
+    /// Callback when protocol names are referenced.
     public var onProtocolNamesReferenced: (([String]) -> Void)?
 
+    /// Initialize a text class dump visitor.
     public init(options: ClassDumpVisitorOptions = .init()) {
         self.options = options
 
@@ -164,11 +165,10 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
         // Strip @escaping, @Sendable, or other attributes
         while input.hasPrefix("@") {
-            if let spaceIndex = input.firstIndex(of: " ") {
-                input = String(input[input.index(after: spaceIndex)...])
-            } else {
+            guard let spaceIndex = input.firstIndex(of: " ") else {
                 break
             }
+            input = String(input[input.index(after: spaceIndex)...])
         }
 
         input = input.trimmingCharacters(in: .whitespaces)
@@ -198,7 +198,8 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         let objcParams: String
         if paramTypes.isEmpty {
             objcParams = "void"
-        } else {
+        }
+        else {
             objcParams = paramTypes.map { convertSwiftTypeComponentToObjC($0) }.joined(separator: ", ")
         }
 
@@ -219,27 +220,28 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
         for char in trimmed {
             switch char {
-            case "(":
-                depth += 1
-                current.append(char)
-            case ")":
-                depth -= 1
-                current.append(char)
-            case "<":
-                genericDepth += 1
-                current.append(char)
-            case ">":
-                genericDepth -= 1
-                current.append(char)
-            case ",":
-                if depth == 0 && genericDepth == 0 {
-                    params.append(current.trimmingCharacters(in: .whitespaces))
-                    current = ""
-                } else {
+                case "(":
+                    depth += 1
                     current.append(char)
-                }
-            default:
-                current.append(char)
+                case ")":
+                    depth -= 1
+                    current.append(char)
+                case "<":
+                    genericDepth += 1
+                    current.append(char)
+                case ">":
+                    genericDepth -= 1
+                    current.append(char)
+                case ",":
+                    if depth == 0 && genericDepth == 0 {
+                        params.append(current.trimmingCharacters(in: .whitespaces))
+                        current = ""
+                    }
+                    else {
+                        current.append(char)
+                    }
+                default:
+                    current.append(char)
             }
         }
 
@@ -360,17 +362,17 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
     /// - Returns: The demangled name based on `options.demangleStyle`.
     public func demangleName(_ name: String) -> String {
         switch options.demangleStyle {
-        case .none:
-            return name
-        case .swift:
-            return SwiftDemangler.demangleSwiftName(name)
-        case .objc:
-            let demangled = SwiftDemangler.demangleSwiftName(name)
-            // Strip module prefix for ObjC style
-            if let lastDot = demangled.lastIndex(of: ".") {
-                return String(demangled[demangled.index(after: lastDot)...])
-            }
-            return demangled
+            case .none:
+                return name
+            case .swift:
+                return SwiftDemangler.demangleSwiftName(name)
+            case .objc:
+                let demangled = SwiftDemangler.demangleSwiftName(name)
+                // Strip module prefix for ObjC style
+                if let lastDot = demangled.lastIndex(of: ".") {
+                    return String(demangled[demangled.index(after: lastDot)...])
+                }
+                return demangled
         }
     }
 
@@ -485,11 +487,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
     open func visitClassMethod(_ method: ObjCMethod) {
         switch options.methodStyle {
-        case .objc:
-            append("+ ")
-            appendMethod(method)
-        case .swift:
-            appendSwiftMethod(method, isClassMethod: true)
+            case .objc:
+                append("+ ")
+                appendMethod(method)
+            case .swift:
+                appendSwiftMethod(method, isClassMethod: true)
         }
         appendNewline()
     }
@@ -501,11 +503,11 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         }
         // Regular instance method
         switch options.methodStyle {
-        case .objc:
-            append("- ")
-            appendMethod(method)
-        case .swift:
-            appendSwiftMethod(method, isClassMethod: false)
+            case .objc:
+                append("- ")
+                appendMethod(method)
+            case .swift:
+                appendSwiftMethod(method, isClassMethod: false)
         }
         appendNewline()
     }
@@ -520,7 +522,8 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             if property.attributeString.hasPrefix("T") {
                 append("// Error parsing type for property \(property.name):\n")
                 append("// Property attributes: \(property.attributeString)\n\n")
-            } else {
+            }
+            else {
                 append(
                     "// Error: Property attributes should begin with the type ('T') attribute, property name: \(property.name)\n"
                 )
@@ -543,7 +546,8 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if let formatted = typeFormatter.formatMethodName(method.name, typeString: method.typeEncoding) {
             append(formatted)
             append(";")
-        } else {
+        }
+        else {
             // Fallback if formatting fails
             append("(\(method.typeEncoding))\(method.name);")
         }
@@ -567,7 +571,8 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
             isClassMethod: isClassMethod
         ) {
             append(formatted)
-        } else {
+        }
+        else {
             // Fallback if formatting fails - show basic Swift syntax
             let prefix = isClassMethod ? "class func " : "func "
             append("\(prefix)\(method.name.replacingOccurrences(of: ":", with: "_"))(_ ...)")
@@ -608,11 +613,13 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         if let parsedType = ivar.parsedType {
             let formatted = typeFormatter.formatVariable(name: ivar.name, type: parsedType)
             append("    \(formatted);")
-        } else if ivar.typeEncoding.isEmpty {
+        }
+        else if ivar.typeEncoding.isEmpty {
             // Swift ivars often have no ObjC type encoding
             // Show Swift.AnyObject as the type (since we know it's a Swift type but not which one)
             append("    Swift.AnyObject \(ivar.name);")
-        } else {
+        }
+        else {
             append("    /* \(ivar.typeEncoding) */ \(ivar.name);")
         }
 
@@ -638,36 +645,49 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         for attr in property.attributeComponents {
             if attr.hasPrefix("T") {
                 // Type attribute - handled separately
-            } else if attr.hasPrefix("R") {
+            }
+            else if attr.hasPrefix("R") {
                 attributes.append("readonly")
-            } else if attr.hasPrefix("C") {
+            }
+            else if attr.hasPrefix("C") {
                 attributes.append("copy")
-            } else if attr.hasPrefix("&") {
+            }
+            else if attr.hasPrefix("&") {
                 attributes.append("retain")
-            } else if attr.hasPrefix("G") {
+            }
+            else if attr.hasPrefix("G") {
                 attributes.append("getter=\(String(attr.dropFirst()))")
-            } else if attr.hasPrefix("S") {
+            }
+            else if attr.hasPrefix("S") {
                 attributes.append("setter=\(String(attr.dropFirst()))")
-            } else if attr.hasPrefix("V") {
+            }
+            else if attr.hasPrefix("V") {
                 backingVar = String(attr.dropFirst())
-            } else if attr.hasPrefix("N") {
+            }
+            else if attr.hasPrefix("N") {
                 attributes.append("nonatomic")
-            } else if attr.hasPrefix("W") {
+            }
+            else if attr.hasPrefix("W") {
                 isWeak = true
-            } else if attr.hasPrefix("P") {
+            }
+            else if attr.hasPrefix("P") {
                 isWeak = false
-            } else if attr.hasPrefix("D") {
+            }
+            else if attr.hasPrefix("D") {
                 isDynamic = true
-            } else if attr == "?" {
+            }
+            else if attr == "?" {
                 attributes.append("nullable")
-            } else {
+            }
+            else {
                 unknownAttrs.append(attr)
             }
         }
 
         if !attributes.isEmpty {
-            append("@property(\(attributes.joined(separator: ", "))) ")
-        } else {
+            append("@property(\(attributes.joined(separator: ", ")))")
+        }
+        else {
             append("@property ")
         }
 
@@ -680,10 +700,12 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
 
         if isDynamic {
             append(" // @dynamic \(property.name);")
-        } else if let backing = backingVar {
+        }
+        else if let backing = backingVar {
             if backing == property.name {
                 append(" // @synthesize \(property.name);")
-            } else {
+            }
+            else {
                 append(" // @synthesize \(property.name)=\(backing);")
             }
         }
@@ -696,7 +718,7 @@ open class TextClassDumpVisitor: ClassDumpVisitor, @unchecked Sendable {
         appendNewline()
 
         if !unknownAttrs.isEmpty {
-            append("// Preceding property had unknown attributes: \(unknownAttrs.joined(separator: ","))\n")
+            append("// Preceding property had unknown attributes: \(unknownAttrs.joined(separator:","))\n")
             append("// Original attribute string: \(property.attributeString)\n\n")
         }
     }

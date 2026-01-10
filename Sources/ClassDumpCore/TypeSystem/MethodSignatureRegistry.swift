@@ -5,21 +5,26 @@ import Foundation
 /// This registry allows looking up richer method signatures (typically from protocols)
 /// to enhance block type information in class methods that may have incomplete signatures.
 ///
+/// ## Thread Safety
+///
+/// This registry is implemented as an actor for explicit, compiler-verified thread safety.
+/// All access is automatically isolated, eliminating data races by design.
+///
 /// ## Usage
 /// ```swift
 /// let registry = MethodSignatureRegistry()
 ///
 /// // Register protocol methods
 /// for method in protocol.instanceMethods {
-///     registry.registerMethod(method, source: .protocol(protocol.name))
+///     await registry.registerMethod(method, source: .protocol(protocol.name))
 /// }
 ///
 /// // Look up block signature for a selector
-/// if let blockTypes = registry.blockSignature(forSelector: "fetchWithCompletion:", argumentIndex: 0) {
+/// if let blockTypes = await registry.blockSignature(forSelector: "fetchWithCompletion:", argumentIndex: 0) {
 ///     // Use the richer block signature
 /// }
 /// ```
-public final class MethodSignatureRegistry: @unchecked Sendable {
+public actor MethodSignatureRegistry {
     /// Source of a method signature for prioritization.
     public enum SignatureSource: Sendable, Hashable {
         case `protocol`(String)
@@ -38,18 +43,13 @@ public final class MethodSignatureRegistry: @unchecked Sendable {
     /// Methods indexed by selector name.
     private var methodsBySelector: [String: [MethodEntry]] = [:]
 
-    /// Lock for thread-safe access.
-    private let lock = NSLock()
-
+    /// Initialize an empty registry.
     public init() {}
 
     // MARK: - Registration
 
     /// Register a method from a specific source.
     public func registerMethod(_ method: ObjCMethod, source: SignatureSource) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let parsedTypes = try? ObjCType.parseMethodType(method.typeString)
 
         let entry = MethodEntry(
@@ -59,10 +59,7 @@ public final class MethodSignatureRegistry: @unchecked Sendable {
             source: source
         )
 
-        if methodsBySelector[method.name] == nil {
-            methodsBySelector[method.name] = []
-        }
-        methodsBySelector[method.name]!.append(entry)
+        methodsBySelector[method.name, default: []].append(entry)
     }
 
     /// Register all methods from a protocol.
@@ -92,20 +89,17 @@ public final class MethodSignatureRegistry: @unchecked Sendable {
     ///   - argumentIndex: The argument position (0-based, not counting self and _cmd)
     /// - Returns: The block's parsed types if a richer signature is found, nil otherwise.
     public func blockSignature(forSelector selector: String, argumentIndex: Int) -> [ObjCType]? {
-        lock.lock()
-        defer { lock.unlock() }
-
         guard let entries = methodsBySelector[selector] else { return nil }
 
         // Prefer protocol sources over class sources
         let sortedEntries = entries.sorted { lhs, rhs in
             switch (lhs.source, rhs.source) {
-            case (.protocol, .class), (.protocol, .category):
-                return true
-            case (.class, .protocol), (.category, .protocol):
-                return false
-            default:
-                return false
+                case (.protocol, .class), (.protocol, .category):
+                    return true
+                case (.class, .protocol), (.category, .protocol):
+                    return false
+                default:
+                    return false
             }
         }
 
@@ -134,18 +128,15 @@ public final class MethodSignatureRegistry: @unchecked Sendable {
     /// - Parameter selector: The method selector name
     /// - Returns: The best available parsed method types, nil if not found.
     public func methodTypes(forSelector selector: String) -> [ObjCMethodType]? {
-        lock.lock()
-        defer { lock.unlock() }
-
         guard let entries = methodsBySelector[selector] else { return nil }
 
         // Prefer protocol sources
         let sortedEntries = entries.sorted { lhs, rhs in
             switch (lhs.source, rhs.source) {
-            case (.protocol, .class), (.protocol, .category):
-                return true
-            default:
-                return false
+                case (.protocol, .class), (.protocol, .category):
+                    return true
+                default:
+                    return false
             }
         }
 
@@ -160,22 +151,16 @@ public final class MethodSignatureRegistry: @unchecked Sendable {
 
     /// Check if a selector has any registered entries.
     public func hasSelector(_ selector: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return methodsBySelector[selector] != nil
+        methodsBySelector[selector] != nil
     }
 
     /// Get all registered selectors.
     public var allSelectors: Set<String> {
-        lock.lock()
-        defer { lock.unlock() }
-        return Set(methodsBySelector.keys)
+        Set(methodsBySelector.keys)
     }
 
     /// Get the count of registered methods.
     public var methodCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return methodsBySelector.values.reduce(0) { $0 + $1.count }
+        methodsBySelector.values.reduce(0) { $0 + $1.count }
     }
 }

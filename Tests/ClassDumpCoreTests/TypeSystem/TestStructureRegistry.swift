@@ -13,22 +13,22 @@ struct StructureRegistryTests {
     // MARK: - Registration Tests
 
     @Test("Register forward-declared structure")
-    func registerForwardDeclaration() {
+    func registerForwardDeclaration() async {
         let registry = StructureRegistry()
         let forwardDecl = ObjCType.structure(
             name: ObjCTypeName(name: "CGRect"),
             members: []
         )
 
-        registry.register(forwardDecl)
+        await registry.register(forwardDecl)
 
-        #expect(registry.count == 1)
-        #expect(registry.definedCount == 0)
-        #expect(registry.unresolvedStructureNames.contains("CGRect"))
+        #expect(await registry.count == 1)
+        #expect(await registry.definedCount == 0)
+        #expect(await registry.unresolvedStructureNames.contains("CGRect"))
     }
 
     @Test("Register full structure definition")
-    func registerFullDefinition() {
+    func registerFullDefinition() async {
         let registry = StructureRegistry()
         let fullDef = ObjCType.structure(
             name: ObjCTypeName(name: "CGPoint"),
@@ -38,16 +38,16 @@ struct StructureRegistryTests {
             ]
         )
 
-        registry.register(fullDef)
+        await registry.register(fullDef)
 
-        #expect(registry.count == 1)
-        #expect(registry.definedCount == 1)
-        #expect(registry.hasDefinition(for: "CGPoint"))
-        #expect(registry.unresolvedStructureNames.isEmpty)
+        #expect(await registry.count == 1)
+        #expect(await registry.definedCount == 1)
+        #expect(await registry.hasDefinition(for: "CGPoint"))
+        #expect(await registry.unresolvedStructureNames.isEmpty)
     }
 
     @Test("Full definition replaces forward declaration")
-    func fullDefinitionReplacesForward() {
+    func fullDefinitionReplacesForward() async {
         let registry = StructureRegistry()
 
         // First register forward declaration
@@ -55,8 +55,8 @@ struct StructureRegistryTests {
             name: ObjCTypeName(name: "CGSize"),
             members: []
         )
-        registry.register(forwardDecl)
-        #expect(registry.unresolvedStructureNames.contains("CGSize"))
+        await registry.register(forwardDecl)
+        #expect(await registry.unresolvedStructureNames.contains("CGSize"))
 
         // Then register full definition
         let fullDef = ObjCType.structure(
@@ -66,16 +66,16 @@ struct StructureRegistryTests {
                 ObjCTypedMember(type: .double, name: "height"),
             ]
         )
-        registry.register(fullDef)
+        await registry.register(fullDef)
 
-        #expect(registry.count == 1)
-        #expect(registry.definedCount == 1)
-        #expect(registry.unresolvedStructureNames.isEmpty)
-        #expect(registry.hasDefinition(for: "CGSize"))
+        #expect(await registry.count == 1)
+        #expect(await registry.definedCount == 1)
+        #expect(await registry.unresolvedStructureNames.isEmpty)
+        #expect(await registry.hasDefinition(for: "CGSize"))
     }
 
     @Test("Keep definition with most members")
-    func keepMostCompleteDefinition() {
+    func keepMostCompleteDefinition() async {
         let registry = StructureRegistry()
 
         // Register partial definition
@@ -85,7 +85,7 @@ struct StructureRegistryTests {
                 ObjCTypedMember(type: .int, name: "a")
             ]
         )
-        registry.register(partial)
+        await registry.register(partial)
 
         // Register more complete definition
         let complete = ObjCType.structure(
@@ -96,20 +96,21 @@ struct StructureRegistryTests {
                 ObjCTypedMember(type: .int, name: "c"),
             ]
         )
-        registry.register(complete)
+        await registry.register(complete)
 
         // Verify we kept the more complete one
-        if let def = registry.definition(for: "MyStruct"),
+        if let def = await registry.definition(for: "MyStruct"),
             case .structure(_, let members) = def
         {
             #expect(members.count == 3)
-        } else {
+        }
+        else {
             Issue.record("Expected structure definition with 3 members")
         }
     }
 
     @Test("Register nested structures recursively")
-    func registerNestedStructures() {
+    func registerNestedStructures() async {
         let registry = StructureRegistry()
 
         // CGRect contains CGPoint and CGSize
@@ -139,19 +140,19 @@ struct StructureRegistryTests {
             ]
         )
 
-        registry.register(cgRect)
+        await registry.register(cgRect)
 
-        #expect(registry.count == 3)  // CGRect, CGPoint, CGSize
-        #expect(registry.definedCount == 3)
-        #expect(registry.hasDefinition(for: "CGRect"))
-        #expect(registry.hasDefinition(for: "CGPoint"))
-        #expect(registry.hasDefinition(for: "CGSize"))
+        #expect(await registry.count == 3)  // CGRect, CGPoint, CGSize
+        #expect(await registry.definedCount == 3)
+        #expect(await registry.hasDefinition(for: "CGRect"))
+        #expect(await registry.hasDefinition(for: "CGPoint"))
+        #expect(await registry.hasDefinition(for: "CGSize"))
     }
 
     // MARK: - Resolution Tests
 
     @Test("Resolve forward declaration to full definition")
-    func resolveForwardDeclaration() {
+    func resolveForwardDeclaration() async {
         let registry = StructureRegistry()
 
         // Register full definition
@@ -162,45 +163,48 @@ struct StructureRegistryTests {
                 ObjCTypedMember(type: .double, name: "y"),
             ]
         )
-        registry.register(fullDef)
+        await registry.register(fullDef)
 
         // Try to resolve a forward declaration
         let forwardDecl = ObjCType.structure(
             name: ObjCTypeName(name: "CGPoint"),
             members: []
         )
-        let resolved = registry.resolve(forwardDecl)
+        let resolved = await registry.resolve(forwardDecl)
 
         if case .structure(_, let members) = resolved {
             #expect(members.count == 2)
             #expect(members[0].name == "x")
             #expect(members[1].name == "y")
-        } else {
+        }
+        else {
             Issue.record("Expected resolved structure")
         }
     }
 
     @Test("Resolve nested forward declarations")
-    func resolveNestedForwardDeclarations() {
+    func resolveNestedForwardDeclarations() async {
         let registry = StructureRegistry()
 
         // Register definitions for CGPoint and CGSize
-        registry.register(
+        await registry.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "CGPoint"),
                 members: [
                     ObjCTypedMember(type: .double, name: "x"),
                     ObjCTypedMember(type: .double, name: "y"),
                 ]
-            ))
-        registry.register(
+            )
+        )
+        await registry.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "CGSize"),
                 members: [
                     ObjCTypedMember(type: .double, name: "width"),
                     ObjCTypedMember(type: .double, name: "height"),
                 ]
-            ))
+            )
+        )
 
         // Try to resolve CGRect with nested forward declarations
         let cgRect = ObjCType.structure(
@@ -217,7 +221,7 @@ struct StructureRegistryTests {
             ]
         )
 
-        let resolved = registry.resolve(cgRect)
+        let resolved = await registry.resolve(cgRect)
 
         if case .structure(_, let members) = resolved {
             #expect(members.count == 2)
@@ -225,23 +229,26 @@ struct StructureRegistryTests {
             // Check origin was resolved
             if case .structure(_, let originMembers) = members[0].type {
                 #expect(originMembers.count == 2)
-            } else {
+            }
+            else {
                 Issue.record("Expected origin to be resolved")
             }
 
             // Check size was resolved
             if case .structure(_, let sizeMembers) = members[1].type {
                 #expect(sizeMembers.count == 2)
-            } else {
+            }
+            else {
                 Issue.record("Expected size to be resolved")
             }
-        } else {
+        }
+        else {
             Issue.record("Expected resolved structure")
         }
     }
 
     @Test("Returns original type if no definition available")
-    func noResolutionWhenUndefined() {
+    func noResolutionWhenUndefined() async {
         let registry = StructureRegistry()
 
         let forwardDecl = ObjCType.structure(
@@ -249,40 +256,42 @@ struct StructureRegistryTests {
             members: []
         )
 
-        let resolved = registry.resolve(forwardDecl)
+        let resolved = await registry.resolve(forwardDecl)
 
         #expect(resolved == forwardDecl)
     }
 
     @Test("Resolve through pointer types")
-    func resolveThroughPointer() {
+    func resolveThroughPointer() async {
         let registry = StructureRegistry()
 
-        registry.register(
+        await registry.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "Node"),
                 members: [
                     ObjCTypedMember(type: .int, name: "value")
                 ]
-            ))
+            )
+        )
 
         let pointerToForward = ObjCType.pointer(
             .structure(name: ObjCTypeName(name: "Node"), members: [])
         )
 
-        let resolved = registry.resolve(pointerToForward)
+        let resolved = await registry.resolve(pointerToForward)
 
         if case .pointer(let pointee) = resolved,
             case .structure(_, let members) = pointee
         {
             #expect(members.count == 1)
-        } else {
+        }
+        else {
             Issue.record("Expected resolved pointer to structure")
         }
     }
 
     @Test("Handle circular structure references")
-    func handleCircularReferences() {
+    func handleCircularReferences() async {
         let registry = StructureRegistry()
 
         // Self-referential structure (like a linked list node)
@@ -297,14 +306,15 @@ struct StructureRegistryTests {
             ]
         )
 
-        registry.register(node)
+        await registry.register(node)
 
         // Should not infinite loop
-        let resolved = registry.resolve(node)
+        let resolved = await registry.resolve(node)
 
         if case .structure(_, let members) = resolved {
             #expect(members.count == 2)
-        } else {
+        }
+        else {
             Issue.record("Expected resolved structure")
         }
     }
@@ -312,7 +322,7 @@ struct StructureRegistryTests {
     // MARK: - Union Tests
 
     @Test("Register and resolve union types")
-    func registerAndResolveUnion() {
+    func registerAndResolveUnion() async {
         let registry = StructureRegistry()
 
         let unionDef = ObjCType.union(
@@ -323,19 +333,20 @@ struct StructureRegistryTests {
             ]
         )
 
-        registry.register(unionDef)
-        #expect(registry.hasDefinition(for: "MyUnion"))
+        await registry.register(unionDef)
+        #expect(await registry.hasDefinition(for: "MyUnion"))
 
         let forwardDecl = ObjCType.union(
             name: ObjCTypeName(name: "MyUnion"),
             members: []
         )
 
-        let resolved = registry.resolve(forwardDecl)
+        let resolved = await registry.resolve(forwardDecl)
 
         if case .union(_, let members) = resolved {
             #expect(members.count == 2)
-        } else {
+        }
+        else {
             Issue.record("Expected resolved union")
         }
     }
@@ -385,23 +396,25 @@ struct StructureRegistryTests {
     }
 
     @Test("resolved(using:) convenience method works")
-    func resolvedConvenienceMethod() {
+    func resolvedConvenienceMethod() async {
         let registry = StructureRegistry()
-        registry.register(
+        await registry.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "Point"),
                 members: [
                     ObjCTypedMember(type: .double, name: "x"),
                     ObjCTypedMember(type: .double, name: "y"),
                 ]
-            ))
+            )
+        )
 
         let forward = ObjCType.structure(name: ObjCTypeName(name: "Point"), members: [])
-        let resolved = forward.resolved(using: registry)
+        let resolved = await forward.resolved(using: registry)
 
         if case .structure(_, let members) = resolved {
             #expect(members.count == 2)
-        } else {
+        }
+        else {
             Issue.record("Expected resolved structure")
         }
     }
@@ -409,55 +422,55 @@ struct StructureRegistryTests {
     // MARK: - Typedef Tests
 
     @Test("Register and resolve typedefs")
-    func typedefResolution() {
+    func typedefResolution() async {
         let registry = StructureRegistry()
 
-        registry.registerTypedef(alias: "MyTypedef", underlyingType: "int")
+        await registry.registerTypedef(alias: "MyTypedef", underlyingType: "int")
 
-        #expect(registry.resolveTypedef("MyTypedef") == "int")
-        #expect(registry.resolveTypedef("unknown") == nil)
+        #expect(await registry.resolveTypedef("MyTypedef") == "int")
+        #expect(await registry.resolveTypedef("unknown") == nil)
     }
 
     @Test("Builtin typedefs are pre-populated")
-    func builtinTypedefs() {
+    func builtinTypedefs() async {
         let registry = StructureRegistry()
 
         // CGFloat should be pre-populated
-        #expect(registry.resolveTypedef("CGFloat") == "double")
+        #expect(await registry.resolveTypedef("CGFloat") == "double")
 
         // NSInteger/NSUInteger should be pre-populated
-        #expect(registry.resolveTypedef("NSInteger") == "long")
-        #expect(registry.resolveTypedef("NSUInteger") == "unsigned long")
+        #expect(await registry.resolveTypedef("NSInteger") == "long")
+        #expect(await registry.resolveTypedef("NSUInteger") == "unsigned long")
 
         // Time interval types
-        #expect(registry.resolveTypedef("CFTimeInterval") == "double")
-        #expect(registry.resolveTypedef("NSTimeInterval") == "double")
+        #expect(await registry.resolveTypedef("CFTimeInterval") == "double")
+        #expect(await registry.resolveTypedef("NSTimeInterval") == "double")
 
         // CFIndex type
-        #expect(registry.resolveTypedef("CFIndex") == "long")
+        #expect(await registry.resolveTypedef("CFIndex") == "long")
 
         // OSStatus
-        #expect(registry.resolveTypedef("OSStatus") == "int")
+        #expect(await registry.resolveTypedef("OSStatus") == "int")
     }
 
     @Test("Check builtin typedef detection")
-    func isBuiltinTypedef() {
+    func isBuiltinTypedef() async {
         let registry = StructureRegistry()
 
-        #expect(registry.isBuiltinTypedef("CGFloat"))
-        #expect(registry.isBuiltinTypedef("NSInteger"))
-        #expect(registry.isBuiltinTypedef("CFTimeInterval"))
-        #expect(!registry.isBuiltinTypedef("CustomTypedef"))
+        #expect(await registry.isBuiltinTypedef("CGFloat"))
+        #expect(await registry.isBuiltinTypedef("NSInteger"))
+        #expect(await registry.isBuiltinTypedef("CFTimeInterval"))
+        #expect(await !registry.isBuiltinTypedef("CustomTypedef"))
     }
 
     @Test("Get all typedefs includes builtins and custom")
-    func allTypedefs() {
+    func allTypedefs() async {
         let registry = StructureRegistry()
 
         // Add a custom typedef
-        registry.registerTypedef(alias: "MyType", underlyingType: "struct MyStruct")
+        await registry.registerTypedef(alias: "MyType", underlyingType: "struct MyStruct")
 
-        let all = registry.allTypedefs
+        let all = await registry.allTypedefs
         #expect(all["CGFloat"] == "double")
         #expect(all["MyType"] == "struct MyStruct")
     }
@@ -465,56 +478,83 @@ struct StructureRegistryTests {
     // MARK: - Merge Tests
 
     @Test("Merge two registries")
-    func mergeRegistries() {
+    func mergeRegistries() async {
         let registry1 = StructureRegistry()
         let registry2 = StructureRegistry()
 
-        registry1.register(
+        await registry1.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "StructA"),
                 members: [ObjCTypedMember(type: .int, name: "a")]
-            ))
+            )
+        )
 
-        registry2.register(
+        await registry2.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "StructB"),
                 members: [ObjCTypedMember(type: .int, name: "b")]
-            ))
+            )
+        )
 
-        registry1.merge(registry2)
+        // Get snapshots from registry2 for merging
+        let defs = await registry2.definitionsSnapshot
+        let names = await registry2.allNamesSnapshot
+        let unresolved = await registry2.unresolvedNamesSnapshot
+        let typedefs = await registry2.typedefMappingsSnapshot
 
-        #expect(registry1.definedCount == 2)
-        #expect(registry1.hasDefinition(for: "StructA"))
-        #expect(registry1.hasDefinition(for: "StructB"))
+        await registry1.merge(
+            definitions: defs,
+            allNames: names,
+            unresolvedNames: unresolved,
+            typedefMappings: typedefs
+        )
+
+        #expect(await registry1.definedCount == 2)
+        #expect(await registry1.hasDefinition(for: "StructA"))
+        #expect(await registry1.hasDefinition(for: "StructB"))
     }
 
     @Test("Merge keeps more complete definition")
-    func mergeKeepsMoreComplete() {
+    func mergeKeepsMoreComplete() async {
         let registry1 = StructureRegistry()
         let registry2 = StructureRegistry()
 
-        registry1.register(
+        await registry1.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "MyStruct"),
                 members: [ObjCTypedMember(type: .int, name: "a")]
-            ))
+            )
+        )
 
-        registry2.register(
+        await registry2.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "MyStruct"),
                 members: [
                     ObjCTypedMember(type: .int, name: "a"),
                     ObjCTypedMember(type: .int, name: "b"),
                 ]
-            ))
+            )
+        )
 
-        registry1.merge(registry2)
+        // Get snapshots from registry2 for merging
+        let defs = await registry2.definitionsSnapshot
+        let names = await registry2.allNamesSnapshot
+        let unresolved = await registry2.unresolvedNamesSnapshot
+        let typedefs = await registry2.typedefMappingsSnapshot
 
-        if let def = registry1.definition(for: "MyStruct"),
+        await registry1.merge(
+            definitions: defs,
+            allNames: names,
+            unresolvedNames: unresolved,
+            typedefMappings: typedefs
+        )
+
+        if let def = await registry1.definition(for: "MyStruct"),
             case .structure(_, let members) = def
         {
             #expect(members.count == 2)
-        } else {
+        }
+        else {
             Issue.record("Expected merged definition with 2 members")
         }
     }
@@ -522,19 +562,20 @@ struct StructureRegistryTests {
     // MARK: - Output Generation Tests
 
     @Test("Generate structure definitions output")
-    func generateStructureDefinitions() {
+    func generateStructureDefinitions() async {
         let registry = StructureRegistry()
 
-        registry.register(
+        await registry.register(
             ObjCType.structure(
                 name: ObjCTypeName(name: "CGPoint"),
                 members: [
                     ObjCTypedMember(type: .double, name: "x"),
                     ObjCTypedMember(type: .double, name: "y"),
                 ]
-            ))
+            )
+        )
 
-        let output = registry.generateStructureDefinitions()
+        let output = await registry.generateStructureDefinitions()
 
         #expect(output.contains("typedef"))
         #expect(output.contains("struct CGPoint"))
@@ -542,9 +583,9 @@ struct StructureRegistryTests {
     }
 
     @Test("Empty registry generates empty output")
-    func emptyRegistryOutput() {
+    func emptyRegistryOutput() async {
         let registry = StructureRegistry()
-        let output = registry.generateStructureDefinitions()
+        let output = await registry.generateStructureDefinitions()
         #expect(output.isEmpty)
     }
 
@@ -561,11 +602,11 @@ struct StructureRegistryTests {
                         name: ObjCTypeName(name: "Struct\(i)"),
                         members: [ObjCTypedMember(type: .int, name: "value")]
                     )
-                    registry.register(structure)
+                    await registry.register(structure)
                 }
             }
         }
 
-        #expect(registry.definedCount == 100)
+        #expect(await registry.definedCount == 100)
     }
 }

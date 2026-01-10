@@ -28,14 +28,17 @@ public protocol LoadCommandProtocol: Sendable {
 }
 
 extension LoadCommandProtocol {
+    /// The command type enum value.
     public var commandType: LoadCommandType? {
         LoadCommandType(rawValue: cmd)
     }
 
+    /// The human-readable command name.
     public var commandName: String {
         LoadCommandType.name(for: cmd)
     }
 
+    /// Whether the dynamic linker must understand this command to execute.
     public var mustUnderstandToExecute: Bool {
         (cmd & UInt32(LC_REQ_DYLD)) != 0
     }
@@ -43,7 +46,9 @@ extension LoadCommandProtocol {
 
 /// Base load command header structure.
 public struct LoadCommandHeader: Sendable {
+    /// The load command type identifier.
     public let cmd: UInt32
+    /// The size of the load command in bytes.
     public let cmdsize: UInt32
 
     /// Parse a load command header from data.
@@ -51,7 +56,8 @@ public struct LoadCommandHeader: Sendable {
         if byteOrder == .little {
             self.cmd = try cursor.readLittleInt32()
             self.cmdsize = try cursor.readLittleInt32()
-        } else {
+        }
+        else {
             self.cmd = try cursor.readBigInt32()
             self.cmdsize = try cursor.readBigInt32()
         }
@@ -66,10 +72,16 @@ public struct LoadCommandHeader: Sendable {
 
 /// A generic load command that stores the raw data.
 public struct GenericLoadCommand: LoadCommandProtocol, Sendable {
+    /// The command type.
     public let cmd: UInt32
+
+    /// The size of the command in bytes.
     public let cmdsize: UInt32
+
+    /// The raw data of the command.
     public let data: Data
 
+    /// Initialize a generic load command.
     public init(cmd: UInt32, cmdsize: UInt32, data: Data) {
         self.cmd = cmd
         self.cmdsize = cmdsize
@@ -98,42 +110,42 @@ public enum LoadCommand: Sendable {
     /// The raw command type value.
     public var cmd: UInt32 {
         switch self {
-        case .segment(let cmd): return cmd.cmd
-        case .symtab(let cmd): return cmd.cmd
-        case .dysymtab(let cmd): return cmd.cmd
-        case .dylib(let cmd): return cmd.cmd
-        case .dylinker(let cmd): return cmd.cmd
-        case .uuid(let cmd): return cmd.cmd
-        case .version(let cmd): return cmd.cmd
-        case .buildVersion(let cmd): return cmd.cmd
-        case .main(let cmd): return cmd.cmd
-        case .sourceVersion(let cmd): return cmd.cmd
-        case .encryptionInfo(let cmd): return cmd.cmd
-        case .linkeditData(let cmd): return cmd.cmd
-        case .rpath(let cmd): return cmd.cmd
-        case .dyldInfo(let cmd): return cmd.cmd
-        case .unknown(let cmd): return cmd.cmd
+            case .segment(let cmd): return cmd.cmd
+            case .symtab(let cmd): return cmd.cmd
+            case .dysymtab(let cmd): return cmd.cmd
+            case .dylib(let cmd): return cmd.cmd
+            case .dylinker(let cmd): return cmd.cmd
+            case .uuid(let cmd): return cmd.cmd
+            case .version(let cmd): return cmd.cmd
+            case .buildVersion(let cmd): return cmd.cmd
+            case .main(let cmd): return cmd.cmd
+            case .sourceVersion(let cmd): return cmd.cmd
+            case .encryptionInfo(let cmd): return cmd.cmd
+            case .linkeditData(let cmd): return cmd.cmd
+            case .rpath(let cmd): return cmd.cmd
+            case .dyldInfo(let cmd): return cmd.cmd
+            case .unknown(let cmd): return cmd.cmd
         }
     }
 
     /// The size of this load command in bytes.
     public var cmdsize: UInt32 {
         switch self {
-        case .segment(let cmd): return cmd.cmdsize
-        case .symtab(let cmd): return cmd.cmdsize
-        case .dysymtab(let cmd): return cmd.cmdsize
-        case .dylib(let cmd): return cmd.cmdsize
-        case .dylinker(let cmd): return cmd.cmdsize
-        case .uuid(let cmd): return cmd.cmdsize
-        case .version(let cmd): return cmd.cmdsize
-        case .buildVersion(let cmd): return cmd.cmdsize
-        case .main(let cmd): return cmd.cmdsize
-        case .sourceVersion(let cmd): return cmd.cmdsize
-        case .encryptionInfo(let cmd): return cmd.cmdsize
-        case .linkeditData(let cmd): return cmd.cmdsize
-        case .rpath(let cmd): return cmd.cmdsize
-        case .dyldInfo(let cmd): return cmd.cmdsize
-        case .unknown(let cmd): return cmd.cmdsize
+            case .segment(let cmd): return cmd.cmdsize
+            case .symtab(let cmd): return cmd.cmdsize
+            case .dysymtab(let cmd): return cmd.cmdsize
+            case .dylib(let cmd): return cmd.cmdsize
+            case .dylinker(let cmd): return cmd.cmdsize
+            case .uuid(let cmd): return cmd.cmdsize
+            case .version(let cmd): return cmd.cmdsize
+            case .buildVersion(let cmd): return cmd.cmdsize
+            case .main(let cmd): return cmd.cmdsize
+            case .sourceVersion(let cmd): return cmd.cmdsize
+            case .encryptionInfo(let cmd): return cmd.cmdsize
+            case .linkeditData(let cmd): return cmd.cmdsize
+            case .rpath(let cmd): return cmd.cmdsize
+            case .dyldInfo(let cmd): return cmd.cmdsize
+            case .unknown(let cmd): return cmd.cmdsize
         }
     }
 
@@ -205,60 +217,69 @@ extension LoadCommand {
             let cmdData = data.subdata(in: offset..<(offset + Int(header.cmdsize)))
 
             switch header.cmd {
-            case UInt32(LC_SEGMENT), UInt32(LC_SEGMENT_64):
-                return .segment(
-                    try SegmentCommand(
-                        data: cmdData, byteOrder: byteOrder, is64Bit: header.cmd == UInt32(LC_SEGMENT_64)))
+                case UInt32(LC_SEGMENT), UInt32(LC_SEGMENT_64):
+                    return .segment(
+                        try SegmentCommand(
+                            data: cmdData,
+                            byteOrder: byteOrder,
+                            is64Bit: header.cmd == UInt32(LC_SEGMENT_64)
+                        )
+                    )
 
-            case UInt32(LC_SYMTAB):
-                return .symtab(try SymtabCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_SYMTAB):
+                    return .symtab(try SymtabCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_DYSYMTAB):
-                return .dysymtab(try DysymtabCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_DYSYMTAB):
+                    return .dysymtab(try DysymtabCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_LOAD_DYLIB), UInt32(LC_ID_DYLIB), UInt32(LC_LOAD_WEAK_DYLIB),
-                UInt32(LC_REEXPORT_DYLIB), UInt32(LC_LAZY_LOAD_DYLIB), UInt32(LC_LOAD_UPWARD_DYLIB):
-                return .dylib(try DylibCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_LOAD_DYLIB), UInt32(LC_ID_DYLIB), UInt32(LC_LOAD_WEAK_DYLIB),
+                    UInt32(LC_REEXPORT_DYLIB), UInt32(LC_LAZY_LOAD_DYLIB), UInt32(LC_LOAD_UPWARD_DYLIB):
+                    return .dylib(try DylibCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_LOAD_DYLINKER), UInt32(LC_ID_DYLINKER), UInt32(LC_DYLD_ENVIRONMENT):
-                return .dylinker(try DylinkerCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_LOAD_DYLINKER), UInt32(LC_ID_DYLINKER), UInt32(LC_DYLD_ENVIRONMENT):
+                    return .dylinker(try DylinkerCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_UUID):
-                return .uuid(try UUIDCommand(data: cmdData))
+                case UInt32(LC_UUID):
+                    return .uuid(try UUIDCommand(data: cmdData))
 
-            case UInt32(LC_VERSION_MIN_MACOSX), UInt32(LC_VERSION_MIN_IPHONEOS),
-                UInt32(LC_VERSION_MIN_TVOS), UInt32(LC_VERSION_MIN_WATCHOS):
-                return .version(try VersionCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_VERSION_MIN_MACOSX), UInt32(LC_VERSION_MIN_IPHONEOS),
+                    UInt32(LC_VERSION_MIN_TVOS), UInt32(LC_VERSION_MIN_WATCHOS):
+                    return .version(try VersionCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_BUILD_VERSION):
-                return .buildVersion(try BuildVersionCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_BUILD_VERSION):
+                    return .buildVersion(try BuildVersionCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_MAIN):
-                return .main(try MainCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_MAIN):
+                    return .main(try MainCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_SOURCE_VERSION):
-                return .sourceVersion(try SourceVersionCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_SOURCE_VERSION):
+                    return .sourceVersion(try SourceVersionCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_ENCRYPTION_INFO), UInt32(LC_ENCRYPTION_INFO_64):
-                return .encryptionInfo(
-                    try EncryptionInfoCommand(
-                        data: cmdData, byteOrder: byteOrder, is64Bit: header.cmd == UInt32(LC_ENCRYPTION_INFO_64)))
+                case UInt32(LC_ENCRYPTION_INFO), UInt32(LC_ENCRYPTION_INFO_64):
+                    return .encryptionInfo(
+                        try EncryptionInfoCommand(
+                            data: cmdData,
+                            byteOrder: byteOrder,
+                            is64Bit: header.cmd == UInt32(LC_ENCRYPTION_INFO_64)
+                        )
+                    )
 
-            case UInt32(LC_CODE_SIGNATURE), UInt32(LC_SEGMENT_SPLIT_INFO), UInt32(LC_FUNCTION_STARTS),
-                UInt32(LC_DATA_IN_CODE), UInt32(LC_DYLIB_CODE_SIGN_DRS), UInt32(LC_LINKER_OPTIMIZATION_HINT),
-                UInt32(LC_DYLD_EXPORTS_TRIE), UInt32(LC_DYLD_CHAINED_FIXUPS):
-                return .linkeditData(try LinkeditDataCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_CODE_SIGNATURE), UInt32(LC_SEGMENT_SPLIT_INFO), UInt32(LC_FUNCTION_STARTS),
+                    UInt32(LC_DATA_IN_CODE), UInt32(LC_DYLIB_CODE_SIGN_DRS), UInt32(LC_LINKER_OPTIMIZATION_HINT),
+                    UInt32(LC_DYLD_EXPORTS_TRIE), UInt32(LC_DYLD_CHAINED_FIXUPS):
+                    return .linkeditData(try LinkeditDataCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_RPATH):
-                return .rpath(try RpathCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_RPATH):
+                    return .rpath(try RpathCommand(data: cmdData, byteOrder: byteOrder))
 
-            case UInt32(LC_DYLD_INFO), UInt32(LC_DYLD_INFO_ONLY):
-                return .dyldInfo(try DyldInfoCommand(data: cmdData, byteOrder: byteOrder))
+                case UInt32(LC_DYLD_INFO), UInt32(LC_DYLD_INFO_ONLY):
+                    return .dyldInfo(try DyldInfoCommand(data: cmdData, byteOrder: byteOrder))
 
-            default:
-                return .unknown(GenericLoadCommand(cmd: header.cmd, cmdsize: header.cmdsize, data: cmdData))
+                default:
+                    return .unknown(GenericLoadCommand(cmd: header.cmd, cmdsize: header.cmdsize, data: cmdData))
             }
-        } catch _ as DataCursorError {
+        }
+        catch _ as DataCursorError {
             throw LoadCommandError.dataTooSmall(expected: 0, actual: data.count)
         }
     }
@@ -267,6 +288,7 @@ extension LoadCommand {
 // MARK: - CustomStringConvertible
 
 extension LoadCommand: CustomStringConvertible {
+    /// A textual description of the command.
     public var description: String {
         "\(commandName) (size: \(cmdsize))"
     }
