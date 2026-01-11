@@ -176,13 +176,17 @@ struct SystemDemanglerTests {
 
         let symbol = "_$sSS"
 
-        // First call
+        // First call - should demangle and cache
         let result1 = SystemDemangler.shared.demangleSync(symbol)
 
-        // Second call should use cache
+        // Second call - should use cache
         let result2 = SystemDemangler.shared.demangleSync(symbol)
 
         #expect(result1 == result2)
+
+        // Verify caching occurred
+        let stats = await SystemDemangler.shared.cacheStats
+        #expect(stats.count >= 1)
     }
 
     // MARK: - SwiftDemangler Integration

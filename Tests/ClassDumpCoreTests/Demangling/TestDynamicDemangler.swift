@@ -4,7 +4,10 @@ import Testing
 @testable import ClassDumpCore
 
 /// Tests for DynamicSwiftDemangler.
-@Suite("Dynamic Swift Demangler Tests")
+///
+/// These tests modify shared global state (dynamic demangling enabled/disabled),
+/// so they must run serially to avoid race conditions.
+@Suite("Dynamic Swift Demangler Tests", .serialized)
 struct DynamicDemanglerTests {
 
     // MARK: - Availability Tests

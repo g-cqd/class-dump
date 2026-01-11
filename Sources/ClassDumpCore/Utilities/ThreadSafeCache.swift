@@ -109,6 +109,44 @@ public final class MutexCache<Key: Hashable & Sendable, Value: Sendable>: Sendab
     public var values: [Value] {
         storage.withLock { Array($0.values) }
     }
+
+    // MARK: - Lock-Scoped Operations
+
+    /// Execute an action with exclusive access to the underlying storage.
+    ///
+    /// Use this for compound operations that need atomicity, such as
+    /// check-then-act patterns or multiple reads/writes that must be consistent.
+    ///
+    /// - Parameter action: A closure that receives mutable access to the dictionary.
+    /// - Returns: The value returned by the action.
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Atomic check-and-set with return value
+    /// let (cached, count) = cache.withLock { dict -> (String?, Int) in
+    ///     if let existing = dict[key] {
+    ///         return (existing, dict.count)
+    ///     }
+    ///     dict[key] = newValue
+    ///     return (nil, dict.count)
+    /// }
+    /// ```
+    public func withLock<T>(_ action: (inout [Key: Value]) -> T) -> T {
+        storage.withLock { dict in
+            action(&dict)
+        }
+    }
+
+    /// Execute a throwing action with exclusive access to the underlying storage.
+    ///
+    /// - Parameter action: A throwing closure that receives mutable access to the dictionary.
+    /// - Returns: The value returned by the action.
+    /// - Throws: Any error thrown by the action.
+    public func withLockThrowing<T>(_ action: (inout [Key: Value]) throws -> T) rethrows -> T {
+        try storage.withLock { dict in
+            try action(&dict)
+        }
+    }
 }
 
 // MARK: - Type Aliases for Backward Compatibility

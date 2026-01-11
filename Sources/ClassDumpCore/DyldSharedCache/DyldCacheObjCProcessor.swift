@@ -11,6 +11,20 @@ import Synchronization
 /// - Shared selector and string references
 /// - External class references to other frameworks
 ///
+/// ## Architecture
+///
+/// The processor is organized using functional programming principles:
+/// - **Pure Functions**: Pointer decoding and registry building are pure functions
+/// - **Extensions**: Loading logic is separated by concern (protocols, classes, categories, members)
+/// - **Caching**: Thread-safe caches prevent redundant parsing
+///
+/// ## Extensions
+///
+/// - `DyldCacheObjCProcessor+Protocols.swift` - Protocol loading
+/// - `DyldCacheObjCProcessor+Classes.swift` - Class loading
+/// - `DyldCacheObjCProcessor+Categories.swift` - Category loading
+/// - `DyldCacheObjCProcessor+Members.swift` - Method, property, and ivar loading
+///
 /// ## Usage
 ///
 /// ```swift
@@ -28,44 +42,52 @@ import Synchronization
 /// ## Thread Safety
 ///
 /// This class is thread-safe and can be used from multiple tasks concurrently.
+/// Internal caches use thread-safe data structures.
 ///
 public final class DyldCacheObjCProcessor: @unchecked Sendable {
+
+    // MARK: - Core State
+
     /// The shared cache.
-    private let cache: DyldSharedCache
+    let cache: DyldSharedCache
 
     /// The image being processed.
     private let image: DyldCacheImageInfo
 
     /// Data provider for the image.
-    private let dataProvider: DyldCacheDataProvider
+    let dataProvider: DyldCacheDataProvider
 
     /// Whether the cache is 64-bit.
-    private let is64Bit: Bool
+    let is64Bit: Bool
 
     /// Byte order (always little for modern DSC).
-    private let byteOrder: ByteOrder = .little
+    let byteOrder: ByteOrder = .little
 
-    /// Pointer size.
-    private var ptrSize: Int { is64Bit ? 8 : 4 }
+    /// Pointer size in bytes.
+    var ptrSize: Int { is64Bit ? 8 : 4 }
 
     /// Shared region base address for pointer decoding.
     private let sharedRegionBase: UInt64
 
+    // MARK: - Caches
+
     /// Thread-safe cache of loaded classes.
-    private let classesByAddress = ThreadSafeCache<UInt64, ObjCClass>()
+    let classesByAddress = ThreadSafeCache<UInt64, ObjCClass>()
 
     /// Thread-safe cache of loaded protocols.
-    private let protocolsByAddress = ThreadSafeCache<UInt64, ObjCProtocol>()
+    let protocolsByAddress = ThreadSafeCache<UInt64, ObjCProtocol>()
 
     /// Thread-safe string cache.
     private let stringCache = StringTableCache()
+
+    // MARK: - Small Method Resolution
 
     /// Base address for relative method selector resolution.
     ///
     /// For small methods in DSC, the selector `nameOffset` is relative to this base address
     /// (when using direct selectors, i.e., iOS 16+). This is obtained from the
     /// `relativeMethodSelectorBaseAddressOffset` field in the ObjC optimization header.
-    private let relativeMethodSelectorBase: UInt64?
+    let relativeMethodSelectorBase: UInt64?
 
     // MARK: - Initialization
 
@@ -80,10 +102,7 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
         self.image = image
         self.is64Bit = cache.is64Bit
         self.dataProvider = try DyldCacheDataProvider(cache: cache, image: image)
-        // Use first mapping's address as shared region base for pointer decoding
         self.sharedRegionBase = cache.mappings.first?.address ?? 0
-
-        // Try to load the relative method selector base from ObjC optimization header
         self.relativeMethodSelectorBase = Self.loadRelativeMethodSelectorBase(from: cache)
     }
 
@@ -93,26 +112,18 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
     /// is an offset relative to the header's own address. When added to the header's VM address,
     /// it gives the virtual address of the selector strings base.
     ///
-    /// For small methods with direct selectors (iOS 16+), the method's `nameOffset` is
-    /// relative to this base address.
-    ///
     /// On modern caches (macOS 14+/iOS 17+), the ObjC optimization header is embedded in
     /// libobjc.A.dylib's `__TEXT.__objc_opt_ro` section rather than at the cache header's
     /// `objcOptOffset`. This method handles both cases.
     private static func loadRelativeMethodSelectorBase(from cache: DyldSharedCache) -> UInt64? {
         do {
-            // Use the fallback method that works for both old and new cache formats
             let result = try cache.objcOptimizationHeaderWithFallback()
             let offset = result.header.relativeMethodSelectorBaseAddressOffset
             guard offset != 0 else { return nil }
 
-            // The relativeMethodSelectorBaseAddressOffset is relative to the ObjC opt header.
-            // According to Apple's dyld source:
-            //   relativeMethodListsBaseAddress() { return (uintptr_t)this + offset; }
-            // where "this" is the ObjC opt header address.
             let selectorBaseAddress = UInt64(Int64(result.vmAddress) + offset)
 
-            // Validate that this address is within a valid mapping
+            // Validate address is within a valid mapping
             if cache.translator.fileOffsetInt(for: selectorBaseAddress) != nil {
                 return selectorBaseAddress
             }
@@ -131,52 +142,27 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
     /// - Returns: The processed metadata.
     /// - Throws: If processing fails.
     public func process() async throws -> ObjCMetadata {
-        // Clear caches
-        classesByAddress.clear()
-        protocolsByAddress.clear()
-        stringCache.clear()
+        // Clear caches for fresh processing
+        clearCaches()
 
         // Load image info
         let imageInfo = try? loadImageInfo()
 
-        // Load protocols first (may be referenced by classes)
-        // Use resilient loading to continue past errors
-        let protocols: [ObjCProtocol]
-        do {
-            protocols = try await loadProtocols()
-        }
-        catch {
-            // Log but continue
-            protocols = []
-        }
+        // Load metadata with resilient error handling
+        let protocols = (try? await loadProtocols()) ?? []
+        let classes = (try? await loadClasses()) ?? []
+        let categories = (try? await loadCategories()) ?? []
 
-        // Load classes
-        let classes: [ObjCClass]
-        do {
-            classes = try await loadClasses()
-        }
-        catch {
-            // Class loading failed - continue with empty classes
-            classes = []
-        }
-
-        // Load categories
-        let categories: [ObjCCategory]
-        do {
-            categories = try await loadCategories()
-        }
-        catch {
-            categories = []
-        }
-
-        // Build registries
-        let structureRegistry = await buildStructureRegistry(
+        // Build registries using pure functions
+        let structureRegistry = await DyldCacheRegistryBuilder.buildStructureRegistry(
             classes: classes,
             protocols: protocols,
             categories: categories
         )
 
-        let methodSignatureRegistry = await buildMethodSignatureRegistry(protocols: protocols)
+        let methodSignatureRegistry = await DyldCacheRegistryBuilder.buildMethodSignatureRegistry(
+            protocols: protocols
+        )
 
         return ObjCMetadata(
             classes: classes,
@@ -188,98 +174,11 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
         )
     }
 
-    // MARK: - Section Finding
-
-    /// Find a section in the image.
-    private func findSection(segment: String, section: String) -> Section? {
-        dataProvider.findSection(segment: segment, section: section)
-    }
-
-    /// Read section data.
-    private func readSectionData(_ section: Section) -> Data? {
-        try? dataProvider.readSectionData(section)
-    }
-
-    // MARK: - Address Translation
-
-    /// Translate a virtual address to file offset.
-    private func fileOffset(for address: UInt64) -> Int? {
-        dataProvider.fileOffset(for: address)
-    }
-
-    /// Read a string at a virtual address.
-    private func readString(at address: UInt64) -> String? {
-        guard address != 0 else { return nil }
-
-        return stringCache.getOrRead(at: address) {
-            self.dataProvider.readCString(at: address)
-        }
-    }
-
-    /// Read a pointer at a virtual address.
-    private func readPointer(at address: UInt64) throws -> UInt64 {
-        let data = try dataProvider.readData(atAddress: address, count: ptrSize)
-        var cursor = try DataCursor(data: data)
-
-        guard is64Bit else {
-            return UInt64(try cursor.readLittleInt32())
-        }
-        return try cursor.readLittleInt64()
-    }
-
-    /// Decode a chained fixup pointer.
-    ///
-    /// In modern DSC (arm64e), pointers use different encodings:
-    ///
-    /// 1. Direct pointers: Already in the shared region address range (0x18...)
-    /// 2. Non-authenticated rebases (classlist): 51-bit offset from shared region base
-    /// 3. Authenticated rebases (objc_data): 32-bit offset with PAC in high bits
-    ///
-    /// We try multiple decoding strategies and validate which produces a valid address.
-    private func decodePointer(_ rawPointer: UInt64) -> UInt64 {
-        guard rawPointer != 0 else { return 0 }
-
-        // Strategy 1: Check if already a valid direct pointer
-        if rawPointer >= sharedRegionBase && rawPointer < (sharedRegionBase + 0x10_0000_0000) {
-            return rawPointer
-        }
-
-        // Check for encoded format (high bits set)
-        let highBits = rawPointer >> 32
-        if highBits != 0 {
-            // Strategy 2: Try 32-bit offset (authenticated pointers in __objc_data)
-            // These have PAC/diversity in high bits, offset in lower 32 bits
-            let offset32 = rawPointer & 0xFFFF_FFFF
-            let decoded32 = sharedRegionBase + offset32
-            if decoded32 >= sharedRegionBase && decoded32 < (sharedRegionBase + 0x10_0000_0000) {
-                // Validate by checking if address translates
-                if cache.translator.fileOffsetInt(for: decoded32) != nil {
-                    return decoded32
-                }
-            }
-
-            // Strategy 3: Try 51-bit offset (non-authenticated rebases in classlist)
-            let offset51 = rawPointer & 0x7_FFFF_FFFF_FFFF
-            let decoded51 = sharedRegionBase + offset51
-            if decoded51 >= sharedRegionBase && decoded51 < (sharedRegionBase + 0x10_0000_0000) {
-                if cache.translator.fileOffsetInt(for: decoded51) != nil {
-                    return decoded51
-                }
-            }
-
-            // Neither worked
-            return 0
-        }
-
-        // Small value - might be a direct offset, try adding base
-        let withBase = sharedRegionBase + rawPointer
-        if withBase >= sharedRegionBase && withBase < (sharedRegionBase + 0x10_0000_0000) {
-            if cache.translator.fileOffsetInt(for: withBase) != nil {
-                return withBase
-            }
-        }
-
-        return rawPointer
+    /// Clear all caches.
+    private func clearCaches() {
+        classesByAddress.clear()
+        protocolsByAddress.clear()
+        stringCache.clear()
     }
 
     // MARK: - Image Info
@@ -299,709 +198,116 @@ public final class DyldCacheObjCProcessor: @unchecked Sendable {
         return try ObjC2ImageInfo(cursor: &cursor, byteOrder: byteOrder)
     }
 
-    // MARK: - Protocol Loading
+    // MARK: - Section Access
 
-    private func loadProtocols() async throws -> [ObjCProtocol] {
-        guard
-            let section = findSection(segment: "__DATA", section: "__objc_protolist")
-                ?? findSection(segment: "__DATA_CONST", section: "__objc_protolist")
-        else {
-            return []
-        }
-
-        guard let sectionData = readSectionData(section) else {
-            return []
-        }
-
-        var cursor = try DataCursor(data: sectionData)
-        var protocols: [ObjCProtocol] = []
-
-        while cursor.offset < sectionData.count {
-            let rawAddress: UInt64
-            if is64Bit {
-                rawAddress = try cursor.readLittleInt64()
-            }
-            else {
-                rawAddress = UInt64(try cursor.readLittleInt32())
-            }
-
-            let address = decodePointer(rawAddress)
-            if address != 0, let proto = try await loadProtocol(at: address) {
-                protocols.append(proto)
-            }
-        }
-
-        return protocols
+    /// Find a section in the image.
+    func findSection(segment: String, section: String) -> Section? {
+        dataProvider.findSection(segment: segment, section: section)
     }
 
-    private func loadProtocol(at address: UInt64) async throws -> ObjCProtocol? {
+    /// Read section data.
+    func readSectionData(_ section: Section) -> Data? {
+        try? dataProvider.readSectionData(section)
+    }
+
+    // MARK: - Address Translation
+
+    /// Translate a virtual address to file offset.
+    func fileOffset(for address: UInt64) -> Int? {
+        dataProvider.fileOffset(for: address)
+    }
+
+    /// Read a string at a virtual address using the string cache.
+    func readString(at address: UInt64) -> String? {
         guard address != 0 else { return nil }
 
-        // Check cache
-        if let cached = protocolsByAddress.get(address) {
-            return cached
+        return stringCache.getOrRead(at: address) {
+            self.dataProvider.readCString(at: address)
         }
+    }
 
-        guard let offset = fileOffset(for: address) else { return nil }
-
-        let data = try cache.file.data(at: offset, count: is64Bit ? 80 : 40)
+    /// Read a pointer at a virtual address.
+    func readPointer(at address: UInt64) throws -> UInt64 {
+        let data = try dataProvider.readData(atAddress: address, count: ptrSize)
         var cursor = try DataCursor(data: data)
-        let rawProtocol = try ObjC2Protocol(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit, ptrSize: ptrSize)
 
-        let nameAddr = decodePointer(rawProtocol.name)
-        guard let name = readString(at: nameAddr) else { return nil }
-
-        let proto = ObjCProtocol(name: name, address: address)
-
-        // Cache immediately
-        protocolsByAddress.set(address, value: proto)
-
-        // Load adopted protocols
-        if rawProtocol.protocols != 0 {
-            let adoptedAddresses = try loadProtocolAddressList(at: rawProtocol.protocols)
-            for adoptedAddr in adoptedAddresses {
-                if let adopted = try await loadProtocol(at: adoptedAddr) {
-                    proto.addAdoptedProtocol(adopted)
-                }
-            }
+        guard is64Bit else {
+            return UInt64(try cursor.readLittleInt32())
         }
-
-        // Load methods
-        for method in try loadMethods(at: rawProtocol.instanceMethods) {
-            proto.addInstanceMethod(method)
-        }
-        for method in try loadMethods(at: rawProtocol.classMethods) {
-            proto.addClassMethod(method)
-        }
-        for method in try loadMethods(at: rawProtocol.optionalInstanceMethods) {
-            proto.addOptionalInstanceMethod(method)
-        }
-        for method in try loadMethods(at: rawProtocol.optionalClassMethods) {
-            proto.addOptionalClassMethod(method)
-        }
-
-        // Load properties
-        for property in try loadProperties(at: rawProtocol.instanceProperties) {
-            proto.addProperty(property)
-        }
-
-        return proto
+        return try cursor.readLittleInt64()
     }
 
-    private func loadProtocolAddressList(at address: UInt64) throws -> [UInt64] {
-        guard address != 0 else { return [] }
-        let decodedAddress = decodePointer(address)
-        guard let offset = fileOffset(for: decodedAddress) else { return [] }
+    // MARK: - Pointer Decoding
 
-        var addresses: [UInt64] = []
-
-        let countData = try cache.file.data(at: offset, count: ptrSize)
-        var countCursor = try DataCursor(data: countData)
-        let rawCount: UInt64
-        if is64Bit {
-            rawCount = try countCursor.readLittleInt64()
-        }
-        else {
-            rawCount = UInt64(try countCursor.readLittleInt32())
-        }
-        let count = decodePointer(rawCount)
-
-        guard count > 0 && count < 10000 else { return [] }
-
-        let listData = try cache.file.data(at: offset + ptrSize, count: Int(count) * ptrSize)
-        var listCursor = try DataCursor(data: listData)
-
-        for _ in 0..<count {
-            let rawAddr: UInt64
-            if is64Bit {
-                rawAddr = try listCursor.readLittleInt64()
-            }
-            else {
-                rawAddr = UInt64(try listCursor.readLittleInt32())
-            }
-            let addr = decodePointer(rawAddr)
-            if addr != 0 {
-                addresses.append(addr)
-            }
-        }
-
-        return addresses
-    }
-
-    // MARK: - Class Loading
-
-    private func loadClasses() async throws -> [ObjCClass] {
-        guard
-            let section = findSection(segment: "__DATA", section: "__objc_classlist")
-                ?? findSection(segment: "__DATA_CONST", section: "__objc_classlist")
-        else {
-            return []
-        }
-
-        guard let sectionData = readSectionData(section) else {
-            return []
-        }
-
-        var cursor = try DataCursor(data: sectionData)
-        var classes: [ObjCClass] = []
-
-        while cursor.offset < sectionData.count {
-            let rawAddress: UInt64
-            if is64Bit {
-                rawAddress = try cursor.readLittleInt64()
-            }
-            else {
-                rawAddress = UInt64(try cursor.readLittleInt32())
-            }
-
-            let address = decodePointer(rawAddress)
-            if address != 0 {
-                // Wrap individual class loading to continue on errors
-                do {
-                    if let cls = try await loadClass(at: address) {
-                        classes.append(cls)
-                    }
-                }
-                catch {
-                    // Skip this class but continue with others
-                }
-            }
-        }
-
-        return classes
-    }
-
-    private func loadClass(at address: UInt64) async throws -> ObjCClass? {
-        guard address != 0 else { return nil }
-
-        // Check cache
-        if let cached = classesByAddress.get(address) {
-            return cached
-        }
-
-        guard let offset = fileOffset(for: address) else {
-            return nil
-        }
-
-        let classSize = is64Bit ? 64 : 32  // 8 UInt64 (64-bit) or 8 UInt32 (32-bit)
-        let classData = try cache.file.data(at: offset, count: classSize)
-        var cursor = try DataCursor(data: classData)
-        let rawClass = try ObjC2Class(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-        // Load class_ro_t - the data pointer in DSC also needs decoding
-        let dataPointerCleared = rawClass.data & ~0x7  // Clear flags
-        let dataPointer = decodePointer(dataPointerCleared)
-
-        guard dataPointer != 0 else {
-            return nil
-        }
-
-        guard let dataOffset = fileOffset(for: dataPointer) else {
-            return nil
-        }
-
-        let roSize = is64Bit ? 80 : 48
-        let roData = try cache.file.data(at: dataOffset, count: roSize)
-        var roCursor = try DataCursor(data: roData)
-        let classROData = try ObjC2ClassROData(cursor: &roCursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-        let namePointer = decodePointer(classROData.name)
-        guard let name = readString(at: namePointer) else {
-            return nil
-        }
-
-        let cls = ObjCClass(name: name, address: address)
-        cls.isSwiftClass = rawClass.isSwiftClass
-        cls.classDataAddress = rawClass.dataPointer
-        cls.metaclassAddress = rawClass.isa
-
-        // Cache immediately
-        classesByAddress.set(address, value: cls)
-
-        // Superclass
-        let superclassAddr = decodePointer(rawClass.superclass)
-        if superclassAddr != 0 {
-            if let superclass = try await loadClass(at: superclassAddr) {
-                cls.superclassRef = ObjCClassReference(name: superclass.name, address: superclassAddr)
-            }
-            else {
-                // External class - try to read name
-                if let superName = readExternalClassName(at: superclassAddr) {
-                    cls.superclassRef = ObjCClassReference(name: superName, address: superclassAddr)
-                }
-            }
-        }
-
-        // Instance methods
-        for method in try loadMethods(at: classROData.baseMethods) {
-            cls.addInstanceMethod(method)
-        }
-
-        // Class methods from metaclass
-        let metaclassAddr = decodePointer(rawClass.isa)
-        if metaclassAddr != 0 {
-            for method in try loadClassMethods(at: metaclassAddr) {
-                cls.addClassMethod(method)
-            }
-        }
-
-        // Instance variables
-        for ivar in try loadInstanceVariables(at: classROData.ivars) {
-            cls.addInstanceVariable(ivar)
-        }
-
-        // Protocols
-        let protocolAddresses = try loadProtocolAddressList(at: classROData.baseProtocols)
-        for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress.get(protoAddr) {
-                cls.addAdoptedProtocol(proto)
-            }
-            else if let proto = try? await loadProtocol(at: protoAddr) {
-                cls.addAdoptedProtocol(proto)
-            }
-        }
-
-        // Properties
-        for property in try loadProperties(at: classROData.baseProperties) {
-            cls.addProperty(property)
-        }
-
-        return cls
-    }
-
-    /// Try to read an external class name from another framework in the cache.
-    private func readExternalClassName(at address: UInt64) -> String? {
-        guard let offset = fileOffset(for: address) else { return nil }
-
-        // Read the class structure
-        do {
-            let classSize = is64Bit ? 64 : 32  // 8 UInt64 (64-bit) or 8 UInt32 (32-bit)
-            let classData = try cache.file.data(at: offset, count: classSize)
-            var cursor = try DataCursor(data: classData)
-            let rawClass = try ObjC2Class(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-            let dataPointer = decodePointer(rawClass.dataPointer) & ~0x7
-            guard dataPointer != 0, let dataOffset = fileOffset(for: dataPointer) else { return nil }
-
-            let roSize = is64Bit ? 80 : 48
-            let roData = try cache.file.data(at: dataOffset, count: roSize)
-            var roCursor = try DataCursor(data: roData)
-            let classROData = try ObjC2ClassROData(cursor: &roCursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-            let namePointer = decodePointer(classROData.name)
-            return readString(at: namePointer)
-        }
-        catch {
-            return nil
-        }
-    }
-
-    private func loadClassMethods(at metaclassAddress: UInt64) throws -> [ObjCMethod] {
-        guard metaclassAddress != 0 else { return [] }
-        guard let offset = fileOffset(for: metaclassAddress) else { return [] }
-
-        let classSize = is64Bit ? 64 : 32  // 8 UInt64 (64-bit) or 8 UInt32 (32-bit)
-        let classData = try cache.file.data(at: offset, count: classSize)
-        var cursor = try DataCursor(data: classData)
-        let rawClass = try ObjC2Class(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-        let dataPointer = decodePointer(rawClass.dataPointer) & ~0x7
-        guard dataPointer != 0, let dataOffset = fileOffset(for: dataPointer) else { return [] }
-
-        let roSize = is64Bit ? 80 : 48
-        let roData = try cache.file.data(at: dataOffset, count: roSize)
-        var roCursor = try DataCursor(data: roData)
-        let classROData = try ObjC2ClassROData(cursor: &roCursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-        return try loadMethods(at: classROData.baseMethods)
-    }
-
-    // MARK: - Category Loading
-
-    private func loadCategories() async throws -> [ObjCCategory] {
-        guard
-            let section = findSection(segment: "__DATA", section: "__objc_catlist")
-                ?? findSection(segment: "__DATA_CONST", section: "__objc_catlist")
-        else {
-            return []
-        }
-
-        guard let sectionData = readSectionData(section) else {
-            return []
-        }
-
-        var cursor = try DataCursor(data: sectionData)
-        var categories: [ObjCCategory] = []
-
-        while cursor.offset < sectionData.count {
-            let rawAddress: UInt64
-            if is64Bit {
-                rawAddress = try cursor.readLittleInt64()
-            }
-            else {
-                rawAddress = UInt64(try cursor.readLittleInt32())
-            }
-
-            let address = decodePointer(rawAddress)
-            if address != 0, let category = try await loadCategory(at: address) {
-                categories.append(category)
-            }
-        }
-
-        return categories
-    }
-
-    private func loadCategory(at address: UInt64) async throws -> ObjCCategory? {
-        guard address != 0 else { return nil }
-        guard let offset = fileOffset(for: address) else { return nil }
-
-        let catSize = is64Bit ? 48 : 24
-        let catData = try cache.file.data(at: offset, count: catSize)
-        var cursor = try DataCursor(data: catData)
-        let rawCategory = try ObjC2Category(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-        let nameAddr = decodePointer(rawCategory.name)
-        guard let name = readString(at: nameAddr) else { return nil }
-
-        let category = ObjCCategory(name: name, address: address)
-
-        // Class reference
-        let clsAddr = decodePointer(rawCategory.cls)
-        if clsAddr != 0 {
-            if let cls = classesByAddress.get(clsAddr) {
-                category.classRef = ObjCClassReference(name: cls.name, address: clsAddr)
-            }
-            else if let cls = try? await loadClass(at: clsAddr) {
-                category.classRef = ObjCClassReference(name: cls.name, address: clsAddr)
-            }
-            else if let className = readExternalClassName(at: clsAddr) {
-                category.classRef = ObjCClassReference(name: className, address: clsAddr)
-            }
-        }
-
-        // Methods
-        for method in try loadMethods(at: rawCategory.instanceMethods) {
-            category.addInstanceMethod(method)
-        }
-        for method in try loadMethods(at: rawCategory.classMethods) {
-            category.addClassMethod(method)
-        }
-
-        // Protocols
-        let protocolAddresses = try loadProtocolAddressList(at: rawCategory.protocols)
-        for protoAddr in protocolAddresses {
-            if let proto = protocolsByAddress.get(protoAddr) {
-                category.addAdoptedProtocol(proto)
-            }
-            else if let proto = try? await loadProtocol(at: protoAddr) {
-                category.addAdoptedProtocol(proto)
-            }
-        }
-
-        // Properties
-        for property in try loadProperties(at: rawCategory.instanceProperties) {
-            category.addProperty(property)
-        }
-
-        return category
-    }
-
-    // MARK: - Method Loading
-
-    private func loadMethods(at address: UInt64) throws -> [ObjCMethod] {
-        guard address != 0 else { return [] }
-
-        let decodedAddress = decodePointer(address)
-        guard let offset = fileOffset(for: decodedAddress) else { return [] }
-
-        // Read list header
-        let headerData = try cache.file.data(at: offset, count: 8)
-        var headerCursor = try DataCursor(data: headerData)
-        let listHeader = try ObjC2ListHeader(cursor: &headerCursor, byteOrder: byteOrder)
-
-        // Check for small methods format
-        if listHeader.usesSmallMethods {
-            return try loadSmallMethods(
-                at: decodedAddress,
-                listHeader: listHeader,
-                usesDirectSelectors: listHeader.usesDirectSelectors
-            )
-        }
-
-        // Regular methods
-        var methods: [ObjCMethod] = []
-        let entrySize = is64Bit ? 24 : 12
-        let listData = try cache.file.data(at: offset + 8, count: Int(listHeader.count) * entrySize)
-        var cursor = try DataCursor(data: listData)
-
-        for _ in 0..<listHeader.count {
-            let rawMethod = try ObjC2Method(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-            let nameAddr = decodePointer(rawMethod.name)
-            guard let name = readString(at: nameAddr) else { continue }
-
-            let typesAddr = decodePointer(rawMethod.types)
-            let typeString = readString(at: typesAddr) ?? ""
-
-            let method = ObjCMethod(name: name, typeString: typeString, address: rawMethod.imp)
-            methods.append(method)
-        }
-
-        return methods.reversed()
-    }
-
-    /// Load methods using the small method format (relative offsets).
+    /// Decode a chained fixup pointer.
     ///
-    /// In modern DSC (iOS 14+), methods use a compact 12-byte format with relative offsets:
-    /// - `nameOffset`: Int32 relative offset to selector
-    /// - `typesOffset`: Int32 relative offset to type encoding
-    /// - `impOffset`: Int32 relative offset to implementation
+    /// In modern DSC (arm64e), pointers use different encodings depending on context.
+    /// This method tries multiple decoding strategies and validates the result.
     ///
-    /// For selector resolution:
-    /// - With direct selectors (iOS 16+): nameOffset is relative to `relativeMethodSelectorBase`
-    /// - Without direct selectors: nameOffset points to a selector reference that dereferences to the string
-    ///
-    /// - Parameters:
-    ///   - listAddress: Virtual address of the method list.
-    ///   - listHeader: The parsed list header.
-    ///   - usesDirectSelectors: Whether selectors use direct offsets (iOS 16+).
-    /// - Returns: Array of parsed methods.
-    /// - Throws: `MemoryMappedFile.Error` if reading fails.
-    private func loadSmallMethods(
-        at listAddress: UInt64,
-        listHeader: ObjC2ListHeader,
-        usesDirectSelectors: Bool
-    ) throws -> [ObjCMethod] {
-        guard let offset = fileOffset(for: listAddress) else { return [] }
+    /// - Parameter rawPointer: The raw pointer value from the binary.
+    /// - Returns: The decoded virtual address, or 0 if decoding fails.
+    func decodePointer(_ rawPointer: UInt64) -> UInt64 {
+        guard rawPointer != 0 else { return 0 }
 
-        // Read all small method entries (12 bytes each, after 8-byte header)
-        let entrySize = 12
-        let listData = try cache.file.data(at: offset + 8, count: Int(listHeader.count) * entrySize)
-        var cursor = try DataCursor(data: listData)
-
-        var methods: [ObjCMethod] = []
-
-        for i in 0..<listHeader.count {
-            let smallMethod = try ObjC2SmallMethod(cursor: &cursor, byteOrder: byteOrder)
-
-            // Calculate VM addresses for this method entry
-            // Each small method is 12 bytes, starting after the 8-byte header
-            let methodEntryVMAddr = listAddress + 8 + UInt64(i) * 12
-
-            // Resolve the selector name
-            let name: String?
-
-            if usesDirectSelectors {
-                // iOS 16+: nameOffset is relative to the selector strings base.
-                // The selector string is directly at: selectorBase + nameOffset.
-                // If we don't have the selector base, we cannot resolve direct selectors.
-                guard let selectorBase = relativeMethodSelectorBase else {
-                    // Cannot resolve direct selectors without the base address.
-                    // This can happen when:
-                    // 1. The cache doesn't have an embedded ObjC optimization header
-                    // 2. The header parsing failed
-                    // 3. The relativeMethodSelectorBaseAddressOffset is 0
-                    // In this case, skip small methods entirely to avoid garbled output.
-                    return []
-                }
-                let selectorAddr = UInt64(Int64(selectorBase) + Int64(smallMethod.nameOffset))
-                name = readString(at: selectorAddr)
-            }
-            else {
-                // Pre-iOS 16: nameOffset is relative to the name field's address
-                // and points to a selector reference (SEL *) that dereferences to the string
-                let nameFieldVMAddr = methodEntryVMAddr
-                let selectorRefVMAddr = UInt64(Int64(nameFieldVMAddr) + Int64(smallMethod.nameOffset))
-
-                // Try to read as pointer dereference first
-                if let selectorRefOffset = fileOffset(for: selectorRefVMAddr) {
-                    let refData = try cache.file.data(at: selectorRefOffset, count: is64Bit ? 8 : 4)
-                    var refCursor = try DataCursor(data: refData)
-                    let rawSelectorPtr: UInt64
-                    if is64Bit {
-                        rawSelectorPtr = try refCursor.readLittleInt64()
-                    }
-                    else {
-                        rawSelectorPtr = UInt64(try refCursor.readLittleInt32())
-                    }
-                    let selectorAddr = decodePointer(rawSelectorPtr)
-                    if selectorAddr != 0 {
-                        name = readString(at: selectorAddr)
-                    }
-                    else {
-                        // Fallback: try reading directly as a string
-                        name = readString(at: selectorRefVMAddr)
-                    }
-                }
-                else {
-                    name = nil
-                }
-            }
-
-            guard let selectorName = name, !selectorName.isEmpty else { continue }
-
-            // Resolve the type encoding
-            // typesOffset is relative to the types field's address (offset 4 in entry)
-            let typesFieldVMAddr = methodEntryVMAddr + 4
-            let typesVMAddr = UInt64(Int64(typesFieldVMAddr) + Int64(smallMethod.typesOffset))
-            let typeString = readString(at: typesVMAddr) ?? ""
-
-            // Resolve the implementation address
-            // impOffset is relative to the imp field's address (offset 8 in entry)
-            let impFieldVMAddr = methodEntryVMAddr + 8
-            let impVMAddr = UInt64(Int64(impFieldVMAddr) + Int64(smallMethod.impOffset))
-
-            let method = ObjCMethod(
-                name: selectorName,
-                typeString: typeString,
-                address: impVMAddr
-            )
-            methods.append(method)
+        // Strategy 1: Check if already a valid direct pointer
+        if isInSharedRegion(rawPointer) {
+            return rawPointer
         }
 
-        return methods.reversed()
+        // Check for encoded format (high bits set)
+        let highBits = rawPointer >> 32
+        if highBits != 0 {
+            // Strategy 2: Try 32-bit offset (authenticated pointers)
+            if let decoded = try32BitOffset(rawPointer) {
+                return decoded
+            }
+
+            // Strategy 3: Try 51-bit offset (non-authenticated rebases)
+            if let decoded = try51BitOffset(rawPointer) {
+                return decoded
+            }
+
+            return 0
+        }
+
+        // Small value - try adding base
+        return tryDirectOffset(rawPointer)
     }
 
-    // MARK: - Instance Variable Loading
-
-    private func loadInstanceVariables(at address: UInt64) throws -> [ObjCInstanceVariable] {
-        guard address != 0 else { return [] }
-
-        let decodedAddress = decodePointer(address)
-        guard let offset = fileOffset(for: decodedAddress) else { return [] }
-
-        // Read list header
-        let headerData = try cache.file.data(at: offset, count: 8)
-        var headerCursor = try DataCursor(data: headerData)
-        let listHeader = try ObjC2ListHeader(cursor: &headerCursor, byteOrder: byteOrder)
-
-        var ivars: [ObjCInstanceVariable] = []
-        let entrySize = is64Bit ? 32 : 20
-        let listData = try cache.file.data(at: offset + 8, count: Int(listHeader.count) * entrySize)
-        var cursor = try DataCursor(data: listData)
-
-        for _ in 0..<listHeader.count {
-            let rawIvar = try ObjC2Ivar(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-            let nameAddr = decodePointer(rawIvar.name)
-            guard nameAddr != 0 else { continue }
-            guard let name = readString(at: nameAddr) else { continue }
-
-            let typeAddr = decodePointer(rawIvar.type)
-            let typeEncoding = readString(at: typeAddr) ?? ""
-
-            // Read actual offset
-            var actualOffset: UInt64 = 0
-            let offsetAddr = decodePointer(rawIvar.offset)
-            if offsetAddr != 0, let offsetPtr = fileOffset(for: offsetAddr) {
-                let offsetData = try cache.file.data(at: offsetPtr, count: is64Bit ? 8 : 4)
-                var offsetCursor = try DataCursor(data: offsetData)
-                if is64Bit {
-                    let value = try offsetCursor.readLittleInt64()
-                    actualOffset = UInt64(UInt32(truncatingIfNeeded: value))
-                }
-                else {
-                    actualOffset = UInt64(try offsetCursor.readLittleInt32())
-                }
-            }
-
-            let ivar = ObjCInstanceVariable(
-                name: name,
-                typeEncoding: typeEncoding,
-                typeString: "",
-                offset: actualOffset,
-                size: UInt64(rawIvar.size),
-                alignment: rawIvar.alignment
-            )
-            ivars.append(ivar)
-        }
-
-        return ivars
+    /// Check if an address is within the shared region.
+    private func isInSharedRegion(_ address: UInt64) -> Bool {
+        DyldCachePointerDecoder.isInSharedRegion(address, base: sharedRegionBase)
     }
 
-    // MARK: - Property Loading
+    /// Try to decode as 32-bit offset.
+    private func try32BitOffset(_ rawPointer: UInt64) -> UInt64? {
+        let offset32 = rawPointer & 0xFFFF_FFFF
+        let decoded = sharedRegionBase + offset32
 
-    private func loadProperties(at address: UInt64) throws -> [ObjCProperty] {
-        guard address != 0 else { return [] }
+        guard isInSharedRegion(decoded) else { return nil }
+        guard cache.translator.fileOffsetInt(for: decoded) != nil else { return nil }
 
-        let decodedAddress = decodePointer(address)
-        guard let offset = fileOffset(for: decodedAddress) else { return [] }
-
-        // Read list header
-        let headerData = try cache.file.data(at: offset, count: 8)
-        var headerCursor = try DataCursor(data: headerData)
-        let listHeader = try ObjC2ListHeader(cursor: &headerCursor, byteOrder: byteOrder)
-
-        var properties: [ObjCProperty] = []
-        let entrySize = is64Bit ? 16 : 8
-        let listData = try cache.file.data(at: offset + 8, count: Int(listHeader.count) * entrySize)
-        var cursor = try DataCursor(data: listData)
-
-        for _ in 0..<listHeader.count {
-            let rawProperty = try ObjC2Property(cursor: &cursor, byteOrder: byteOrder, is64Bit: is64Bit)
-
-            let nameAddr = decodePointer(rawProperty.name)
-            guard let name = readString(at: nameAddr) else { continue }
-
-            let attrAddr = decodePointer(rawProperty.attributes)
-            let attributeString = readString(at: attrAddr) ?? ""
-
-            let property = ObjCProperty(name: name, attributeString: attributeString)
-            properties.append(property)
-        }
-
-        return properties
+        return decoded
     }
 
-    // MARK: - Registry Building
+    /// Try to decode as 51-bit offset.
+    private func try51BitOffset(_ rawPointer: UInt64) -> UInt64? {
+        let offset51 = rawPointer & 0x7_FFFF_FFFF_FFFF
+        let decoded = sharedRegionBase + offset51
 
-    private func buildStructureRegistry(
-        classes: [ObjCClass],
-        protocols: [ObjCProtocol],
-        categories: [ObjCCategory]
-    ) async -> StructureRegistry {
-        let registry = StructureRegistry()
+        guard isInSharedRegion(decoded) else { return nil }
+        guard cache.translator.fileOffsetInt(for: decoded) != nil else { return nil }
 
-        // Register from classes
-        for cls in classes {
-            for ivar in cls.instanceVariables {
-                if let parsed = ivar.parsedType {
-                    await registry.register(parsed)
-                }
-            }
-            for property in cls.properties {
-                if let parsed = property.parsedType {
-                    await registry.register(parsed)
-                }
-            }
-        }
-
-        // Register from protocols
-        for proto in protocols {
-            for property in proto.properties {
-                if let parsed = property.parsedType {
-                    await registry.register(parsed)
-                }
-            }
-        }
-
-        // Register from categories
-        for category in categories {
-            for property in category.properties {
-                if let parsed = property.parsedType {
-                    await registry.register(parsed)
-                }
-            }
-        }
-
-        return registry
+        return decoded
     }
 
-    private func buildMethodSignatureRegistry(protocols: [ObjCProtocol]) async -> MethodSignatureRegistry {
-        let registry = MethodSignatureRegistry()
-        for proto in protocols {
-            await registry.registerProtocol(proto)
-        }
-        return registry
+    /// Try to decode as direct offset from base.
+    private func tryDirectOffset(_ rawPointer: UInt64) -> UInt64 {
+        let withBase = sharedRegionBase + rawPointer
+
+        guard isInSharedRegion(withBase) else { return rawPointer }
+        guard cache.translator.fileOffsetInt(for: withBase) != nil else { return rawPointer }
+
+        return withBase
     }
 }

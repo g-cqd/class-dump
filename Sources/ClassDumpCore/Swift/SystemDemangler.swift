@@ -40,7 +40,10 @@ public actor SystemDemangler {
     /// Whether system demangling is available.
     private var isAvailable = false
 
-    /// Cache for demangled results.
+    /// Thread-safe cache for demangled results.
+    ///
+    /// Uses MutexCache with lock-scoped operations for atomicity across
+    /// both actor-isolated and nonisolated access.
     private let cache = MutexCache<String, String>()
 
     // MARK: - Initialization
@@ -54,8 +57,8 @@ public actor SystemDemangler {
     /// - Parameter symbol: The mangled Swift symbol.
     /// - Returns: The demangled name, or the original if demangling fails.
     public func demangle(_ symbol: String) async -> String {
-        // Check cache first
-        if let cached = cache.get(symbol) {
+        // Check cache first (lock-scoped for atomicity)
+        if let cached = cache.withLock({ $0[symbol] }) {
             return cached
         }
 
@@ -65,13 +68,13 @@ public actor SystemDemangler {
         // If system demangler not available, use built-in
         guard isAvailable, let path = swiftDemanglePath else {
             let result = SwiftDemangler.demangle(symbol)
-            cache.set(symbol, value: result)
+            cache.withLock { $0[symbol] = result }
             return result
         }
 
         // Call system demangler
         let result = await executeDemangler(path: path, symbols: [symbol]).first ?? symbol
-        cache.set(symbol, value: result)
+        cache.withLock { $0[symbol] = result }
         return result
     }
 
@@ -85,18 +88,20 @@ public actor SystemDemangler {
     public func demangleBatch(_ symbols: [String]) async -> [String] {
         guard !symbols.isEmpty else { return [] }
 
-        // Separate cached and uncached symbols
+        // Separate cached and uncached symbols (lock-scoped for atomicity)
         var results = [String](repeating: "", count: symbols.count)
         var uncachedIndices: [Int] = []
         var uncachedSymbols: [String] = []
 
-        for (index, symbol) in symbols.enumerated() {
-            if let cached = cache.get(symbol) {
-                results[index] = cached
-            }
-            else {
-                uncachedIndices.append(index)
-                uncachedSymbols.append(symbol)
+        cache.withLock { dict in
+            for (index, symbol) in symbols.enumerated() {
+                if let cached = dict[symbol] {
+                    results[index] = cached
+                }
+                else {
+                    uncachedIndices.append(index)
+                    uncachedSymbols.append(symbol)
+                }
             }
         }
 
@@ -118,11 +123,13 @@ public actor SystemDemangler {
             demangled = uncachedSymbols.map { SwiftDemangler.demangle($0) }
         }
 
-        // Merge results and cache
-        for (i, index) in uncachedIndices.enumerated() {
-            let result = i < demangled.count ? demangled[i] : uncachedSymbols[i]
-            results[index] = result
-            cache.set(uncachedSymbols[i], value: result)
+        // Merge results and cache (lock-scoped for atomicity)
+        cache.withLock { dict in
+            for (i, index) in uncachedIndices.enumerated() {
+                let result = i < demangled.count ? demangled[i] : uncachedSymbols[i]
+                results[index] = result
+                dict[uncachedSymbols[i]] = result
+            }
         }
 
         return results
@@ -271,14 +278,14 @@ extension SystemDemangler {
     /// - Parameter symbol: The mangled Swift symbol.
     /// - Returns: The demangled name from the built-in demangler.
     public nonisolated func demangleSync(_ symbol: String) -> String {
-        // Check cache (thread-safe)
-        if let cached = cache.get(symbol) {
-            return cached
+        // Use lock-scoped access for thread-safe caching
+        cache.withLock { dict in
+            if let cached = dict[symbol] {
+                return cached
+            }
+            let result = SwiftDemangler.demangle(symbol)
+            dict[symbol] = result
+            return result
         }
-
-        // Use built-in demangler
-        let result = SwiftDemangler.demangle(symbol)
-        cache.set(symbol, value: result)
-        return result
     }
 }
